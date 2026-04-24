@@ -1,0 +1,17 @@
+# Xcode
+build/
+DerivedData/
+*.xcodeproj
+*.xcworkspace
+xcuserdata/
+*.xcuserstate
+
+# Generated
+ListenToMe/Resources/whisper-cli
+
+# Vendor (cloned by setup.sh)
+vendor/
+
+# System
+.DS_Store
+*.swp

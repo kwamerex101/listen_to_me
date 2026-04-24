@@ -1,0 +1,61 @@
+name: ListenToMe
+options:
+  bundleIdPrefix: com.rexdanquah
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+
+targets:
+  ListenToMe:
+    type: application
+    platform: macOS
+    sources:
+      - path: ListenToMe
+        excludes:
+          - "Info.plist"
+          - "ListenToMe.entitlements"
+          - "Resources/**"
+    postBuildScripts:
+      - name: Copy whisper-cli + dylibs into bundle
+        script: |
+          set -e
+          SRC="${SRCROOT}/ListenToMe/Resources"
+          DEST="${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          mkdir -p "$DEST"
+          cp "$SRC/whisper-cli" "$DEST/whisper-cli"
+          chmod +x "$DEST/whisper-cli"
+          # Bundle every prebuilt dylib alongside the binary
+          shopt -s nullglob
+          for dylib in "$SRC"/*.dylib; do
+            cp "$dylib" "$DEST/$(basename "$dylib")"
+          done
+        inputFiles:
+          - $(SRCROOT)/ListenToMe/Resources/whisper-cli
+        outputFiles:
+          - $(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/whisper-cli
+    info:
+      path: ListenToMe/Info.plist
+      properties:
+        LSUIElement: true
+        CFBundleName: ListenToMe
+        CFBundleDisplayName: ListenToMe
+        CFBundleIdentifier: com.rexdanquah.listentome
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        NSHumanReadableCopyright: "© 2026 Rex Danquah"
+        NSMicrophoneUsageDescription: "ListenToMe needs microphone access to transcribe your speech."
+        NSAppleEventsUsageDescription: "ListenToMe uses Apple Events to paste transcripts into the active app."
+        NSHighResolutionCapable: true
+    entitlements:
+      path: ListenToMe/ListenToMe.entitlements
+      properties:
+        com.apple.security.device.audio-input: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.rexdanquah.listentome
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        SWIFT_VERSION: "5.9"
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "-"
+        ENABLE_HARDENED_RUNTIME: YES
+        COMBINE_HIDPI_IMAGES: YES
