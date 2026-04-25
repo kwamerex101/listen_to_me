@@ -29,6 +29,11 @@ final class HistoryStore: ObservableObject {
 
     private init() { load() }
 
+    func remove(id: UUID) {
+        records.removeAll { $0.id == id }
+        save()
+    }
+
     func add(rawText: String, finalText: String, durationMs: Int, dismissed: Bool = false) {
         let r = TranscriptRecord(
             id: UUID(),

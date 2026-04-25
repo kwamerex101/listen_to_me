@@ -159,6 +159,7 @@ struct HomeView: View {
 
 private struct RecordRow: View {
     let record: TranscriptRecord
+    @ObservedObject private var history = HistoryStore.shared
     @State private var hovered = false
     @State private var copied = false
 
@@ -169,37 +170,43 @@ private struct RecordRow: View {
     }()
 
     var body: some View {
-        HStack(alignment: .top, spacing: 20) {
+        HStack(alignment: .top, spacing: 16) {
             Text(Self.fmt.string(from: record.timestamp))
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .frame(width: 72, alignment: .leading)
+                .padding(.top, 1)
 
             if record.dismissed {
                 Text("This transcription was dismissed.")
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                     .italic()
+                    .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 Text(record.finalText)
                     .font(.system(size: 13))
                     .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            Spacer(minLength: 0)
 
-            if hovered && !record.dismissed {
-                Button(action: copy) {
-                    Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 22, height: 22)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .fill(Color.primary.opacity(0.07))
-                        )
+            // Trailing action icons — always visible, brighter on hover
+            if !record.dismissed {
+                HStack(spacing: 4) {
+                    actionButton(
+                        icon: copied ? "checkmark" : "doc.on.doc",
+                        help: "Copy transcript",
+                        action: copyText
+                    )
+                    actionButton(
+                        icon: "trash",
+                        help: "Delete transcript",
+                        action: { history.remove(id: record.id) }
+                    )
                 }
-                .buttonStyle(.plain)
-                .transition(.opacity.combined(with: .scale(scale: 0.85)))
+                .opacity(hovered ? 1 : 0.35)
+                .animation(.easeInOut(duration: 0.12), value: hovered)
             }
         }
         .padding(.horizontal, 20)
@@ -207,10 +214,24 @@ private struct RecordRow: View {
         .background(hovered ? Color.primary.opacity(0.03) : Color.clear)
         .onHover { hovered = $0 }
         .animation(.easeInOut(duration: 0.12), value: hovered)
-        .animation(.easeInOut(duration: 0.12), value: copied)
     }
 
-    private func copy() {
+    private func actionButton(icon: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 26, height: 26)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.primary.opacity(hovered ? 0.07 : 0))
+                )
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+
+    private func copyText() {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(record.finalText, forType: .string)
         copied = true
