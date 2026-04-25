@@ -11,21 +11,27 @@ struct SidebarView: View {
                     .font(.system(size: 14, weight: .semibold))
                 Text("ListenToMe")
                     .font(.system(size: 17, weight: .semibold))
+                Spacer()
                 Text("Basic")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.85))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
-                    .overlay(
-                        Capsule().strokeBorder(Color.primary.opacity(0.25), lineWidth: 1)
+                    .background(
+                        Capsule()
+                            .fill(Color.primary.opacity(0.35))
                     )
             }
             .padding(.horizontal, 20)
-            .padding(.top, 60)      // clear the transparent title bar
-            .padding(.bottom, 28)
+            .padding(.top, 60)
+            .padding(.bottom, 16)
+
+            Divider()
+                .padding(.bottom, 12)
 
             // Main nav
-            VStack(spacing: 4) {
-                ForEach([WfSection.home, .dictionary, .snippets, .style, .transforms, .scratchpad], id: \.self) { section in
+            VStack(spacing: 2) {
+                ForEach([WfSection.home, .dictionary, .snippets, .style, .transforms, .scratchpad, .pages], id: \.self) { section in
                     NavRow(section: section, selected: selection == section) {
                         selection = section
                     }
@@ -35,14 +41,18 @@ struct SidebarView: View {
 
             Spacer()
 
+            Divider()
+                .padding(.top, 8)
+
             // Bottom nav
-            VStack(spacing: 4) {
+            VStack(spacing: 2) {
                 NavRow(section: .settings, selected: selection == .settings) {
                     selection = .settings
                 }
             }
             .padding(.horizontal, 10)
-            .padding(.bottom, 20)
+            .padding(.bottom, 16)
+            .padding(.top, 8)
         }
     }
 }
@@ -58,14 +68,15 @@ private struct NavRow: View {
                 Image(systemName: section.sfSymbol)
                     .font(.system(size: 13))
                     .frame(width: 18)
+                    .foregroundStyle(selected ? .primary : .secondary)
                 Text(section.label)
-                    .font(.system(size: 14))
+                    .font(.system(size: 13, weight: selected ? .medium : .regular))
                 Spacer()
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 9)
+            .padding(.vertical, 8)
             .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(selected ? Color.primary.opacity(0.09) : Color.clear)
             )
             .foregroundStyle(.primary)

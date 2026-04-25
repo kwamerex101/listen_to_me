@@ -21,6 +21,8 @@ final class AppState: ObservableObject {
     @Published var micGranted: Bool = false
     @Published var showPermissionPrompt: Bool = false
 
+    /// Called by the "Dictate now" button — same behavior as pressing the hotkey.
+    var onStartTap: (() -> Void)?
     /// Called by pill's stop button — same behavior as releasing the hotkey.
     var onStopTap: (() -> Void)?
     /// Called by pill's X button — abort recording without transcribing.

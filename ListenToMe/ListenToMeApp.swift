@@ -56,7 +56,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         HotkeyMonitor.shared.onRelease = { [weak self] in self?.handleRelease() }
         HotkeyMonitor.shared.start()
 
-        // Wire pill-button callbacks
+        // Wire button callbacks
+        state.onStartTap = { [weak self] in self?.handlePress() }
         state.onStopTap = { [weak self] in self?.handleRelease() }
         state.onCancelTap = { [weak self] in self?.handleCancel() }
 
@@ -89,6 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             recordingStartedAt = Date()
             state.phase = .recording
             Haptics.start()
+            SoundCue.recordingStart()
             PillWindow.shared.setInteractive(true)
         } catch {
             state.phase = .error(message: "Record failed")
@@ -110,6 +112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func handleRelease() {
         guard case .recording = state.phase else { return }
         Haptics.stop()
+        SoundCue.recordingStop()
         PillWindow.shared.setInteractive(false)
         guard let wav = AudioRecorder.shared.stop() else {
             state.phase = .error(message: "No audio")
@@ -168,6 +171,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 state.lastTranscript = output
                 Paster.paste(output)
                 Haptics.success()
+                SoundCue.success()
 
                 // Record in history
                 let durMs = recordingStartedAt.map { Int(Date().timeIntervalSince($0) * 1000) } ?? 0

@@ -5,6 +5,7 @@ struct SettingsView: View {
     @State private var launchAtLogin: Bool = LaunchAtLogin.isEnabled
     @State private var accessibilityGranted: Bool = HotkeyMonitor.isAccessibilityGranted()
     @State private var hotkey: HotkeyBinding = Preferences.shared.hotkeyBinding
+    @State private var soundEnabled: Bool = Preferences.shared.soundEnabled
 
     var body: some View {
         ScrollView {
@@ -39,6 +40,16 @@ struct SettingsView: View {
                         .onChange(of: cleanupMode) { _, new in
                             Preferences.shared.cleanupMode = new
                         }
+                    }
+                }
+
+                section(title: "Audio") {
+                    row(label: "Sound cues") {
+                        Toggle("", isOn: $soundEnabled)
+                            .labelsHidden()
+                            .onChange(of: soundEnabled) { _, new in
+                                Preferences.shared.soundEnabled = new
+                            }
                     }
                 }
 
@@ -95,6 +106,7 @@ struct SettingsView: View {
             launchAtLogin = LaunchAtLogin.isEnabled
             cleanupMode = Preferences.shared.cleanupMode
             hotkey = Preferences.shared.hotkeyBinding
+            soundEnabled = Preferences.shared.soundEnabled
         }
     }
 

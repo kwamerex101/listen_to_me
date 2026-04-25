@@ -67,6 +67,7 @@ final class Preferences {
     private let defaults = UserDefaults.standard
     private let kCleanupMode = "wf.cleanupMode"
     private let kHotkeyBinding = "wf.hotkeyBinding"
+    private let kSoundEnabled = "wf.soundEnabled"
 
     private init() {
         if defaults.object(forKey: kCleanupMode) == nil {
@@ -74,6 +75,9 @@ final class Preferences {
         }
         if defaults.object(forKey: kHotkeyBinding) == nil {
             defaults.set(HotkeyBinding.fnCmd.rawValue, forKey: kHotkeyBinding)
+        }
+        if defaults.object(forKey: kSoundEnabled) == nil {
+            defaults.set(true, forKey: kSoundEnabled)
         }
     }
 
@@ -94,6 +98,11 @@ final class Preferences {
             defaults.set(newValue.rawValue, forKey: kHotkeyBinding)
             NotificationCenter.default.post(name: .hotkeyBindingChanged, object: nil)
         }
+    }
+
+    var soundEnabled: Bool {
+        get { defaults.bool(forKey: kSoundEnabled) }
+        set { defaults.set(newValue, forKey: kSoundEnabled) }
     }
 }
 
