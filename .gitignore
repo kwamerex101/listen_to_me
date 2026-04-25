@@ -1,6 +1,10 @@
 # Xcode
 build/
+build-release/
 DerivedData/
+
+# Distribution artifacts
+dist/
 *.xcodeproj
 *.xcworkspace
 xcuserdata/
