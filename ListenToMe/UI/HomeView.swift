@@ -2,6 +2,7 @@ import SwiftUI
 
 struct HomeView: View {
     @ObservedObject private var history = HistoryStore.shared
+    @ObservedObject private var state = AppState.shared
 
     var body: some View {
         ScrollView {
@@ -12,7 +13,6 @@ struct HomeView: View {
                             .font(.system(size: 22, weight: .semibold))
 
                         heroCard
-
                     }
                     .frame(maxWidth: .infinity, alignment: .topLeading)
 
@@ -21,7 +21,7 @@ struct HomeView: View {
 
                 todaySection
             }
-            .padding(.top, 60)          // clear the transparent title bar
+            .padding(.top, 60)
             .padding(.horizontal, 40)
             .padding(.bottom, 40)
         }
@@ -33,6 +33,19 @@ struct HomeView: View {
                 .fill(Color.black)
                 .frame(height: 200)
 
+            // Subtle radial glow at top-right
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(
+                    RadialGradient(
+                        colors: [Color.white.opacity(0.06), Color.clear],
+                        center: .topTrailing,
+                        startRadius: 0,
+                        endRadius: 260
+                    )
+                )
+                .frame(height: 200)
+                .allowsHitTesting(false)
+
             VStack(alignment: .leading, spacing: 14) {
                 Text("Speak once, ship clean text.")
                     .font(.system(size: 28, weight: .medium, design: .serif))
@@ -40,17 +53,33 @@ struct HomeView: View {
                     .foregroundStyle(.white)
                 Text("Hold Fn + ⌘ anywhere and dictate. AI cleans up automatically.")
                     .font(.system(size: 13))
-                    .foregroundStyle(.white.opacity(0.7))
-                Button(action: {}) {
-                    Text("Dictate now")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.black)
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 9)
-                        .background(Color.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .foregroundStyle(.white.opacity(0.6))
+
+                Button(action: { state.onStartTap?() }) {
+                    HStack(spacing: 6) {
+                        if case .recording = state.phase {
+                            Circle()
+                                .fill(Color.red)
+                                .frame(width: 7, height: 7)
+                            Text("Recording…")
+                        } else {
+                            Text("Dictate now")
+                        }
+                    }
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.black)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 9)
+                    .background(Color.white)
+                    .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
+                .disabled({
+                    if case .idle = state.phase { return false }
+                    if case .recording = state.phase { return false }
+                    return true
+                }())
+                .animation(.easeInOut(duration: 0.15), value: state.phase)
             }
             .padding(24)
         }
@@ -65,7 +94,7 @@ struct HomeView: View {
             statRow(value: "\(history.dayStreak)", unit: "day streak")
         }
         .padding(22)
-        .frame(width: 260, alignment: .leading)
+        .frame(width: 200, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color.primary.opacity(0.05))
@@ -83,27 +112,39 @@ struct HomeView: View {
     }
 
     private var todaySection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("TODAY")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .tracking(0.6)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Text("TODAY")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .tracking(0.6)
+                Rectangle()
+                    .fill(Color.primary.opacity(0.1))
+                    .frame(height: 1)
+            }
 
             if history.todayRecords.isEmpty {
-                Text("Nothing yet. Hold Fn + ⌘ anywhere to dictate.")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-                    .padding(.vertical, 16)
+                HStack(spacing: 8) {
+                    Image(systemName: "waveform")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.tertiary)
+                    Text("Nothing yet. Hold Fn + ⌘ anywhere to dictate.")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 16)
             } else {
                 VStack(spacing: 0) {
                     ForEach(history.todayRecords) { record in
                         RecordRow(record: record)
-                        Divider()
+                        if record.id != history.todayRecords.last?.id {
+                            Divider()
+                        }
                     }
                 }
                 .background(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
+                        .strokeBorder(Color.primary.opacity(0.1), lineWidth: 1)
                 )
             }
         }
@@ -118,6 +159,8 @@ struct HomeView: View {
 
 private struct RecordRow: View {
     let record: TranscriptRecord
+    @State private var hovered = false
+    @State private var copied = false
 
     private static let fmt: DateFormatter = {
         let f = DateFormatter()
@@ -143,8 +186,34 @@ private struct RecordRow: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
+
+            if hovered && !record.dismissed {
+                Button(action: copy) {
+                    Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 22, height: 22)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(Color.primary.opacity(0.07))
+                        )
+                }
+                .buttonStyle(.plain)
+                .transition(.opacity.combined(with: .scale(scale: 0.85)))
+            }
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
+        .background(hovered ? Color.primary.opacity(0.03) : Color.clear)
+        .onHover { hovered = $0 }
+        .animation(.easeInOut(duration: 0.12), value: hovered)
+        .animation(.easeInOut(duration: 0.12), value: copied)
+    }
+
+    private func copy() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(record.finalText, forType: .string)
+        copied = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { copied = false }
     }
 }

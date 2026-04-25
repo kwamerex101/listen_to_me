@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum WfSection: String, CaseIterable, Identifiable {
-    case home, dictionary, snippets, style, transforms, scratchpad, settings
+    case home, dictionary, snippets, style, transforms, scratchpad, pages, settings
     var id: String { rawValue }
 
     var label: String {
@@ -12,6 +12,7 @@ enum WfSection: String, CaseIterable, Identifiable {
         case .style: return "Style"
         case .transforms: return "Transforms"
         case .scratchpad: return "Scratchpad"
+        case .pages: return "Pages"
         case .settings: return "Settings"
         }
     }
@@ -24,6 +25,7 @@ enum WfSection: String, CaseIterable, Identifiable {
         case .style: return "textformat"
         case .transforms: return "wand.and.stars"
         case .scratchpad: return "note.text"
+        case .pages: return "doc.plaintext"
         case .settings: return "gearshape"
         }
     }
@@ -45,9 +47,10 @@ struct MainView: View {
                 case .home: HomeView()
                 case .dictionary: DictionaryView()
                 case .snippets: SnippetsView()
-                case .style: PlaceholderView(title: "Style", subtitle: "Per-app writing styles coming soon.")
-                case .transforms: PlaceholderView(title: "Transforms", subtitle: "Chained cleanups coming soon.")
-                case .scratchpad: PlaceholderView(title: "Scratchpad", subtitle: "Freeform dictation space coming soon.")
+                case .style: StyleView()
+                case .transforms: TransformsView()
+                case .scratchpad: ScratchpadView()
+                case .pages: PagesView()
                 case .settings: SettingsView()
                 }
             }
