@@ -1,7 +1,8 @@
 # ListenToMe
 
-Local-first voice → text Mac app. Hold a hotkey anywhere on macOS, speak,
-release, and the cleaned transcript pastes into whatever app you were using.
+**Free, local-first alternative to Wispr Flow for macOS.** Hold a hotkey
+anywhere, speak, release — the cleaned transcript pastes into whatever app
+you were using. No subscription, no cloud, no data leaving your machine.
 
 Audio is transcribed offline by [whisper.cpp](https://github.com/ggerganov/whisper.cpp).
 Optional cleanup is handled by Claude through a local
@@ -10,8 +11,8 @@ that reuses your existing Claude Code subscription — no separate Anthropic
 API key required. Cleanup only fires above a configurable word threshold,
 so short utterances stay raw and fast.
 
-Inspired by Wispr Flow; built native in SwiftUI + AppKit so the menu-bar
-pill, dynamic notch UI, and global hotkey behave like first-class macOS.
+Built native in SwiftUI + AppKit so the menu-bar pill, dynamic notch UI,
+and global hotkey behave like first-class macOS citizens.
 
 ## Features
 
@@ -55,13 +56,22 @@ cd ListenToMe
 
 `setup.sh` is idempotent — re-run it whenever you want to refresh whisper.cpp.
 
-To use the AI cleanup feature, also run `claude_local_api` somewhere — easiest
-is to clone it side-by-side at `/Users/<you>/Projects/claude_local_api` and
-let ListenToMe auto-spawn it on launch. See that repo's README.
+AI cleanup is **optional**. Without it the app works perfectly — transcription
+is fully offline via whisper.cpp; only the grammar/filler-word polish step is
+skipped. To enable cleanup, clone
+[claude_local_api](https://github.com/kwamerex101/claude_local_api) side-by-side
+at `~/Projects/claude_local_api` and ListenToMe will auto-spawn it on launch.
+If you skip this, set Cleanup Mode to "Never" in Settings to avoid a
+connection warning.
 
 ## First run
 
-1. Launch from `/Applications/ListenToMe.app` (or build output)
+1. Launch from `/Applications/ListenToMe.app` (or build output). Because the
+   app is ad-hoc signed (not notarized), macOS Gatekeeper will block it on
+   first launch — right-click the app and choose **Open**, or run:
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/ListenToMe.app
+   ```
 2. Permission card pops up — click **Open Settings**, toggle ListenToMe on
    under Privacy & Security → Accessibility, then return to the app
 3. macOS will prompt for Microphone access on first hotkey press
@@ -173,4 +183,4 @@ Other not-yet-shipped:
 
 ## License
 
-Personal project. Not currently licensed for redistribution.
+Released under the [MIT License](LICENSE).
