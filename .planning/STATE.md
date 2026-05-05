@@ -5,14 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-05-05)
 
 **Core value:** Speak once, ship clean text into any app — fast, offline-by-default, no recurring subscription beyond what you already pay for Claude.
-**Current focus:** Phase 1 — Selection-Aware Paste
+**Current focus:** Phase 1 — Multi-Display Awareness
 
 ## Current Position
 
-Phase: 1 of 4 (Selection-Aware Paste)
+Phase: 1 of 4 (Multi-Display Awareness)
 Plan: 0 of TBD in current phase
 Status: Ready to plan
-Last activity: 2026-05-05 — Phase 4 (Multi-Display Awareness) added to roadmap
+Last activity: 2026-05-05 — Multi-Display Awareness promoted to Phase 1 (small scope, immediate daily benefit on multi-monitor setups)
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -42,10 +42,10 @@ Progress: [░░░░░░░░░░] 0%
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
-- PASTE phases first: DICT-01 relies on selection state to detect retype-corrections; Phase 1 must land before Phase 2.
+- DISPLAY-* (Phase 1) is independent of Phases 2–4. Promoted to first because the user flagged daily multi-monitor friction; it's also the smallest scope so it ships fast and unblocks confidence in the planning loop.
+- PASTE before DICT: DICT-01 relies on selection state from PasteToken to detect retype-corrections; Phase 2 must land before Phase 3.
 - DictionaryStore and StyleStore scaffolding already exists (unused) — activate, don't recreate.
 - Electron AX limitation: AX-write for replace is out-of-scope (in REQUIREMENTS Out of Scope); PASTE-01/03 only read selection state, they do not write it.
-- DISPLAY-* (Phase 4) is independent of Phases 1–3. Sequenced last because it's smallest and self-contained; could be pulled forward if it becomes daily friction before earlier phases ship.
 
 ### Pending Todos
 

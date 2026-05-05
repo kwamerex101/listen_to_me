@@ -7,6 +7,17 @@
 
 Requirements for the **Daily-use smarts** milestone (post-v0.6.0). Each compounds value the more the app is used.
 
+### Display
+
+- [ ] **DISPLAY-01**: When the pill becomes visible (recording, transcribing, polishing, success, error, correcting), `PillWindow` repositions to the `NSScreen` containing the current cursor location (`NSEvent.mouseLocation`) before being shown. Falls back to `NSScreen.main` if the cursor isn't over any screen.
+- [ ] **DISPLAY-02**: `PillWindow` re-anchors to the new active screen's `visibleFrame` on `NSApplication.didChangeScreenParametersNotification` (monitor connect/disconnect/rearrange), so disconnecting the monitor the pill currently lives on doesn't strand it offscreen.
+
+### Paste
+
+- [ ] **PASTE-01**: `Paster.pasteTracked` reads `kAXFocusedUIElementAttribute` and `kAXSelectedTextRangeAttribute` from the AX tree before pasting, capturing the selection state on the `PasteToken` so downstream replace logic can verify selection didn't shift.
+- [ ] **PASTE-02**: When the focused element supports it (`AXTextField`, `AXTextArea`, `AXTextView` and Electron equivalents that expose AX text roles), Paster respects existing indentation — when inserting a `\n` from a `new line` voice-edit token, it copies the leading whitespace of the line above so the inserted line aligns with surrounding indent (relevant in code editors).
+- [ ] **PASTE-03**: When the AX tree reports a non-empty selection at paste time, Paster replaces the selection (the existing Cmd+V already does this) AND records the original selected text in the `PasteToken` so a later correction can restore the pre-paste state if validation fails.
+
 ### Dictionary
 
 - [ ] **DICT-01**: User's dictation transcripts auto-promote misheard words to the Whisper dictionary when the user retypes a different word at the same paste range within 5 seconds — captured silently as a candidate per occurrence.
@@ -18,17 +29,6 @@ Requirements for the **Daily-use smarts** milestone (post-v0.6.0). Each compound
 - [ ] **STYLE-01**: App tracks the last 50 dictations per target `bundleId` and stores a rolling sample at `~/Library/Application Support/ListenToMe/style-samples.json`, scoped per app and capped to a fixed size to avoid unbounded growth.
 - [ ] **STYLE-02**: After 20 dictations into the same target, the app infers a tone category (`formal` / `casual` / `code` / `markdown`) from observable signals — vocabulary register, code-fence usage, sentence length, indentation, presence of markdown syntax — and writes the inference to `StyleStore` keyed by `bundleId`.
 - [ ] **STYLE-03**: When a tone is inferred for the current frontmost app, the next polishing run uses an inferred system-prompt override INSTEAD of the default; the user is shown a one-time inline notification ("Suggesting `casual` tone for Slack — keep / dismiss") and can accept or revert from the Style tab.
-
-### Paste
-
-- [ ] **PASTE-01**: `Paster.pasteTracked` reads `kAXFocusedUIElementAttribute` and `kAXSelectedTextRangeAttribute` from the AX tree before pasting, capturing the selection state on the `PasteToken` so downstream replace logic can verify selection didn't shift.
-- [ ] **PASTE-02**: When the focused element supports it (`AXTextField`, `AXTextArea`, `AXTextView` and Electron equivalents that expose AX text roles), Paster respects existing indentation — when inserting a `\n` from a `new line` voice-edit token, it copies the leading whitespace of the line above so the inserted line aligns with surrounding indent (relevant in code editors).
-- [ ] **PASTE-03**: When the AX tree reports a non-empty selection at paste time, Paster replaces the selection (the existing Cmd+V already does this) AND records the original selected text in the `PasteToken` so a later correction can restore the pre-paste state if validation fails.
-
-### Display
-
-- [ ] **DISPLAY-01**: When the pill becomes visible (recording, transcribing, polishing, success, error, correcting), `PillWindow` repositions to the `NSScreen` containing the current cursor location (`NSEvent.mouseLocation`) before being shown. Falls back to `NSScreen.main` if the cursor isn't over any screen.
-- [ ] **DISPLAY-02**: `PillWindow` re-anchors to the new active screen's `visibleFrame` on `NSApplication.didChangeScreenParametersNotification` (monitor connect/disconnect/rearrange), so disconnecting the monitor the pill currently lives on doesn't strand it offscreen.
 
 ## v2 Requirements
 
@@ -68,17 +68,17 @@ Deferred — acknowledged but not in current roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PASTE-01 | Phase 1 | Pending |
-| PASTE-02 | Phase 1 | Pending |
-| PASTE-03 | Phase 1 | Pending |
-| DICT-01 | Phase 2 | Pending |
-| DICT-02 | Phase 2 | Pending |
-| DICT-03 | Phase 2 | Pending |
-| STYLE-01 | Phase 3 | Pending |
-| STYLE-02 | Phase 3 | Pending |
-| STYLE-03 | Phase 3 | Pending |
-| DISPLAY-01 | Phase 4 | Pending |
-| DISPLAY-02 | Phase 4 | Pending |
+| DISPLAY-01 | Phase 1 | Pending |
+| DISPLAY-02 | Phase 1 | Pending |
+| PASTE-01 | Phase 2 | Pending |
+| PASTE-02 | Phase 2 | Pending |
+| PASTE-03 | Phase 2 | Pending |
+| DICT-01 | Phase 3 | Pending |
+| DICT-02 | Phase 3 | Pending |
+| DICT-03 | Phase 3 | Pending |
+| STYLE-01 | Phase 4 | Pending |
+| STYLE-02 | Phase 4 | Pending |
+| STYLE-03 | Phase 4 | Pending |
 
 **Coverage:**
 - v1 requirements: 11 total
