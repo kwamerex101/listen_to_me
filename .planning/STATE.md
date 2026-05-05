@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: Ready to discuss
-stopped_at: Phase 3 plan approved by checker; ready to execute
-last_updated: "2026-05-05T22:33:58.428Z"
-last_activity: "2026-05-05 — Phase 1 (Multi-Display Awareness) shipped v0.7.0, PR #10 merged. User-verified all SC-1..5. Advancing to Phase 2."
+stopped_at: Phase 3 shipped (v0.9.0 + v0.9.1 patch); advancing to Phase 4 (Per-App Style Tuning)
+last_updated: "2026-05-05T23:30:00.000Z"
+last_activity: "2026-05-05 — Phase 3 (Auto-Learning Dictionary) shipped v0.9.0 PR #13. v0.9.1 PR #14 patched sliding-window singleWordSwap, per-app AX fallback, 7s+cancellation, diagnostic file log, SUPPORT.md Electron-blindness limitation. User-verified end-to-end on Apple Notes (matched→merged captured + promoted). Claude Desktop / Slack / Notion / VS Code documented as auto-learn out-of-scope until Phase 3.x keystroke-observation work. Advancing to Phase 4."
 progress:
   total_phases: 5
-  completed_phases: 2
-  total_plans: 3
-  completed_plans: 2
-  percent: 67
+  completed_phases: 3
+  total_plans: 4
+  completed_plans: 3
+  percent: 80
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-05)
 
 **Core value:** Speak once, ship clean text into any app — fast, offline-by-default, no recurring subscription beyond what you already pay for Claude.
-**Current focus:** Phase 2.1 patch (indent through cleanup→replace), then Phase 3 — Auto-Learning Dictionary
+**Current focus:** Phase 4 — Per-App Style Tuning (STYLE-01..03)
 
 ## Current Position
 
-Phase: 2 of 5 (Selection-Aware Paste)
+Phase: 4 of 5 (Per-App Style Tuning)
 Plan: 0 of TBD in current phase
 Status: Ready to discuss
-Last activity: 2026-05-05 — Phase 1 (Multi-Display Awareness) shipped v0.7.0, PR #10 merged. User-verified all SC-1..5. Advancing to Phase 2.
+Last activity: 2026-05-05 — Phase 3 (Auto-Learning Dictionary) shipped v0.9.0 PR #13 + v0.9.1 PR #14. End-to-end verified on Apple Notes; Electron AX-blindness for Claude Desktop / Slack / Notion / VS Code documented as known limitation. Advancing to Phase 4.
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [████████░░] 80%
 
 ## Performance Metrics
 
@@ -74,6 +74,8 @@ None yet.
 
 - Paster.replace() has 80ms usleep on main thread (CONCERNS flagged). Phase 1 work touches Paster — consider moving sleep off main thread as part of PASTE-02 or flag as follow-on.
 - Electron AX text roles partially exposed — PASTE-01 success criterion 4 requires graceful degradation, not full feature parity.
+- **Phase 3 known gap (deferred to Phase 3.x)**: Electron apps (Claude Desktop, Slack, Notion, VS Code, Discord) are AX-blind for text values (axerr=-25212). Auto-learn capture only works in native AX apps. Possible future fix: keystroke-observation via the existing CGEventTap to reconstruct user retypes.
+- **Phase 3 housekeeping**: retype-debug.log has no rotation; will grow unbounded over heavy daily use. Cap at ~1MB or N lines as a follow-on.
 
 ## Deferred Items
 
