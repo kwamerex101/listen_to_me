@@ -1,4 +1,23 @@
 import AppKit
+import ApplicationServices
+
+/// Captured AX state of the focused text element at paste time.
+/// All fields nil-tolerant so callers can degrade gracefully when the
+/// AX tree doesn't expose what we need (e.g. Electron apps without
+/// proper text roles).
+struct SelectionState {
+    /// CFRange of the selection within the focused element's value.
+    /// `length == 0` means insertion-point-only (no selection).
+    let selectionRange: CFRange
+    /// The selected substring. nil when `selectionRange.length == 0` or
+    /// when `kAXValueAttribute` was unavailable.
+    let selectedText: String?
+    /// Leading whitespace (`/^[ \t]*/`) of the line containing
+    /// `selectionRange.location`. nil when `kAXValueAttribute` was
+    /// unavailable. Empty string is a valid value (cursor at column 0
+    /// of an unindented line) — distinguishes from "couldn't read".
+    let leadingWhitespace: String?
+}
 
 /// Captures the state needed to safely replace a paste later, e.g. once
 /// background cleanup finishes. The token is opaque to callers — they hand
@@ -14,6 +33,10 @@ struct PasteToken {
     /// we're done replacing (or we hit max staleness).
     let priorPasteboardString: String?
     let timestamp: Date
+    /// AX-captured selection state at paste time. nil when AX read failed
+    /// for any reason (per D-01 graceful degrade). Recording-only for now;
+    /// not consumed by `Paster.replace` failure paths (D-07).
+    let selection: SelectionState?
 }
 
 /// Writes text to pasteboard, simulates Cmd+V into the active app, and
@@ -44,11 +67,26 @@ enum Paster {
     /// the caller must call `finalize(token:)` (or `replace(...)`, which
     /// finalizes implicitly) to put the user's prior clipboard back.
     static func pasteTracked(_ text: String) -> PasteToken {
+        // Capture AX selection state BEFORE any pasteboard mutation. The
+        // focused element and its selection must reflect where text will land.
+        // Silent degrade on failure (D-01) — `selectionState` is nil.
+        let selectionState = captureSelectionState()
+
         let pb = NSPasteboard.general
         let prior = pb.string(forType: .string)
 
+        // Indent injection (D-03). Only when AX gave us non-empty whitespace
+        // AND the to-be-pasted text contains \n (i.e., voice "new line" was
+        // expanded by VoiceEditor). VoiceEditor stays unchanged per D-05.
+        let textToWrite: String
+        if let ws = selectionState?.leadingWhitespace, !ws.isEmpty, text.contains("\n") {
+            textToWrite = injectIndent(text, leadingWhitespace: ws)
+        } else {
+            textToWrite = text
+        }
+
         pb.clearContents()
-        pb.setString(text, forType: .string)
+        pb.setString(textToWrite, forType: .string)
 
         // Capture changeCount AFTER our write so we can detect later
         // pasteboard mutations by anything that isn't us.
@@ -60,9 +98,10 @@ enum Paster {
         return PasteToken(
             bundleId: bundleId,
             changeCountAtPaste: changeCount,
-            pastedText: text,
+            pastedText: textToWrite,           // store the indented version
             priorPasteboardString: prior,
-            timestamp: Date()
+            timestamp: Date(),
+            selection: selectionState
         )
     }
 
@@ -85,7 +124,8 @@ enum Paster {
                 changeCountAtPaste: NSPasteboard.general.changeCount,
                 pastedText: newText,
                 priorPasteboardString: token.priorPasteboardString,
-                timestamp: Date()
+                timestamp: Date(),
+                selection: nil
             )
         }
 
@@ -137,7 +177,8 @@ enum Paster {
             changeCountAtPaste: newChangeCount,
             pastedText: newText,
             priorPasteboardString: token.priorPasteboardString,
-            timestamp: Date()
+            timestamp: Date(),
+            selection: nil
         )
     }
 
@@ -153,6 +194,96 @@ enum Paster {
             pb.setString(prior, forType: .string)
         }
     }
+
+    // MARK: - AX Selection Capture
+
+    /// Reads selection range, selected text, and leading whitespace of the
+    /// cursor's line from the system-wide focused element. Returns nil on
+    /// any AX failure (per D-01 graceful degrade — no NSLog, no UI).
+    ///
+    /// Always reads `kAXValueAttribute` (one extra AX call) so `selectedText`
+    /// is populated even when the to-be-pasted text has no `\n`. Per RESEARCH
+    /// open-question 3.
+    private static func captureSelectionState() -> SelectionState? {
+        let systemWide = AXUIElementCreateSystemWide()
+        var focusedRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            systemWide, kAXFocusedUIElementAttribute as CFString, &focusedRef
+        ) == .success, let focusedRef = focusedRef else { return nil }
+
+        let element = focusedRef as! AXUIElement
+        // 0.5 SECONDS — parameter is `timeoutInSeconds: Float`. NOT milliseconds.
+        // Set on `element`, NOT `systemWide` (would set process-wide global).
+        AXUIElementSetMessagingTimeout(element, 0.5)
+
+        var rangeRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            element, kAXSelectedTextRangeAttribute as CFString, &rangeRef
+        ) == .success, let rangeRef = rangeRef else { return nil }
+
+        var cfRange = CFRange(location: 0, length: 0)
+        guard AXValueGetValue(rangeRef as! AXValue, .cfRange, &cfRange) else { return nil }
+
+        // Read full text. Bounded by the 0.5s per-element timeout above.
+        var textRef: CFTypeRef?
+        let fullText: String?
+        if AXUIElementCopyAttributeValue(
+            element, kAXValueAttribute as CFString, &textRef
+        ) == .success, let s = textRef as? String {
+            fullText = s
+        } else {
+            fullText = nil
+        }
+
+        let selectedText: String?
+        if cfRange.length > 0, let text = fullText {
+            let start = text.index(text.startIndex, offsetBy: cfRange.location,
+                                   limitedBy: text.endIndex) ?? text.endIndex
+            let end   = text.index(start, offsetBy: cfRange.length,
+                                   limitedBy: text.endIndex) ?? text.endIndex
+            selectedText = String(text[start..<end])
+        } else {
+            selectedText = nil
+        }
+
+        let leadingWhitespace: String?
+        if let text = fullText {
+            leadingWhitespace = extractLeadingWhitespace(from: text,
+                                                         cursorLocation: cfRange.location)
+        } else {
+            leadingWhitespace = nil
+        }
+
+        return SelectionState(
+            selectionRange: cfRange,
+            selectedText: selectedText,
+            leadingWhitespace: leadingWhitespace
+        )
+    }
+
+    /// Returns the leading whitespace (`/^[ \t]*/`) of the line containing
+    /// `cursorLocation` within `text`. Per D-03 mirror semantics. Per
+    /// CONTEXT.md multi-line selection note: cursor = `selectionRange.location`,
+    /// the START of the selection.
+    private static func extractLeadingWhitespace(from text: String,
+                                                  cursorLocation: Int) -> String {
+        guard !text.isEmpty, cursorLocation >= 0 else { return "" }
+        let loc = min(cursorLocation, text.count)
+        let idx = text.index(text.startIndex, offsetBy: loc,
+                              limitedBy: text.endIndex) ?? text.endIndex
+        let lineRange = text.lineRange(for: idx..<idx)
+        let line = text[lineRange]
+        return String(line.prefix(while: { $0 == " " || $0 == "\t" }))
+    }
+
+    /// Inserts `ws` after every `\n` in `text`. No-op when `ws` is empty or
+    /// `text` contains no `\n`. Per D-03 (mirror only — no smart indent per D-04).
+    private static func injectIndent(_ text: String, leadingWhitespace ws: String) -> String {
+        guard !ws.isEmpty, text.contains("\n") else { return text }
+        return text.replacingOccurrences(of: "\n", with: "\n" + ws)
+    }
+
+    // MARK: - Keystroke Simulation
 
     private static func simulatePasteKeystroke() {
         postCmdKey(virtualKey: 9) // V
