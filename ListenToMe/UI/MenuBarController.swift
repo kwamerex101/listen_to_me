@@ -9,6 +9,7 @@ final class MenuBarController {
     private weak var hotkeyLabel: NSMenuItem?
     private weak var accessibilityItem: NSMenuItem?
     private weak var cleanupItem: NSMenuItem?
+    private weak var claudeStatusItem: NSMenuItem?
     private weak var launchAtLoginItem: NSMenuItem?
 
     private init() {}
@@ -73,6 +74,15 @@ final class MenuBarController {
         cleanupItem = cleanupParent
         refreshCleanupChecks()
 
+        let claude = NSMenuItem(
+            title: "Claude CLI: checking…",
+            action: #selector(openClaudeInstallDocs),
+            keyEquivalent: ""
+        )
+        claude.target = self
+        menu.addItem(claude)
+        claudeStatusItem = claude
+
         let launch = NSMenuItem(
             title: "Launch at Login",
             action: #selector(toggleLaunchAtLogin),
@@ -107,8 +117,10 @@ final class MenuBarController {
         case .recording: statusLabel?.title = "ListenToMe — Recording"
         case .transcribing: statusLabel?.title = "ListenToMe — Transcribing"
         case .cleaning: statusLabel?.title = "ListenToMe — Cleaning up"
+        case .polishing: statusLabel?.title = "ListenToMe — Polishing"
         case .success: statusLabel?.title = "ListenToMe — Done"
         case .error(let m): statusLabel?.title = "ListenToMe — Error: \(m)"
+        case .correcting: statusLabel?.title = "ListenToMe — Correcting"
         }
 
         let trusted = HotkeyMonitor.isAccessibilityGranted()
@@ -130,6 +142,27 @@ final class MenuBarController {
             accessibilityItem?.action = #selector(openAccessibilityPrefs)
             accessibilityItem?.target = self
             hotkeyLabel?.title = "Hotkey: Fn + ⌘ (needs permission)"
+        }
+
+        // Claude CLI status — only loud when cleanup is wanted but unavailable.
+        let cleanupOn = Preferences.shared.cleanupMode != .off
+        if AppState.shared.claudeAvailable {
+            claudeStatusItem?.title = "Claude CLI: Installed ✓"
+            claudeStatusItem?.action = nil
+        } else if cleanupOn {
+            claudeStatusItem?.title = "⚠ Claude CLI not found — cleanup disabled"
+            claudeStatusItem?.action = #selector(openClaudeInstallDocs)
+            claudeStatusItem?.target = self
+        } else {
+            claudeStatusItem?.title = "Claude CLI: not installed (cleanup off)"
+            claudeStatusItem?.action = #selector(openClaudeInstallDocs)
+            claudeStatusItem?.target = self
+        }
+    }
+
+    @objc private func openClaudeInstallDocs() {
+        if let url = URL(string: "https://claude.com/claude-code") {
+            NSWorkspace.shared.open(url)
         }
     }
 

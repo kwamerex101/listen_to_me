@@ -57,6 +57,10 @@ struct MainView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(.windowBackgroundColor))
         }
+        // Tell SwiftUI we expand to fill the host. Without this, sections
+        // with intrinsic content size (e.g. a sparse Dictionary) can leak a
+        // smaller ideal size up to the NSHostingController.
+        .frame(minWidth: 900, maxWidth: .infinity, minHeight: 600, maxHeight: .infinity)
     }
 }
 
