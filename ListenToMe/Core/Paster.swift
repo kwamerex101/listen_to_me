@@ -125,7 +125,7 @@ enum Paster {
                 pastedText: newText,
                 priorPasteboardString: token.priorPasteboardString,
                 timestamp: Date(),
-                selection: nil
+                selection: token.selection
             )
         }
 
@@ -157,8 +157,20 @@ enum Paster {
         // 80ms is roomy enough for Electron apps without feeling laggy.
         usleep(80_000)
 
+        // Re-apply indent injection on the replacement text using the
+        // leadingWhitespace captured at original paste time (Phase 2.1
+        // fix to D-05 boundary). Without this, Claude cleanup re-pastes
+        // un-indented text into a code editor and the SC-3 indent benefit
+        // is lost ~10s after the user dictates.
+        let textToWrite: String
+        if let ws = token.selection?.leadingWhitespace, !ws.isEmpty, newText.contains("\n") {
+            textToWrite = injectIndent(newText, leadingWhitespace: ws)
+        } else {
+            textToWrite = newText
+        }
+
         pb.clearContents()
-        pb.setString(newText, forType: .string)
+        pb.setString(textToWrite, forType: .string)
         let newChangeCount = pb.changeCount
         simulatePasteKeystroke()
 
@@ -175,10 +187,10 @@ enum Paster {
         return PasteToken(
             bundleId: token.bundleId,
             changeCountAtPaste: newChangeCount,
-            pastedText: newText,
+            pastedText: textToWrite,
             priorPasteboardString: token.priorPasteboardString,
             timestamp: Date(),
-            selection: nil
+            selection: token.selection
         )
     }
 

@@ -101,6 +101,12 @@ None — threat register T-02-01 through T-02-04 all addressed in implementation
 | Task 1 | `74ce92a` | feat(02-01): add SelectionState, AX capture helpers, and indent injection to Paster |
 | Task 2 | `368b392` | chore(02-01): bump version 0.7.0 → 0.8.0 (build 7 → 8) |
 
+## Verification
+
+**VERIFIED ✓** — User completed manual smoke tests on 2026-05-05 across TextEdit, VS Code (Cleanup Mode = Never), and Slack. All four ROADMAP Phase 2 success criteria (SC-1..SC-4) confirmed working — including the headline VS Code indent test (SC-3). PR #11 merged to main (commit `89120a9`).
+
+Phase 2.1 follow-up (indent through cleanup→replace) lands as a separate small PR before Phase 3 begins, closing the D-05 boundary so auto-learning-dictionary work doesn't compound the indent regression.
+
 ## Self-Check: PASSED
 
 - `ListenToMe/Core/Paster.swift`: modified with all required symbols
