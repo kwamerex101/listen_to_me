@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import ApplicationServices
 
 @main
 struct ListenToMeApp: App {
@@ -216,6 +217,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     state.lastTranscript = expanded
                     let token = Paster.pasteTracked(expanded)
                     lastPasteToken = token
+                    scheduleRetypeDetection(token: token)
                     Haptics.success()
                     SoundCue.success()
                     HistoryStore.shared.add(rawText: raw, finalText: expanded, durationMs: durMs)
@@ -257,6 +259,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         // correction popover sees the cleaned text.
                         self.lastPasteToken = newToken
                         self.state.lastTranscript = cleaned
+                        self.scheduleRetypeDetection(token: newToken)
                         HistoryStore.shared.add(rawText: raw, finalText: cleaned, durationMs: durMs)
                     } else {
                         // Validation failed (focus changed, clipboard touched,
@@ -296,6 +299,60 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func isStillPolishing(token: PasteToken) -> Bool {
         if case .polishing = state.phase { return true }
         return false
+    }
+
+    // MARK: - Retype detection
+
+    /// Snapshot the token at paste-success time, sleep 5s, then diff.
+    /// Does NOT need to be cancelled on new dictation — D-07 stale-token
+    /// check handles that case cheaply.
+    private func scheduleRetypeDetection(token: PasteToken) {
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(5))
+            self?.detectRetype(against: token)
+        }
+    }
+
+    private func detectRetype(against snapshot: PasteToken) {
+        // D-07 bail conditions
+        let currentBundle = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        guard currentBundle == snapshot.bundleId else { return }
+        guard Date().timeIntervalSince(snapshot.timestamp) <= 6.0 else { return }  // 5s + 1s grace
+
+        // D-08: always diff against LATEST pastedText (cleanup-replace may have updated it)
+        let referenceText = lastPasteToken?.pastedText ?? snapshot.pastedText
+        guard !referenceText.isEmpty else { return }
+
+        // AX read — same shape as Paster.captureSelectionState (Pitfall 1: timeout on element, NOT systemWide)
+        let systemWide = AXUIElementCreateSystemWide()
+        var focusedRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(systemWide,
+              kAXFocusedUIElementAttribute as CFString, &focusedRef) == .success,
+              let focusedRef else { return }
+
+        let element = focusedRef as! AXUIElement
+        AXUIElementSetMessagingTimeout(element, 0.5)   // seconds, NOT milliseconds (see Paster.swift)
+
+        var textRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element,
+              kAXValueAttribute as CFString, &textRef) == .success,
+              let currentText = textRef as? String else { return }
+
+        // D-07: byte-identical means no edit — nothing to learn
+        guard currentText != referenceText else { return }
+
+        // Window slice bounds tokenizer cost on long documents (RESEARCH Pattern 6)
+        let pasteLocation = snapshot.selection?.selectionRange.location ?? 0
+        let radius = max(referenceText.count * 5, 200)
+        let windowedCurrent = currentText.windowSlice(around: pasteLocation, radius: radius)
+
+        if let (original, replacement) = singleWordSwap(from: referenceText, to: windowedCurrent) {
+            CandidateStore.shared.recordOccurrence(
+                original: original,
+                replacement: replacement,
+                bundleId: currentBundle
+            )
+        }
     }
 
     // MARK: - Inline correction popover
