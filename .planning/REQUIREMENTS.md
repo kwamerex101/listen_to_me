@@ -30,6 +30,13 @@ Requirements for the **Daily-use smarts** milestone (post-v0.6.0). Each compound
 - [ ] **STYLE-02**: After 20 dictations into the same target, the app infers a tone category (`formal` / `casual` / `code` / `markdown`) from observable signals — vocabulary register, code-fence usage, sentence length, indentation, presence of markdown syntax — and writes the inference to `StyleStore` keyed by `bundleId`.
 - [ ] **STYLE-03**: When a tone is inferred for the current frontmost app, the next polishing run uses an inferred system-prompt override INSTEAD of the default; the user is shown a one-time inline notification ("Suggesting `casual` tone for Slack — keep / dismiss") and can accept or revert from the Style tab.
 
+### Polish
+
+- [ ] **POLISH-01**: Every interactive element across the main window (sidebar entries, History rows, Dictionary entries, Snippet entries, Settings rows, all buttons) has a subtle hover state — ~150ms ease, visible color/scale/background shift on `onHover` and revert on exit. No flickering when crossing element boundaries.
+- [ ] **POLISH-02**: All SwiftUI `Button` instances use `PressableStyle` (or equivalent) for consistent click feedback. Audit every existing `Button` and any tap-gesture surface in the app and pill for missing press response.
+- [ ] **POLISH-03**: Tab/section transitions in `MainView` (Home → Dictionary → Snippets → Style → Transforms → Scratchpad → Pages → Settings) animate with a smooth cross-fade or slide instead of the current hard snap. Same easing language across all transitions.
+- [ ] **POLISH-04**: Pill micro-animations refined based on a Wispr Flow comparison research pass executed at phase planning time. Concrete deliverables defined in PLAN.md after research; minimum bar is: (a) waveform feels alive at conversational volume, (b) phase morphs feel intentional rather than mechanical, (c) at least one new "moment of delight" comparable to the success-halo we shipped in v0.4.
+
 ## v2 Requirements
 
 Deferred — acknowledged but not in current roadmap.
@@ -79,10 +86,14 @@ Deferred — acknowledged but not in current roadmap.
 | STYLE-01 | Phase 4 | Pending |
 | STYLE-02 | Phase 4 | Pending |
 | STYLE-03 | Phase 4 | Pending |
+| POLISH-01 | Phase 5 | Pending |
+| POLISH-02 | Phase 5 | Pending |
+| POLISH-03 | Phase 5 | Pending |
+| POLISH-04 | Phase 5 | Pending |
 
 **Coverage:**
-- v1 requirements: 11 total
-- Mapped to phases: 11 ✓
+- v1 requirements: 15 total
+- Mapped to phases: 15 ✓
 - Unmapped: 0
 
 ---

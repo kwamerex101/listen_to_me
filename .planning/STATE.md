@@ -64,6 +64,7 @@ Recent decisions affecting current work:
 - PASTE before DICT: DICT-01 relies on selection state from PasteToken to detect retype-corrections; Phase 2 must land before Phase 3.
 - DictionaryStore and StyleStore scaffolding already exists (unused) — activate, don't recreate.
 - Electron AX limitation: AX-write for replace is out-of-scope (in REQUIREMENTS Out of Scope); PASTE-01/03 only read selection state, they do not write it.
+- Phase 5 (UX/UI Polish) sequenced last so polish lands on stable capability. Phase research MUST include a Wispr Flow comparison pass before plan-phase — the user explicitly wants research-informed deliverables, not generic polish.
 
 ### Pending Todos
 

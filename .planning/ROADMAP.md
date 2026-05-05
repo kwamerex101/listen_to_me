@@ -2,11 +2,11 @@
 
 ## Overview
 
-Four phases. Phase 1 (Multi-Display Awareness) lands first — small, self-contained, immediate daily user benefit on multi-monitor setups. Phases 2-4 then build in dependency order: harden Paster's selection awareness (PASTE), teach the app to auto-learn corrections into the Whisper dictionary (DICT — needs Paster's selection state to detect retypes), and add per-app style inference that tunes the Claude cleanup prompt (STYLE). Each phase delivers a complete, independently verifiable capability.
+Five phases. Phase 1 (Multi-Display Awareness) lands first — small, self-contained, immediate daily user benefit on multi-monitor setups. Phases 2-4 then build in dependency order: harden Paster's selection awareness (PASTE), teach the app to auto-learn corrections into the Whisper dictionary (DICT — needs Paster's selection state to detect retypes), and add per-app style inference that tunes the Claude cleanup prompt (STYLE). Phase 5 (Polish) closes the milestone with a UX/UI sweep informed by Wispr Flow research — hover states, click feedback, transitions, and pill micro-animation refinements. Each phase delivers a complete, independently verifiable capability.
 
 ## Milestones
 
-- 🚧 **Daily-use smarts** - Phases 1-4 (in progress)
+- 🚧 **Daily-use smarts** - Phases 1-5 (in progress)
 
 ## Phases
 
@@ -14,6 +14,7 @@ Four phases. Phase 1 (Multi-Display Awareness) lands first — small, self-conta
 - [ ] **Phase 2: Selection-Aware Paste** - Paster reads AX selection state before every paste, records it in PasteToken, and respects indent when inserting new lines
 - [ ] **Phase 3: Auto-Learning Dictionary** - Whisper misreads are silently captured when the user retypes, auto-promoted after 3 occurrences, and manageable via the Dictionary tab
 - [ ] **Phase 4: Per-App Style Tuning** - App infers tone per bundleId from rolling sample, overrides the Claude cleanup prompt, and offers one-time inline accept/dismiss
+- [ ] **Phase 5: UX/UI Polish + Micro-Animations** - Hover states across the main window, consistent click feedback on all buttons, smooth tab transitions, and pill animation refinements informed by a Wispr Flow comparison research pass
 
 ## Phase Details
 
@@ -66,6 +67,19 @@ Four phases. Phase 1 (Multi-Display Awareness) lands first — small, self-conta
 **Plans**: TBD
 **UI hint**: yes
 
+### Phase 5: UX/UI Polish + Micro-Animations
+**Goal**: Bring the app's interaction quality up to (and past) Wispr Flow's reputation for polish. Every clickable element has hover and press feedback; tab/section transitions feel intentional; the pill gets a refinement pass informed by a competitive research read on what users specifically love about Wispr Flow's animations.
+**Depends on**: Phase 4 (sequenced last so the underlying capability is stable before the polish layer; could in principle land any time, but polish lands best on a finished foundation)
+**Requirements**: POLISH-01, POLISH-02, POLISH-03, POLISH-04
+**Success Criteria** (what must be TRUE):
+  1. Phase research pass produces a `RESEARCH.md` summarizing Wispr Flow's UX/UI animation language — what's distinctive (dynamic-island morphs, recording-state visuals, success/error feedback, typography), what users praise in App Store reviews / Reddit / X, and what's been criticized. Concrete take/improve/skip recommendations for each area.
+  2. Hover any sidebar entry, history row, dictionary entry, snippet entry, or button in the main window — visible response within 150ms; no flickering when crossing element boundaries.
+  3. Click any button in the app or pill — visible press response (scale-down or opacity shift). Audit confirms no `Button` is missing this treatment.
+  4. Switch between tabs in `MainView` — content cross-fades or slides smoothly instead of snapping. Same easing across all tab transitions.
+  5. Pill micro-animations refined per RESEARCH.md recommendations. At minimum, one new "moment of delight" comparable to v0.4's success-halo lands in this phase. Side-by-side comparison against the pre-Phase-5 build feels meaningfully more alive.
+**Plans**: TBD
+**UI hint**: yes
+
 ## Progress
 
 | Phase | Plans Complete | Status | Completed |
@@ -74,3 +88,4 @@ Four phases. Phase 1 (Multi-Display Awareness) lands first — small, self-conta
 | 2. Selection-Aware Paste | 0/TBD | Not started | - |
 | 3. Auto-Learning Dictionary | 0/TBD | Not started | - |
 | 4. Per-App Style Tuning | 0/TBD | Not started | - |
+| 5. UX/UI Polish + Micro-Animations | 0/TBD | Not started | - |

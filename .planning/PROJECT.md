@@ -39,6 +39,7 @@ A free, local-first macOS menu-bar dictation app for Rex. Press-and-hold a globa
 - [ ] **Selection-aware paste** — read `kAXSelectedTextAttribute` and `kAXSelectedTextRangeAttribute` from the focused element via the Accessibility API. Decide append vs replace based on selection state; in code editors, respect indent of the line above when inserting a new line.
 - [ ] **Auto-learning dictionary** — when Whisper produces a word that isn't in the dictionary AND the user retypes a different word in the same paste range within 5s, capture as a candidate. Auto-promote at 3 occurrences. Surface candidates in the Dictionary tab for one-click accept/reject.
 - [ ] **Per-app style auto-tuning** — populate `StyleStore` from observed dictation patterns per `bundleId`. Track last 50 dictations per app, infer style (formal / casual / code / markdown) from token patterns, suggest a system-prompt override the user can accept inline.
+- [ ] **UX/UI polish + micro-animations** — audit hover states, click feedback, and tab transitions across the entire app + pill. Phase planning includes a research pass on Wispr Flow's animation language and UX choices to identify what to take, what to improve on, and what to push further. Targets the perceived quality of every interaction the user does daily.
 
 ### Out of Scope
 
