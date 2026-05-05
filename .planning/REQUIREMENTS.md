@@ -61,25 +61,23 @@ Deferred — acknowledged but not in current roadmap.
 
 ## Traceability
 
-(Empty — populated by roadmapper.)
-
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DICT-01 | Phase TBD | Pending |
-| DICT-02 | Phase TBD | Pending |
-| DICT-03 | Phase TBD | Pending |
-| STYLE-01 | Phase TBD | Pending |
-| STYLE-02 | Phase TBD | Pending |
-| STYLE-03 | Phase TBD | Pending |
-| PASTE-01 | Phase TBD | Pending |
-| PASTE-02 | Phase TBD | Pending |
-| PASTE-03 | Phase TBD | Pending |
+| PASTE-01 | Phase 1 | Pending |
+| PASTE-02 | Phase 1 | Pending |
+| PASTE-03 | Phase 1 | Pending |
+| DICT-01 | Phase 2 | Pending |
+| DICT-02 | Phase 2 | Pending |
+| DICT-03 | Phase 2 | Pending |
+| STYLE-01 | Phase 3 | Pending |
+| STYLE-02 | Phase 3 | Pending |
+| STYLE-03 | Phase 3 | Pending |
 
 **Coverage:**
 - v1 requirements: 9 total
-- Mapped to phases: 0 ⚠️ (pre-roadmap)
-- Unmapped: 9
+- Mapped to phases: 9 ✓
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-05*
-*Last updated: 2026-05-05 after initial definition (post-v0.6.0)*
+*Last updated: 2026-05-05 — phase assignments added by roadmapper*
