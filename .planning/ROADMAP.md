@@ -40,7 +40,9 @@ Five phases. Phase 1 (Multi-Display Awareness) lands first — small, self-conta
   2. User selects "foo bar" in TextEdit, dictates "qux"; Paster replaces the selection with "qux" and records the original "foo bar" in PasteToken for potential restore
   3. User says "new line" in VS Code (indented Swift function body); the inserted line starts with the same leading whitespace as the line above, not at column 0
   4. User dictates in Slack (Electron); selection state is captured without crashing even when AX text roles are not fully exposed
-**Plans**: TBD
+**Plans**: 1 plan
+Plans:
+- [ ] 02-01-PLAN.md — Selection-aware Paster.pasteTracked (AX capture + indent injection + version bump to 0.8.0)
 **UI hint**: no
 
 ### Phase 3: Auto-Learning Dictionary
