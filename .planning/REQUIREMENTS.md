@@ -25,6 +25,11 @@ Requirements for the **Daily-use smarts** milestone (post-v0.6.0). Each compound
 - [ ] **PASTE-02**: When the focused element supports it (`AXTextField`, `AXTextArea`, `AXTextView` and Electron equivalents that expose AX text roles), Paster respects existing indentation — when inserting a `\n` from a `new line` voice-edit token, it copies the leading whitespace of the line above so the inserted line aligns with surrounding indent (relevant in code editors).
 - [ ] **PASTE-03**: When the AX tree reports a non-empty selection at paste time, Paster replaces the selection (the existing Cmd+V already does this) AND records the original selected text in the `PasteToken` so a later correction can restore the pre-paste state if validation fails.
 
+### Display
+
+- [ ] **DISPLAY-01**: When the pill becomes visible (recording, transcribing, polishing, success, error, correcting), `PillWindow` repositions to the `NSScreen` containing the current cursor location (`NSEvent.mouseLocation`) before being shown. Falls back to `NSScreen.main` if the cursor isn't over any screen.
+- [ ] **DISPLAY-02**: `PillWindow` re-anchors to the new active screen's `visibleFrame` on `NSApplication.didChangeScreenParametersNotification` (monitor connect/disconnect/rearrange), so disconnecting the monitor the pill currently lives on doesn't strand it offscreen.
+
 ## v2 Requirements
 
 Deferred — acknowledged but not in current roadmap.
@@ -72,10 +77,12 @@ Deferred — acknowledged but not in current roadmap.
 | STYLE-01 | Phase 3 | Pending |
 | STYLE-02 | Phase 3 | Pending |
 | STYLE-03 | Phase 3 | Pending |
+| DISPLAY-01 | Phase 4 | Pending |
+| DISPLAY-02 | Phase 4 | Pending |
 
 **Coverage:**
-- v1 requirements: 9 total
-- Mapped to phases: 9 ✓
+- v1 requirements: 11 total
+- Mapped to phases: 11 ✓
 - Unmapped: 0
 
 ---

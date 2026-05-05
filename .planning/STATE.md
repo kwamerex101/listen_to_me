@@ -9,10 +9,10 @@ See: .planning/PROJECT.md (updated 2026-05-05)
 
 ## Current Position
 
-Phase: 1 of 3 (Selection-Aware Paste)
+Phase: 1 of 4 (Selection-Aware Paste)
 Plan: 0 of TBD in current phase
 Status: Ready to plan
-Last activity: 2026-05-05 — Roadmap created for Daily-use smarts milestone
+Last activity: 2026-05-05 — Phase 4 (Multi-Display Awareness) added to roadmap
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -45,6 +45,7 @@ Recent decisions affecting current work:
 - PASTE phases first: DICT-01 relies on selection state to detect retype-corrections; Phase 1 must land before Phase 2.
 - DictionaryStore and StyleStore scaffolding already exists (unused) — activate, don't recreate.
 - Electron AX limitation: AX-write for replace is out-of-scope (in REQUIREMENTS Out of Scope); PASTE-01/03 only read selection state, they do not write it.
+- DISPLAY-* (Phase 4) is independent of Phases 1–3. Sequenced last because it's smallest and self-contained; could be pulled forward if it becomes daily friction before earlier phases ship.
 
 ### Pending Todos
 

@@ -2,17 +2,18 @@
 
 ## Overview
 
-Three phases build in dependency order: first harden Paster's selection awareness (PASTE), then teach the app to auto-learn corrections into the Whisper dictionary (DICT), then add per-app style inference that tunes the Claude cleanup prompt (STYLE). Each phase delivers a complete, independently verifiable capability.
+Four phases build in dependency order: first harden Paster's selection awareness (PASTE), then teach the app to auto-learn corrections into the Whisper dictionary (DICT), then add per-app style inference that tunes the Claude cleanup prompt (STYLE), and finally make the pill multi-display aware (DISPLAY) so it always appears on the screen the user is actually working on. Each phase delivers a complete, independently verifiable capability.
 
 ## Milestones
 
-- 🚧 **Daily-use smarts** - Phases 1-3 (in progress)
+- 🚧 **Daily-use smarts** - Phases 1-4 (in progress)
 
 ## Phases
 
 - [ ] **Phase 1: Selection-Aware Paste** - Paster reads AX selection state before every paste, records it in PasteToken, and respects indent when inserting new lines
 - [ ] **Phase 2: Auto-Learning Dictionary** - Whisper misreads are silently captured when the user retypes, auto-promoted after 3 occurrences, and manageable via the Dictionary tab
 - [ ] **Phase 3: Per-App Style Tuning** - App infers tone per bundleId from rolling sample, overrides the Claude cleanup prompt, and offers one-time inline accept/dismiss
+- [ ] **Phase 4: Multi-Display Awareness** - Pill repositions to the screen containing the cursor before becoming visible, and re-anchors on system display-config changes
 
 ## Phase Details
 
@@ -52,6 +53,19 @@ Three phases build in dependency order: first harden Paster's selection awarenes
 **Plans**: TBD
 **UI hint**: yes
 
+### Phase 4: Multi-Display Awareness
+**Goal**: The pill always appears on the screen the user is actually working on, in a sensible position relative to that screen's Dock/menu-bar/notch, and recovers gracefully when monitors are added or removed
+**Depends on**: Nothing (independent of Phases 1-3 — could land in any order, sequenced last because it's the smallest polish phase)
+**Requirements**: DISPLAY-01, DISPLAY-02
+**Success Criteria** (what must be TRUE):
+  1. Two monitors connected. Cursor is on monitor 2. User presses the dictation hotkey. The pill appears at the bottom-center of monitor 2's `visibleFrame`, NOT on monitor 1.
+  2. Pill is currently visible on monitor 1 (e.g. last dictation's success state). User moves cursor to monitor 2 and starts a fresh dictation. The pill for that new dictation appears on monitor 2.
+  3. With the pill idle on monitor 2, user disconnects monitor 2. Pill repositions to monitor 1 within ~1 second (driven by `NSApplication.didChangeScreenParametersNotification`). User can still see and use it.
+  4. On a monitor with the Dock at the bottom and one with the Dock on the left, the pill respects each screen's `visibleFrame` so it never overlaps the Dock or notch.
+  5. Falls back to `NSScreen.main` if `NSEvent.mouseLocation` doesn't intersect any connected screen (rare but possible during rapid display changes).
+**Plans**: TBD
+**UI hint**: no
+
 ## Progress
 
 | Phase | Plans Complete | Status | Completed |
@@ -59,3 +73,4 @@ Three phases build in dependency order: first harden Paster's selection awarenes
 | 1. Selection-Aware Paste | 0/TBD | Not started | - |
 | 2. Auto-Learning Dictionary | 0/TBD | Not started | - |
 | 3. Per-App Style Tuning | 0/TBD | Not started | - |
+| 4. Multi-Display Awareness | 0/TBD | Not started | - |

@@ -38,6 +38,7 @@ A free, local-first macOS menu-bar dictation app for Rex. Press-and-hold a globa
 - [ ] **Auto-learning dictionary** — when Whisper produces a word that isn't in the dictionary AND the user retypes a different word in the same paste range within 5s, capture as a candidate. Auto-promote at 3 occurrences. Surface candidates in the Dictionary tab for one-click accept/reject.
 - [ ] **Per-app style auto-tuning** — populate `StyleStore` from observed dictation patterns per `bundleId`. Track last 50 dictations per app, infer style (formal / casual / code / markdown) from token patterns, suggest a system-prompt override the user can accept inline.
 - [ ] **Selection-aware paste** — read `kAXSelectedTextAttribute` and `kAXSelectedTextRangeAttribute` from the focused element via the Accessibility API. Decide append vs replace based on selection state; in code editors, respect indent of the line above when inserting a new line.
+- [ ] **Multi-display awareness** — pill follows the screen the user is actually working on. Today the pill is locked to the screen it launched on; on multi-monitor setups, dictating from a different monitor still shows the pill on the original one. Pill must reposition to the active screen (cursor location) when becoming visible, and on system display-config changes.
 
 ### Out of Scope
 
