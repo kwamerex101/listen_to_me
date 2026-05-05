@@ -28,6 +28,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Original raw whisper transcript for the most recent dictation, kept
     /// so corrections can update the matching history record.
     private var lastRawTranscript: String?
+    /// Pending retype-detection probe. Cancelled when a new dictation starts
+    /// so we don't AX-poll an out-of-context window 7s later.
+    private var retypeTask: Task<Void, Never>?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -98,6 +101,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if case .recording = state.phase { return }
         cleanupTask?.cancel()
         cleanupTask = nil
+        retypeTask?.cancel()
+        retypeTask = nil
         if case .correcting = state.phase {
             CorrectionWindow.shared.dismiss()
         }
@@ -303,55 +308,135 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Retype detection
 
-    /// Snapshot the token at paste-success time, sleep 5s, then diff.
-    /// Does NOT need to be cancelled on new dictation — D-07 stale-token
-    /// check handles that case cheaply.
+    /// Snapshot the token at paste-success time, sleep 7s, then diff.
+    /// Cancelled on new dictation so we don't AX-poll a stale window.
     private func scheduleRetypeDetection(token: PasteToken) {
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(5))
+        retypeTask?.cancel()
+        retypeTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(7))
+            if Task.isCancelled { return }
             self?.detectRetype(against: token)
         }
     }
 
+    /// Append a line to ~/Library/Application Support/ListenToMe/retype-debug.log.
+    /// Used for diagnostics because macOS unified logging redacts Swift NSLog
+    /// string interpolations as `<private>` by default.
+    private func retypeDebug(_ line: String) {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let dir = base.appendingPathComponent("ListenToMe", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent("retype-debug.log")
+        let stamp = ISO8601DateFormatter().string(from: Date())
+        let entry = "\(stamp)  \(line)\n"
+        if let data = entry.data(using: .utf8) {
+            if let handle = try? FileHandle(forWritingTo: url) {
+                handle.seekToEndOfFile()
+                handle.write(data)
+                try? handle.close()
+            } else {
+                try? data.write(to: url)
+            }
+        }
+    }
+
     private func detectRetype(against snapshot: PasteToken) {
+        retypeDebug("probe fired bundle=\(snapshot.bundleId ?? "nil") pasted=\"\(snapshot.pastedText.prefix(60))\"")
+
         // D-07 bail conditions
         let currentBundle = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-        guard currentBundle == snapshot.bundleId else { return }
-        guard Date().timeIntervalSince(snapshot.timestamp) <= 6.0 else { return }  // 5s + 1s grace
+        guard currentBundle == snapshot.bundleId else {
+            retypeDebug("BAIL bundle-mismatch current=\(currentBundle ?? "nil") expected=\(snapshot.bundleId ?? "nil")")
+            return
+        }
+        let age = Date().timeIntervalSince(snapshot.timestamp)
+        guard age <= 8.0 else {  // 7s + 1s grace
+            retypeDebug("BAIL stale age=\(age)s")
+            return
+        }
 
         // D-08: always diff against LATEST pastedText (cleanup-replace may have updated it)
         let referenceText = lastPasteToken?.pastedText ?? snapshot.pastedText
-        guard !referenceText.isEmpty else { return }
+        guard !referenceText.isEmpty else {
+            retypeDebug("BAIL empty-reference")
+            return
+        }
 
-        // AX read — same shape as Paster.captureSelectionState (Pitfall 1: timeout on element, NOT systemWide)
+        // AX read — try systemWide first, fall back to per-app AX which
+        // sometimes works in Electron apps (Claude Desktop, Slack, VS Code,
+        // Notion) where systemWide returns nothing.
+        var focusedElement: AXUIElement?
         let systemWide = AXUIElementCreateSystemWide()
         var focusedRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(systemWide,
-              kAXFocusedUIElementAttribute as CFString, &focusedRef) == .success,
-              let focusedRef else { return }
+        let focusedErr = AXUIElementCopyAttributeValue(systemWide,
+              kAXFocusedUIElementAttribute as CFString, &focusedRef)
+        if focusedErr == .success, let focusedRef {
+            focusedElement = (focusedRef as! AXUIElement)
+        } else {
+            retypeDebug("systemWide focused failed axerr=\(focusedErr.rawValue) — trying per-app AX")
+            // Per-app fallback: build AXUIElement from the target's PID,
+            // ask it for its focused UI element directly.
+            if let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == snapshot.bundleId }) {
+                let appAX = AXUIElementCreateApplication(app.processIdentifier)
+                AXUIElementSetMessagingTimeout(appAX, 0.5)
+                var appFocusedRef: CFTypeRef?
+                let appFocusedErr = AXUIElementCopyAttributeValue(appAX,
+                      kAXFocusedUIElementAttribute as CFString, &appFocusedRef)
+                if appFocusedErr == .success, let appFocusedRef {
+                    focusedElement = (appFocusedRef as! AXUIElement)
+                    retypeDebug("per-app AX focused element acquired pid=\(app.processIdentifier)")
+                } else {
+                    retypeDebug("BAIL per-app AX focused failed axerr=\(appFocusedErr.rawValue) — Electron app likely AX-blind")
+                    return
+                }
+            } else {
+                retypeDebug("BAIL no running app for bundle=\(snapshot.bundleId ?? "nil")")
+                return
+            }
+        }
 
-        let element = focusedRef as! AXUIElement
+        guard let element = focusedElement else {
+            retypeDebug("BAIL no-focused-element (both systemWide and per-app failed)")
+            return
+        }
         AXUIElementSetMessagingTimeout(element, 0.5)   // seconds, NOT milliseconds (see Paster.swift)
 
         var textRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element,
-              kAXValueAttribute as CFString, &textRef) == .success,
-              let currentText = textRef as? String else { return }
+        let valueErr = AXUIElementCopyAttributeValue(element,
+              kAXValueAttribute as CFString, &textRef)
+        guard valueErr == .success else {
+            retypeDebug("BAIL ax-value-failed axerr=\(valueErr.rawValue) — likely Electron/web app without AXValue support")
+            return
+        }
+        guard let currentText = textRef as? String else {
+            retypeDebug("BAIL ax-value-not-string type=\(type(of: textRef as Any))")
+            return
+        }
 
         // D-07: byte-identical means no edit — nothing to learn
-        guard currentText != referenceText else { return }
+        guard currentText != referenceText else {
+            retypeDebug("BAIL byte-identical (no edit) len=\(currentText.count)")
+            return
+        }
 
         // Window slice bounds tokenizer cost on long documents (RESEARCH Pattern 6)
         let pasteLocation = snapshot.selection?.selectionRange.location ?? 0
         let radius = max(referenceText.count * 5, 200)
         let windowedCurrent = currentText.windowSlice(around: pasteLocation, radius: radius)
 
+        let refTokens = tokenize(referenceText)
+        let curTokens = tokenize(windowedCurrent)
+        retypeDebug("DIFF refTokens=\(refTokens.count) curTokens=\(curTokens.count) refField=\"\(referenceText.prefix(80))\" curField=\"\(windowedCurrent.prefix(80))\"")
+
         if let (original, replacement) = singleWordSwap(from: referenceText, to: windowedCurrent) {
+            retypeDebug("CAPTURED \"\(original)\" → \"\(replacement)\" bundle=\(currentBundle ?? "nil")")
             CandidateStore.shared.recordOccurrence(
                 original: original,
                 replacement: replacement,
                 bundleId: currentBundle
             )
+        } else {
+            retypeDebug("BAIL singleWordSwap-rejected (token-count mismatch, multi-diff, or short/digit-only)")
         }
     }
 

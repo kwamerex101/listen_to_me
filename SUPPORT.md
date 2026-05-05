@@ -19,7 +19,7 @@ Run through this checklist first — it covers the most common setup problems:
 - [ ] Accessibility permission granted: System Settings → Privacy & Security → Accessibility
 - [ ] If using AI cleanup: the [Claude Code CLI](https://claude.com/claude-code) is installed and `claude` resolves on PATH (or Cleanup Mode is set to "Never")
 
-## Known limitations in v0.9.0
+## Known limitations in v0.9.1
 
 - **No notarization** — the app is ad-hoc signed. macOS Gatekeeper will block
   it on first launch; right-click → Open to bypass, or run
@@ -41,3 +41,18 @@ Run through this checklist first — it covers the most common setup problems:
   frontmost app when you hit Apply.** If you switch to a different app
   (besides ListenToMe itself) after dictating, the bundle-ID gate stops the
   replacement — your raw paste stays put.
+- **Auto-learning dictionary doesn't capture from Electron / web apps.**
+  Claude Desktop, Slack, Notion, VS Code, Discord, and other Electron-based
+  apps don't expose their text fields through macOS Accessibility (you'll
+  see `axerr=-25212` in the diagnostic log). Retype-correction capture only
+  works in native AX apps: Notes, TextEdit, Mail, Pages, Messages, native
+  text fields in Safari, etc. For Electron apps, use the manual dictionary
+  to add custom words.
+- **Auto-learning requires staying in the target app for ~7 seconds after
+  retyping.** The retype probe fires on a delay; if you switch to another
+  app or window before then, the probe bails for safety (won't AX-read a
+  different app). The probe is cancelled cleanly if you start a new
+  dictation in the meantime.
+- **Diagnostic log for retype-detection** lives at
+  `~/Library/Application Support/ListenToMe/retype-debug.log` if you want
+  to inspect why a particular retype didn't capture.
