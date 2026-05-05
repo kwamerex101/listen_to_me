@@ -1,3 +1,19 @@
+---
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: milestone
+status: planning
+stopped_at: Phase 1 context gathered
+last_updated: "2026-05-05T21:00:44.137Z"
+last_activity: 2026-05-05 — Multi-Display Awareness promoted to Phase 1 (small scope, immediate daily benefit on multi-monitor setups)
+progress:
+  total_phases: 4
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
+---
+
 # Project State
 
 ## Project Reference
@@ -5,20 +21,21 @@
 See: .planning/PROJECT.md (updated 2026-05-05)
 
 **Core value:** Speak once, ship clean text into any app — fast, offline-by-default, no recurring subscription beyond what you already pay for Claude.
-**Current focus:** Phase 1 — Selection-Aware Paste
+**Current focus:** Phase 1 — Multi-Display Awareness
 
 ## Current Position
 
-Phase: 1 of 3 (Selection-Aware Paste)
+Phase: 1 of 4 (Multi-Display Awareness)
 Plan: 0 of TBD in current phase
 Status: Ready to plan
-Last activity: 2026-05-05 — Roadmap created for Daily-use smarts milestone
+Last activity: 2026-05-05 — Multi-Display Awareness promoted to Phase 1 (small scope, immediate daily benefit on multi-monitor setups)
 
 Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
 **Velocity:**
+
 - Total plans completed: 0
 - Average duration: —
 - Total execution time: 0 hours
@@ -30,6 +47,7 @@ Progress: [░░░░░░░░░░] 0%
 | - | - | - | - |
 
 **Recent Trend:**
+
 - Last 5 plans: —
 - Trend: —
 
@@ -42,9 +60,11 @@ Progress: [░░░░░░░░░░] 0%
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
-- PASTE phases first: DICT-01 relies on selection state to detect retype-corrections; Phase 1 must land before Phase 2.
+- DISPLAY-* (Phase 1) is independent of Phases 2–4. Promoted to first because the user flagged daily multi-monitor friction; it's also the smallest scope so it ships fast and unblocks confidence in the planning loop.
+- PASTE before DICT: DICT-01 relies on selection state from PasteToken to detect retype-corrections; Phase 2 must land before Phase 3.
 - DictionaryStore and StyleStore scaffolding already exists (unused) — activate, don't recreate.
 - Electron AX limitation: AX-write for replace is out-of-scope (in REQUIREMENTS Out of Scope); PASTE-01/03 only read selection state, they do not write it.
+- Phase 5 (UX/UI Polish) sequenced last so polish lands on stable capability. Phase research MUST include a Wispr Flow comparison pass before plan-phase — the user explicitly wants research-informed deliverables, not generic polish.
 
 ### Pending Todos
 
@@ -66,6 +86,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-05-05
-Stopped at: Roadmap written; STATE.md and REQUIREMENTS.md traceability initialized
-Resume file: None
+Last session: 2026-05-05T21:00:44.132Z
+Stopped at: Phase 1 context gathered
+Resume file: .planning/phases/01-multi-display-awareness/01-CONTEXT.md

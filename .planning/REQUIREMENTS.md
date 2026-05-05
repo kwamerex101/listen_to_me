@@ -7,6 +7,17 @@
 
 Requirements for the **Daily-use smarts** milestone (post-v0.6.0). Each compounds value the more the app is used.
 
+### Display
+
+- [ ] **DISPLAY-01**: When the pill becomes visible (recording, transcribing, polishing, success, error, correcting), `PillWindow` repositions to the `NSScreen` containing the current cursor location (`NSEvent.mouseLocation`) before being shown. Falls back to `NSScreen.main` if the cursor isn't over any screen.
+- [ ] **DISPLAY-02**: `PillWindow` re-anchors to the new active screen's `visibleFrame` on `NSApplication.didChangeScreenParametersNotification` (monitor connect/disconnect/rearrange), so disconnecting the monitor the pill currently lives on doesn't strand it offscreen.
+
+### Paste
+
+- [ ] **PASTE-01**: `Paster.pasteTracked` reads `kAXFocusedUIElementAttribute` and `kAXSelectedTextRangeAttribute` from the AX tree before pasting, capturing the selection state on the `PasteToken` so downstream replace logic can verify selection didn't shift.
+- [ ] **PASTE-02**: When the focused element supports it (`AXTextField`, `AXTextArea`, `AXTextView` and Electron equivalents that expose AX text roles), Paster respects existing indentation — when inserting a `\n` from a `new line` voice-edit token, it copies the leading whitespace of the line above so the inserted line aligns with surrounding indent (relevant in code editors).
+- [ ] **PASTE-03**: When the AX tree reports a non-empty selection at paste time, Paster replaces the selection (the existing Cmd+V already does this) AND records the original selected text in the `PasteToken` so a later correction can restore the pre-paste state if validation fails.
+
 ### Dictionary
 
 - [ ] **DICT-01**: User's dictation transcripts auto-promote misheard words to the Whisper dictionary when the user retypes a different word at the same paste range within 5 seconds — captured silently as a candidate per occurrence.
@@ -19,11 +30,12 @@ Requirements for the **Daily-use smarts** milestone (post-v0.6.0). Each compound
 - [ ] **STYLE-02**: After 20 dictations into the same target, the app infers a tone category (`formal` / `casual` / `code` / `markdown`) from observable signals — vocabulary register, code-fence usage, sentence length, indentation, presence of markdown syntax — and writes the inference to `StyleStore` keyed by `bundleId`.
 - [ ] **STYLE-03**: When a tone is inferred for the current frontmost app, the next polishing run uses an inferred system-prompt override INSTEAD of the default; the user is shown a one-time inline notification ("Suggesting `casual` tone for Slack — keep / dismiss") and can accept or revert from the Style tab.
 
-### Paste
+### Polish
 
-- [ ] **PASTE-01**: `Paster.pasteTracked` reads `kAXFocusedUIElementAttribute` and `kAXSelectedTextRangeAttribute` from the AX tree before pasting, capturing the selection state on the `PasteToken` so downstream replace logic can verify selection didn't shift.
-- [ ] **PASTE-02**: When the focused element supports it (`AXTextField`, `AXTextArea`, `AXTextView` and Electron equivalents that expose AX text roles), Paster respects existing indentation — when inserting a `\n` from a `new line` voice-edit token, it copies the leading whitespace of the line above so the inserted line aligns with surrounding indent (relevant in code editors).
-- [ ] **PASTE-03**: When the AX tree reports a non-empty selection at paste time, Paster replaces the selection (the existing Cmd+V already does this) AND records the original selected text in the `PasteToken` so a later correction can restore the pre-paste state if validation fails.
+- [ ] **POLISH-01**: Every interactive element across the main window (sidebar entries, History rows, Dictionary entries, Snippet entries, Settings rows, all buttons) has a subtle hover state — ~150ms ease, visible color/scale/background shift on `onHover` and revert on exit. No flickering when crossing element boundaries.
+- [ ] **POLISH-02**: All SwiftUI `Button` instances use `PressableStyle` (or equivalent) for consistent click feedback. Audit every existing `Button` and any tap-gesture surface in the app and pill for missing press response.
+- [ ] **POLISH-03**: Tab/section transitions in `MainView` (Home → Dictionary → Snippets → Style → Transforms → Scratchpad → Pages → Settings) animate with a smooth cross-fade or slide instead of the current hard snap. Same easing language across all transitions.
+- [ ] **POLISH-04**: Pill micro-animations refined based on a Wispr Flow comparison research pass executed at phase planning time. Concrete deliverables defined in PLAN.md after research; minimum bar is: (a) waveform feels alive at conversational volume, (b) phase morphs feel intentional rather than mechanical, (c) at least one new "moment of delight" comparable to the success-halo we shipped in v0.4.
 
 ## v2 Requirements
 
@@ -63,19 +75,25 @@ Deferred — acknowledged but not in current roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PASTE-01 | Phase 1 | Pending |
-| PASTE-02 | Phase 1 | Pending |
-| PASTE-03 | Phase 1 | Pending |
-| DICT-01 | Phase 2 | Pending |
-| DICT-02 | Phase 2 | Pending |
-| DICT-03 | Phase 2 | Pending |
-| STYLE-01 | Phase 3 | Pending |
-| STYLE-02 | Phase 3 | Pending |
-| STYLE-03 | Phase 3 | Pending |
+| DISPLAY-01 | Phase 1 | Pending |
+| DISPLAY-02 | Phase 1 | Pending |
+| PASTE-01 | Phase 2 | Pending |
+| PASTE-02 | Phase 2 | Pending |
+| PASTE-03 | Phase 2 | Pending |
+| DICT-01 | Phase 3 | Pending |
+| DICT-02 | Phase 3 | Pending |
+| DICT-03 | Phase 3 | Pending |
+| STYLE-01 | Phase 4 | Pending |
+| STYLE-02 | Phase 4 | Pending |
+| STYLE-03 | Phase 4 | Pending |
+| POLISH-01 | Phase 5 | Pending |
+| POLISH-02 | Phase 5 | Pending |
+| POLISH-03 | Phase 5 | Pending |
+| POLISH-04 | Phase 5 | Pending |
 
 **Coverage:**
-- v1 requirements: 9 total
-- Mapped to phases: 9 ✓
+- v1 requirements: 15 total
+- Mapped to phases: 15 ✓
 - Unmapped: 0
 
 ---
