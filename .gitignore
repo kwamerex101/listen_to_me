@@ -20,3 +20,4 @@ vendor/
 # System
 .DS_Store
 *.swp
+ListenToMe/Resources/AppIcon.icns
