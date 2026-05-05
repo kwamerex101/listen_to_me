@@ -70,7 +70,7 @@ final class CorrectionWindow: NSPanel {
     }
 
     private func positionAboveDock() {
-        guard let screen = NSScreen.main else { return }
+        let screen = activeScreen()       // file-private free function from PillWindow.swift
         let visible = screen.visibleFrame
         let s = Self.windowSize
         let x = visible.midX - s.width / 2

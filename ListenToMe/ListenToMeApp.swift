@@ -110,6 +110,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             _ = try AudioRecorder.shared.start()
             recordingStartedAt = Date()
+            PillWindow.shared.repositionToActiveScreen()
             state.phase = .recording
             Haptics.start()
             SoundCue.recordingStart()
