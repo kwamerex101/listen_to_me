@@ -14,26 +14,42 @@ func tokenize(_ s: String) -> [String] {
 
 // MARK: - Single-word swap detection
 
-/// Returns (original_token, replacement_token) if exactly one word position
-/// differs between `original` and `current`, both tokens pass the D-02
-/// length/digit filter, and token counts are equal (D-01, D-11).
-/// Case-sensitive (D-12). Returns nil on any violation.
+/// Returns (original_token, replacement_token) if `current` contains exactly
+/// one N-token window (N = origTokens.count) that differs from `original` by
+/// exactly one position. This sliding-window form makes detection robust to
+/// surrounding text in the target field (other paragraphs, prior content).
+/// If multiple equally-good windows exist the result is ambiguous and we
+/// reject (D-13 conservative-capture). Case-sensitive (D-12).
 func singleWordSwap(from original: String, to current: String) -> (String, String)? {
     let origTokens = tokenize(original)
-    let currTokens = tokenize(current)
-    guard origTokens.count == currTokens.count, !origTokens.isEmpty else { return nil }
+    let curTokens  = tokenize(current)
+    let n = origTokens.count
+    guard n > 0, curTokens.count >= n else { return nil }
 
-    var diffIdx: Int? = nil
-    for i in origTokens.indices {
-        if origTokens[i] != currTokens[i] {
-            guard diffIdx == nil else { return nil }  // more than one diff
-            diffIdx = i
+    var bestStart: Int? = nil
+    var bestDiffIdx: Int? = nil
+
+    for start in 0...(curTokens.count - n) {
+        var diffIdx: Int? = nil
+        var multiple = false
+        for i in 0..<n {
+            if origTokens[i] != curTokens[start + i] {
+                if diffIdx != nil { multiple = true; break }
+                diffIdx = i
+            }
         }
+        if multiple { continue }
+        guard let idx = diffIdx else { continue }  // exact match — try next window
+        // Found a candidate window with exactly one diff.
+        if bestStart != nil { return nil }  // ambiguous — reject
+        bestStart = start
+        bestDiffIdx = idx
     }
-    guard let i = diffIdx else { return nil }  // identical — nothing to learn
+
+    guard let start = bestStart, let i = bestDiffIdx else { return nil }
 
     let orig = origTokens[i]
-    let repl = currTokens[i]
+    let repl = curTokens[start + i]
 
     // D-02: reject <= 2 chars or digits-only
     let digitsOnly = CharacterSet.decimalDigits
