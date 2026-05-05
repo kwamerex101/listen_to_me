@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: Ready to discuss
-stopped_at: "Phase 1 verified and shipped (v0.7.0, PR #10). Advancing to Phase 2 discuss."
-last_updated: "2026-05-05T21:28:01.119Z"
+stopped_at: Phase 2 context gathered; ready to plan
+last_updated: "2026-05-05T21:31:42.318Z"
 last_activity: "2026-05-05 — Phase 1 (Multi-Display Awareness) shipped v0.7.0, PR #10 merged. User-verified all SC-1..5. Advancing to Phase 2."
 progress:
   total_phases: 5
@@ -86,6 +86,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-05-05T21:28:01.115Z
-Stopped at: Phase 1 verified and shipped (v0.7.0, PR #10). Advancing to Phase 2 discuss.
-Resume file: .planning/ROADMAP.md
+Last session: 2026-05-05T21:31:42.312Z
+Stopped at: Phase 2 context gathered; ready to plan
+Resume file: .planning/phases/02-selection-aware-paste/02-CONTEXT.md
