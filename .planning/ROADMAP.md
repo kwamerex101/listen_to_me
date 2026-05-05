@@ -10,7 +10,7 @@ Five phases. Phase 1 (Multi-Display Awareness) lands first — small, self-conta
 
 ## Phases
 
-- [ ] **Phase 1: Multi-Display Awareness** - Pill repositions to the screen containing the cursor before becoming visible, and re-anchors on system display-config changes
+- [x] **Phase 1: Multi-Display Awareness** ✓ - Pill repositions to the screen containing the cursor before becoming visible, and re-anchors on system display-config changes (shipped v0.7.0, PR #10)
 - [ ] **Phase 2: Selection-Aware Paste** - Paster reads AX selection state before every paste, records it in PasteToken, and respects indent when inserting new lines
 - [ ] **Phase 3: Auto-Learning Dictionary** - Whisper misreads are silently captured when the user retypes, auto-promoted after 3 occurrences, and manageable via the Dictionary tab
 - [ ] **Phase 4: Per-App Style Tuning** - App infers tone per bundleId from rolling sample, overrides the Claude cleanup prompt, and offers one-time inline accept/dismiss
@@ -84,7 +84,7 @@ Five phases. Phase 1 (Multi-Display Awareness) lands first — small, self-conta
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Multi-Display Awareness | 0/TBD | Not started | - |
+| 1. Multi-Display Awareness | 1/1 | ✓ Complete | 2026-05-05 |
 | 2. Selection-Aware Paste | 0/TBD | Not started | - |
 | 3. Auto-Learning Dictionary | 0/TBD | Not started | - |
 | 4. Per-App Style Tuning | 0/TBD | Not started | - |

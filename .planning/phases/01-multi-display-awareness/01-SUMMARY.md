@@ -102,7 +102,7 @@ None — plan executed exactly as written. The `positionAtTop` doc-comment refer
 
 ## Task 4 Status
 
-**AWAITING HUMAN VERIFICATION** — Task 4 is `type="checkpoint:human-verify"`. Manual multi-monitor testing required against ROADMAP Phase 1 SC-1 through SC-5.
+**VERIFIED ✓** — User completed manual multi-monitor smoke tests on 2026-05-05. All ROADMAP Phase 1 success criteria (SC-1 through SC-5) confirmed working. PR #10 merged to main (commit `6d33e40`).
 
 ## Known Stubs
 
