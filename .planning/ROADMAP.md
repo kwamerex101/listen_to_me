@@ -28,7 +28,9 @@ Five phases. Phase 1 (Multi-Display Awareness) lands first — small, self-conta
   3. With the pill idle on monitor 2, user disconnects monitor 2. Pill repositions to monitor 1 within ~1 second (driven by `NSApplication.didChangeScreenParametersNotification`). User can still see and use it.
   4. On a monitor with the Dock at the bottom and one with the Dock on the left, the pill respects each screen's `visibleFrame` so it never overlaps the Dock or notch.
   5. Falls back to `NSScreen.main` if `NSEvent.mouseLocation` doesn't intersect any connected screen (rare but possible during rapid display changes).
-**Plans**: TBD
+**Plans**: 1 plan
+Plans:
+- [x] 01-01-PLAN.md — Multi-Display Awareness (pill repositioning + screen change recovery)
 **UI hint**: no
 
 ### Phase 2: Selection-Aware Paste
@@ -54,7 +56,9 @@ Plans:
   2. After 3 such retype-corrections of the same Whisper output across separate dictation sessions, the word is auto-promoted; the next dictation that would have produced the wrong word now produces the corrected word because it is in the Whisper --prompt
   3. User opens the Dictionary tab and sees the candidate list with original Whisper output, replacement word, occurrence count, last-seen date, and source app; clicking "Accept" promotes immediately; clicking "Reject" removes the candidate
   4. User opens Dictionary tab, finds a promoted entry, clicks "Remove"; the word is dropped from the --prompt and will no longer override Whisper output on the next dictation
-**Plans**: TBD
+**Plans**: 1 plan
+Plans:
+- [ ] 03-01-PLAN.md — DictionaryStore migration, CandidateStore, retype poll, DictionaryView sections, version bump 0.9.0
 **UI hint**: yes
 
 ### Phase 4: Per-App Style Tuning
@@ -88,6 +92,6 @@ Plans:
 |-------|----------------|--------|-----------|
 | 1. Multi-Display Awareness | 1/1 | ✓ Complete | 2026-05-05 |
 | 2. Selection-Aware Paste | 1/1 | ✓ Complete | 2026-05-05 |
-| 3. Auto-Learning Dictionary | 0/TBD | Not started | - |
+| 3. Auto-Learning Dictionary | 0/1 | In progress | - |
 | 4. Per-App Style Tuning | 0/TBD | Not started | - |
 | 5. UX/UI Polish + Micro-Animations | 0/TBD | Not started | - |

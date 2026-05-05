@@ -19,6 +19,9 @@ and global hotkey behave like first-class macOS citizens.
   Fn + ⌥, ⌃ + ⌘, or ⌃ + ⌥ in Settings
 - **Floating dynamic-island-style pill** at the bottom of the screen — tiny
   when idle, expands to a recording bar with X (cancel) and ⏹ (stop) controls
+- **Multi-display aware** — the pill follows whichever screen your cursor is
+  on. Press the hotkey on monitor 2, the pill appears on monitor 2. Re-anchors
+  when you connect or disconnect a display
 - **Smart AI cleanup** — never / only > 20 words / only > 50 words / always.
   Filler words removed (um, uh, like, you know), punctuation + capitalization
   fixed, voice preserved (no rewriting). Falls back to raw on any cleanup
@@ -35,6 +38,11 @@ and global hotkey behave like first-class macOS citizens.
 - **Tap-to-fix correction** — after a paste, click the floating pill within 3
   seconds to open an inline edit field over the pill. Fix a word, hit Return,
   the corrected text replaces what was just pasted in your target app
+- **Selection-aware paste** — Paster reads the focused element's text
+  selection via the Accessibility API before pasting; selecting `foo bar`
+  and dictating `qux` replaces the selection natively. Saying `new line`
+  in indented code (Swift, Python, anything) inserts a line aligned with
+  the existing indent, and the indent persists through Claude cleanup
 - **Permission card** that animates out of the pill when Accessibility is missing,
   springs back in when granted
 - **Audible + haptic feedback** — Pop on press, Tink on release, Bottle on cancel,
