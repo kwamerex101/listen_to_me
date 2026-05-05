@@ -11,7 +11,7 @@ Five phases. Phase 1 (Multi-Display Awareness) lands first — small, self-conta
 ## Phases
 
 - [x] **Phase 1: Multi-Display Awareness** ✓ - Pill repositions to the screen containing the cursor before becoming visible, and re-anchors on system display-config changes (shipped v0.7.0, PR #10)
-- [ ] **Phase 2: Selection-Aware Paste** - Paster reads AX selection state before every paste, records it in PasteToken, and respects indent when inserting new lines
+- [x] **Phase 2: Selection-Aware Paste** ✓ - Paster reads AX selection state before every paste, records it in PasteToken, and respects indent when inserting new lines (shipped v0.8.0, PR #11; v0.8.1 patches indent through cleanup-replace)
 - [ ] **Phase 3: Auto-Learning Dictionary** - Whisper misreads are silently captured when the user retypes, auto-promoted after 3 occurrences, and manageable via the Dictionary tab
 - [ ] **Phase 4: Per-App Style Tuning** - App infers tone per bundleId from rolling sample, overrides the Claude cleanup prompt, and offers one-time inline accept/dismiss
 - [ ] **Phase 5: UX/UI Polish + Micro-Animations** - Hover states across the main window, consistent click feedback on all buttons, smooth tab transitions, and pill animation refinements informed by a Wispr Flow comparison research pass
@@ -87,7 +87,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Multi-Display Awareness | 1/1 | ✓ Complete | 2026-05-05 |
-| 2. Selection-Aware Paste | 0/TBD | Not started | - |
+| 2. Selection-Aware Paste | 1/1 | ✓ Complete | 2026-05-05 |
 | 3. Auto-Learning Dictionary | 0/TBD | Not started | - |
 | 4. Per-App Style Tuning | 0/TBD | Not started | - |
 | 5. UX/UI Polish + Micro-Animations | 0/TBD | Not started | - |

@@ -21,7 +21,7 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-05)
 
 **Core value:** Speak once, ship clean text into any app — fast, offline-by-default, no recurring subscription beyond what you already pay for Claude.
-**Current focus:** Phase 2 — Selection-Aware Paste
+**Current focus:** Phase 2.1 patch (indent through cleanup→replace), then Phase 3 — Auto-Learning Dictionary
 
 ## Current Position
 
