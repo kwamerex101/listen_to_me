@@ -5,11 +5,10 @@ anywhere, speak, release — the cleaned transcript pastes into whatever app
 you were using. No subscription, no cloud, no data leaving your machine.
 
 Audio is transcribed offline by [whisper.cpp](https://github.com/ggerganov/whisper.cpp).
-Optional cleanup is handled by Claude through a local
-[claude_local_api](https://github.com/kwamerex101/claude_local_api) wrapper
-that reuses your existing Claude Code subscription — no separate Anthropic
-API key required. Cleanup only fires above a configurable word threshold,
-so short utterances stay raw and fast.
+Optional cleanup is handled by Claude — the app shells out to your installed
+[Claude Code CLI](https://claude.ai/code) (`claude --print`), reusing your
+existing Claude Code subscription so no separate Anthropic API key is required. Cleanup only fires above a configurable word threshold, so short
+utterances stay raw and fast.
 
 Built native in SwiftUI + AppKit so the menu-bar pill, dynamic notch UI,
 and global hotkey behave like first-class macOS citizens.
@@ -30,6 +29,12 @@ and global hotkey behave like first-class macOS citizens.
   (`my email` → your address)
 - **Voice commands** — say `log to today: …`, `open Chrome`, or `shell: git status`
   to bypass paste and run an action
+- **Inline voice editing** — say `comma`, `period`, `question mark`, `exclamation
+  point`, `new paragraph`, or `new line` mid-dictation to insert punctuation /
+  structure. Say `scratch that` to drop the previous sentence — verbal undo
+- **Tap-to-fix correction** — after a paste, click the floating pill within 3
+  seconds to open an inline edit field over the pill. Fix a word, hit Return,
+  the corrected text replaces what was just pasted in your target app
 - **Permission card** that animates out of the pill when Accessibility is missing,
   springs back in when granted
 - **Audible + haptic feedback** — Pop on press, Tink on release, Bottle on cancel,
@@ -37,8 +42,7 @@ and global hotkey behave like first-class macOS citizens.
 - **Dashboard** — words per minute (with percentile gauge), AI fixes made
   (filler + dictionary hits), total words dictated (+month-over-month delta),
   per-app usage breakdown, 16-week activity heatmap with current-streak highlight
-- **Auto-start** — launch at login + auto-spawn `claude_local_api` so the
-  pipeline is up after every reboot
+- **Auto-start** — launch at login so the hotkey pipeline is up after every reboot
 - **Light + dark mode** — semantic colors throughout
 
 ## Setup
@@ -58,11 +62,10 @@ cd ListenToMe
 
 AI cleanup is **optional**. Without it the app works perfectly — transcription
 is fully offline via whisper.cpp; only the grammar/filler-word polish step is
-skipped. To enable cleanup, clone
-[claude_local_api](https://github.com/kwamerex101/claude_local_api) side-by-side
-at `~/Projects/claude_local_api` and ListenToMe will auto-spawn it on launch.
-If you skip this, set Cleanup Mode to "Never" in Settings to avoid a
-connection warning.
+skipped. To enable cleanup, install the [Claude Code CLI](https://claude.ai/code)
+so the `claude` binary is on your PATH (the app probes `~/.local/bin`,
+`~/.npm-global/bin`, `/opt/homebrew/bin`, and `/usr/local/bin`). If you don't
+install it, set Cleanup Mode to "Never" in Settings to avoid cleanup errors.
 
 ## First run
 
@@ -99,7 +102,7 @@ whisper.cpp transcribe (LOCAL, with --prompt = your dictionary words)
    ↓
 Snippet expansion (regex word-boundary replace)
    ↓
-[if word count > threshold] → POST /subprocess/query on claude_local_api → cleanup
+[if word count > threshold] → spawn `claude --print` subprocess → cleanup
    ↓
 [if voice command prefix matches] → CommandRouter execute → skip paste
    ↓
@@ -109,7 +112,7 @@ HistoryStore records timestamp / raw / final / duration / app bundle id
 ```
 
 Audio never leaves the machine. Only text — and only when above the
-configured cleanup threshold — flows out via `claude_local_api` to Anthropic.
+configured cleanup threshold — flows out via the `claude` CLI to Anthropic.
 
 ## Project layout
 
@@ -125,10 +128,10 @@ ListenToMe/
 │   │   ├── HotkeyMonitor.swift          # CGEventTap on the chosen modifier combo
 │   │   ├── AudioRecorder.swift          # AVAudioEngine → 16kHz WAV + RMS levels
 │   │   ├── WhisperRunner.swift          # Process invocation of bundled whisper-cli
-│   │   ├── ClaudeClient.swift           # HTTP client for claude_local_api + sanitizer
+│   │   ├── ClaudeClient.swift           # spawns `claude` CLI subprocess + sanitizer
 │   │   ├── CommandRouter.swift          # voice-command parsing + execution
 │   │   ├── Paster.swift                 # NSPasteboard + simulated ⌘V
-│   │   ├── Haptics.swift, SoundCue.swift, LaunchAtLogin.swift, APIServer.swift
+│   │   ├── Haptics.swift, SoundCue.swift, LaunchAtLogin.swift
 │   ├── State/
 │   │   ├── AppState.swift               # phase / level / interaction callbacks
 │   │   ├── Preferences.swift            # cleanup mode, hotkey binding, sound toggle

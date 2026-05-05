@@ -57,8 +57,8 @@ enum CommandRouter {
     static func execute(_ command: WfCommand) async throws -> String {
         switch command {
         case .logToday(let text):    return try appendToDailyNote(text)
-        case .openApp(let name):     return try openApplication(named: name)
-        case .shell(let body):       return try runShell(body)
+        case .openApp(let name):     return try await openApplication(named: name)
+        case .shell(let body):       return try await runShell(body)
         }
     }
 
@@ -89,51 +89,93 @@ enum CommandRouter {
         return "Logged to \(today).md"
     }
 
-    private static func openApplication(named rawName: String) throws -> String {
+    private static func openApplication(named rawName: String) async throws -> String {
         // Strip trailing punctuation Whisper sometimes adds ("open chrome.")
         let name = rawName.trimmingCharacters(in: CharacterSet(charactersIn: ".,?! "))
 
-        // Try launching by display name via NSWorkspace
+        // Try launching by display name via NSWorkspace (sync, fast).
         let ws = NSWorkspace.shared
         if let url = ws.urlForApplication(withBundleIdentifier: name) {
             try ws.launchApplication(at: url, options: [], configuration: [:])
             return "Opened \(name)"
         }
-        // Fall back to fuzzy name match via `open -a`
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        proc.arguments = ["-a", name]
-        let err = Pipe()
-        proc.standardError = err
-        try proc.run()
-        proc.waitUntilExit()
-        if proc.terminationStatus != 0 {
-            let msg = String(data: err.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            throw NSError(domain: "ListenToMe.Command", code: Int(proc.terminationStatus),
-                          userInfo: [NSLocalizedDescriptionKey: "Failed to open \(name): \(msg)"])
+        // Fall back to fuzzy name match via `open -a`. Runs as a subprocess
+        // so we don't block the main actor while it spins up the target app.
+        let result = try await runProcess(
+            url: URL(fileURLWithPath: "/usr/bin/open"),
+            args: ["-a", name],
+            captureStdout: false
+        )
+        if result.exitCode != 0 {
+            throw NSError(
+                domain: "ListenToMe.Command", code: Int(result.exitCode),
+                userInfo: [NSLocalizedDescriptionKey: "Failed to open \(name): \(result.stderr)"]
+            )
         }
         return "Opened \(name)"
     }
 
-    private static func runShell(_ body: String) throws -> String {
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/bin/sh")
-        proc.arguments = ["-c", body]
-        proc.currentDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
-        let out = Pipe()
-        let err = Pipe()
-        proc.standardOutput = out
-        proc.standardError = err
-        try proc.run()
-        proc.waitUntilExit()
-        if proc.terminationStatus != 0 {
-            let msg = String(data: err.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            throw NSError(domain: "ListenToMe.Command", code: Int(proc.terminationStatus),
-                          userInfo: [NSLocalizedDescriptionKey: "Shell failed: \(msg)"])
+    private static func runShell(_ body: String) async throws -> String {
+        let result = try await runProcess(
+            url: URL(fileURLWithPath: "/bin/sh"),
+            args: ["-c", body],
+            workingDir: FileManager.default.homeDirectoryForCurrentUser,
+            captureStdout: true
+        )
+        if result.exitCode != 0 {
+            throw NSError(
+                domain: "ListenToMe.Command", code: Int(result.exitCode),
+                userInfo: [NSLocalizedDescriptionKey: "Shell failed: \(result.stderr)"]
+            )
         }
-        let output = String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let output = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         let preview = output.split(separator: "\n").first.map(String.init) ?? "Shell OK"
         return String(preview.prefix(50))
+    }
+
+    // MARK: - Async subprocess helper
+
+    private struct ProcessResult {
+        let exitCode: Int32
+        let stdout: String
+        let stderr: String
+    }
+
+    /// Runs a subprocess to completion without blocking the caller. Mirrors
+    /// the `Process` + `Pipe` + `terminationHandler` pattern used by
+    /// `WhisperRunner` and `ClaudeClient`.
+    private static func runProcess(url: URL,
+                                   args: [String],
+                                   workingDir: URL? = nil,
+                                   captureStdout: Bool) async throws -> ProcessResult {
+        let proc = Process()
+        proc.executableURL = url
+        proc.arguments = args
+        if let wd = workingDir { proc.currentDirectoryURL = wd }
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        proc.standardOutput = captureStdout ? stdoutPipe : FileHandle.nullDevice
+        proc.standardError = stderrPipe
+        proc.standardInput = FileHandle.nullDevice
+
+        return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<ProcessResult, Error>) in
+            proc.terminationHandler = { p in
+                let outData = captureStdout
+                    ? stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+                    : Data()
+                let errData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                cont.resume(returning: ProcessResult(
+                    exitCode: p.terminationStatus,
+                    stdout: String(data: outData, encoding: .utf8) ?? "",
+                    stderr: String(data: errData, encoding: .utf8) ?? ""
+                ))
+            }
+            do {
+                try proc.run()
+            } catch {
+                cont.resume(throwing: error)
+            }
+        }
     }
 }

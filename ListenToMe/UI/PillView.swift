@@ -1,29 +1,82 @@
 import SwiftUI
 
+/// Centralised motion vocabulary. Tuning the feel of the pill happens here.
+private enum Motion {
+    /// Size morphs (width/height) between phases. Snappy but never overshoots.
+    static let phaseSize  = Animation.spring(response: 0.34, dampingFraction: 0.78)
+    /// Content swap (id transition). Slightly looser to let the new content
+    /// land with a touch of life without bouncing.
+    static let phaseSwap  = Animation.spring(response: 0.40, dampingFraction: 0.72)
+    /// Press-pop scale beat when recording starts.
+    static let pressUp    = Animation.spring(response: 0.18, dampingFraction: 0.55)
+    static let pressDown  = Animation.spring(response: 0.32, dampingFraction: 0.55)
+    /// Success spring for the checkmark scale-in.
+    static let successPop = Animation.spring(response: 0.32, dampingFraction: 0.55)
+    /// Halo expand-and-fade after a successful paste.
+    static let halo       = Animation.easeOut(duration: 0.45)
+    /// Error shake — mirrors macOS's native NSWindow.shake feel.
+    static let shake      = Animation.easeInOut(duration: 0.45)
+    /// Idle breath (autoreversing) — long enough to fade into background.
+    static let idleBreath = Animation.easeInOut(duration: 1.6).repeatForever(autoreverses: true)
+    /// Stop-button reactive scale to live audio level.
+    static let stopReact  = Animation.spring(response: 0.18, dampingFraction: 0.7)
+}
+
+/// Horizontal-translation shake for the error state. Standard SwiftUI
+/// recipe — animates `animatableData` and emits a sin-wave displacement.
+private struct Shake: GeometryEffect {
+    var amount: CGFloat = 5
+    var shakesPerUnit: CGFloat = 4
+    var animatableData: CGFloat
+    func effectValue(size: CGSize) -> ProjectionTransform {
+        let dx = amount * sin(animatableData * .pi * shakesPerUnit)
+        return ProjectionTransform(CGAffineTransform(translationX: dx, y: 0))
+    }
+}
+
 struct PillView: View {
     @ObservedObject var state: AppState = .shared
     @State private var levelBuffer: [Float] = Array(repeating: 0, count: 16)
-    @State private var idlePulse: Bool = false
+
+    // Idle motion — border opacity + body scale, both autoreversed.
+    @State private var idleBreathOn: Bool = false
+
+    // Recording motion — red-dot heartbeat, separate from level reactivity.
     @State private var recordPulse: Bool = false
+
+    // Permission card icon spring-in.
     @State private var permissionIconPop: Bool = false
+
+    // Press-pop on entering recording: 1.0 → 1.06 → 1.0.
+    @State private var pressPop: CGFloat = 1.0
+
+    // Error shake — increment to fire one shake animation.
+    @State private var shakeTrigger: CGFloat = 0
+
+    // Success halo — ripples out behind the checkmark.
+    @State private var haloScale: CGFloat = 0.6
+    @State private var haloOpacity: Double = 0
+
+    // Dismissal exhale — flipped on idle entry to soften the disappearance.
+    @State private var exhaleY: CGFloat = 0
+    @State private var exhaleOpacity: Double = 1
 
     var body: some View {
         VStack(spacing: 0) {
             Spacer(minLength: 0)
             pill
                 .frame(width: pillWidth, height: pillHeight)
-                .animation(
-                    .spring(response: 0.5, dampingFraction: 0.8),
-                    value: visualID
-                )
-                .animation(
-                    .spring(response: 0.5, dampingFraction: 0.8),
-                    value: pillWidth
-                )
-                .animation(
-                    .spring(response: 0.5, dampingFraction: 0.8),
-                    value: pillHeight
-                )
+                .scaleEffect(rootScale)
+                .opacity(exhaleOpacity)
+                .offset(y: exhaleY)
+                .modifier(Shake(animatableData: shakeTrigger))
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    if isPillTappable { state.onPillTap?() }
+                }
+                .animation(Motion.phaseSize, value: pillWidth)
+                .animation(Motion.phaseSize, value: pillHeight)
+                .animation(Motion.phaseSwap, value: visualID)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         .onChange(of: state.level) { _, newValue in
@@ -31,13 +84,77 @@ struct PillView: View {
             levelBuffer.append(newValue)
         }
         .onChange(of: phaseID) { _, _ in
-            if case .recording = state.phase {
-                levelBuffer = Array(repeating: 0, count: 16)
-            }
+            handlePhaseChange()
         }
     }
 
-    // MARK: - Pill body — morphs between idle / recording / permission card / etc.
+    // MARK: - Phase-driven motion triggers
+
+    private func handlePhaseChange() {
+        switch state.phase {
+        case .recording:
+            levelBuffer = Array(repeating: 0, count: 16)
+            triggerPressPop()
+            cancelExhale()
+        case .success:
+            triggerSuccessHalo()
+            cancelExhale()
+        case .error:
+            withAnimation(Motion.shake) { shakeTrigger += 1 }
+            cancelExhale()
+        case .idle:
+            // Only exhale if we're returning from a meaningful phase, not on
+            // app launch (where pill starts in idle).
+            triggerExhale()
+        case .transcribing, .cleaning, .polishing, .correcting:
+            cancelExhale()
+        }
+    }
+
+    private func triggerPressPop() {
+        withAnimation(Motion.pressUp) { pressPop = 1.06 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) {
+            withAnimation(Motion.pressDown) { pressPop = 1.0 }
+        }
+    }
+
+    private func triggerSuccessHalo() {
+        haloScale = 0.6
+        haloOpacity = 1
+        withAnimation(Motion.halo) {
+            haloScale = 1.6
+            haloOpacity = 0
+        }
+    }
+
+    private func triggerExhale() {
+        // Brief downward drift + fade, then snap back to 1.0/0 so the next
+        // phase entry doesn't inherit a faded state.
+        withAnimation(Animation.easeIn(duration: 0.28)) {
+            exhaleOpacity = 0
+            exhaleY = 4
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.30) {
+            exhaleY = 0
+            exhaleOpacity = 1
+        }
+    }
+
+    private func cancelExhale() {
+        // If user re-presses mid-exhale, immediately restore visibility.
+        if exhaleOpacity < 1 || exhaleY != 0 {
+            exhaleOpacity = 1
+            exhaleY = 0
+        }
+    }
+
+    // MARK: - Pill body
+
+    /// Composite scale from press-pop and idle breath.
+    private var rootScale: CGFloat {
+        let breathFactor: CGFloat = (isIdleAndCalm && idleBreathOn) ? 0.97 : 1.0
+        return pressPop * breathFactor
+    }
 
     private var pill: some View {
         content
@@ -55,16 +172,30 @@ struct PillView: View {
             .shadow(color: .black.opacity(0.5), radius: isCompact ? 6 : 16, x: 0, y: isCompact ? 3 : 8)
             .padding(.bottom, 4)
             .onAppear {
-                withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) {
-                    idlePulse = true
+                // Both breath axes share one timeline so they stay in phase.
+                withAnimation(Motion.idleBreath) {
+                    idleBreathOn = true
                 }
             }
     }
 
-    /// Breathing border opacity — subtle on idle, steady elsewhere.
+    private var isIdleAndCalm: Bool {
+        if case .idle = state.phase, !state.showPermissionPrompt { return true }
+        return false
+    }
+
+    /// True when clicking the pill should open the correction popover.
+    private var isPillTappable: Bool {
+        switch state.phase {
+        case .success, .polishing: return true
+        default: return false
+        }
+    }
+
+    /// Border opacity tracks the idle breath but stays visible elsewhere.
     private var borderOpacity: Double {
-        if case .idle = state.phase, !state.showPermissionPrompt {
-            return idlePulse ? 0.6 : 0.3
+        if isIdleAndCalm {
+            return idleBreathOn ? 0.6 : 0.3
         }
         return 0.45
     }
@@ -78,20 +209,24 @@ struct PillView: View {
         case .recording:    return 176
         case .transcribing: return 176
         case .cleaning:     return 176
+        case .polishing:    return 200
         case .success:      return 60
         case .error:        return 280
+        case .correcting:   return 48
         }
     }
 
     private var pillHeight: CGFloat {
         if state.showPermissionPrompt { return 170 }
         if case .idle = state.phase { return 12 }
+        if case .correcting = state.phase { return 12 }
         return 34
     }
 
     private var cornerRadius: CGFloat {
         if state.showPermissionPrompt { return 22 }
         if case .idle = state.phase { return 6 }
+        if case .correcting = state.phase { return 6 }
         return 17
     }
 
@@ -108,6 +243,7 @@ struct PillView: View {
 
     private var isCompact: Bool {
         if case .idle = state.phase { return true }
+        if case .correcting = state.phase { return true }
         return false
     }
 
@@ -123,8 +259,10 @@ struct PillView: View {
         case .recording: return 1
         case .transcribing: return 2
         case .cleaning: return 3
+        case .polishing: return 6
         case .success: return 4
         case .error: return 5
+        case .correcting: return 7
         }
     }
 
@@ -177,8 +315,10 @@ struct PillView: View {
                         Circle()
                             .fill(Color.red)
                             .frame(width: 24, height: 24)
-                            .scaleEffect(recordPulse ? 1.0 : 0.88)
-                            .shadow(color: .red.opacity(recordPulse ? 0.55 : 0.15), radius: recordPulse ? 6 : 2)
+                            .scaleEffect(stopButtonScale)
+                            .shadow(color: .red.opacity(recordPulse ? 0.55 : 0.15),
+                                    radius: recordPulse ? 6 : 2)
+                            .animation(Motion.stopReact, value: smoothedLevel)
                         RoundedRectangle(cornerRadius: 2, style: .continuous)
                             .fill(Color.white)
                             .frame(width: 9, height: 9)
@@ -214,10 +354,34 @@ struct PillView: View {
                 Spacer(minLength: 0)
             }
 
+        case .polishing(let rawPreview):
+            HStack(spacing: 10) {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.green.opacity(0.9))
+                Text(rawPreview)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 0)
+                PolishingDots()
+            }
+
         case .success:
-            Image(systemName: "checkmark")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.green)
+            ZStack {
+                // Halo behind the checkmark — green ring expands and fades.
+                Circle()
+                    .strokeBorder(Color.green.opacity(0.85), lineWidth: 2)
+                    .frame(width: 22, height: 22)
+                    .scaleEffect(haloScale)
+                    .opacity(haloOpacity)
+                Image(systemName: "checkmark")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.green)
+                    .scaleEffect(haloOpacity > 0 ? 1.0 : 1.0) // placeholder
+                    .transition(.scale(scale: 0.4).combined(with: .opacity))
+            }
 
         case .error(let message):
             HStack(spacing: 12) {
@@ -231,7 +395,28 @@ struct PillView: View {
                     .truncationMode(.tail)
                 Spacer(minLength: 0)
             }
+
+        case .correcting:
+            // Correction popover handles the UI; pill stays minimal so it
+            // doesn't compete with the floating edit window.
+            Color.clear
         }
+    }
+
+    /// Smoothed audio level — average of the level buffer. The buffer is
+    /// already updated ~30Hz by the audio recorder, so a flat mean gives
+    /// us a stable signal that maps well to a scale modifier.
+    private var smoothedLevel: CGFloat {
+        let sum = levelBuffer.reduce(0, +)
+        return CGFloat(sum) / CGFloat(max(levelBuffer.count, 1))
+    }
+
+    /// Composite scale for the recording stop dot:
+    /// heartbeat × audio reactivity, capped to a sensible range.
+    private var stopButtonScale: CGFloat {
+        let heartbeat: CGFloat = recordPulse ? 1.0 : 0.94
+        let reactive: CGFloat = 1.0 + (smoothedLevel * 0.18)
+        return heartbeat * reactive
     }
 
     // MARK: - Permission card content (rendered inside the morphed pill)
@@ -303,5 +488,25 @@ struct PillView: View {
                 .buttonStyle(PressableStyle(pressedScale: 0.96, pressedOpacity: 0.85))
             }
         }
+    }
+}
+
+/// Three dots that fade in sequence — the "polishing in background" cue.
+/// Quiet on purpose: the user has already moved on, so this is a status
+/// glance, not a demand for attention.
+private struct PolishingDots: View {
+    @State private var phase: Int = 0
+    private let timer = Timer.publish(every: 0.35, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        HStack(spacing: 3) {
+            ForEach(0..<3, id: \.self) { i in
+                Circle()
+                    .fill(Color.purple.opacity(phase == i ? 0.95 : 0.35))
+                    .frame(width: 4, height: 4)
+                    .animation(.easeInOut(duration: 0.3), value: phase)
+            }
+        }
+        .onReceive(timer) { _ in phase = (phase + 1) % 3 }
     }
 }

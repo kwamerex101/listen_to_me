@@ -1,17 +1,16 @@
 import Foundation
 
-/// Thin HTTP client for the local `claude_local_api` FastAPI wrapper.
-/// Base URL: http://localhost:8765
+/// Spawns the `claude` CLI as a subprocess for transcript cleanup.
+/// Mirrors the `WhisperRunner` pattern: Process + Pipe + terminationHandler.
 enum ClaudeError: Error {
-    case badStatus(code: Int, body: String)
-    case decodeFailed
-    case serverUnreachable
+    case binaryNotFound
+    case processFailed(code: Int32, stderr: String)
+    case timedOut
+    case emptyOutput
 }
 
 struct ClaudeClient {
     static let shared = ClaudeClient()
-
-    var baseURL = URL(string: "http://localhost:8765")!
 
     /// Strict cleanup prompt — minimal intervention, reject anything that looks
     /// like preamble/commentary, match voice exactly.
@@ -44,42 +43,143 @@ struct ClaudeClient {
     Output: Hello world.
     """
 
-    /// Calls /subprocess/query (the CLI-subprocess provider — most reliable locally).
+    /// Spawns `claude --print --bare ...` and feeds the transcript on stdin.
+    /// Returns the cleaned text (already passed through `sanitize`).
     func clean(_ text: String, timeout: TimeInterval = 20) async throws -> String {
-        var req = URLRequest(url: baseURL.appendingPathComponent("subprocess/query"))
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.timeoutInterval = timeout
+        // NOTE: deliberately NOT passing `--bare` — bare mode requires
+        // ANTHROPIC_API_KEY (it ignores OAuth/keychain). The whole point of
+        // shelling out to `claude` is to reuse the user's Claude Code
+        // subscription auth, so we accept the slower default startup.
+        let stdoutData = try await runClaude(
+            input: text,
+            args: [
+                "--print",
+                "--no-session-persistence",
+                "--disable-slash-commands",
+                "--model", "haiku",
+                "--output-format", "text",
+                "--append-system-prompt", Self.cleanupSystemPrompt,
+            ],
+            timeout: timeout
+        )
 
-        let body: [String: Any] = [
-            "prompt": text,
-            "system": Self.cleanupSystemPrompt,
-            "max_turns": 1,
-            "stream": false,
-        ]
-        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let raw = String(data: stdoutData, encoding: .utf8) ?? ""
+        let sanitized = Self.sanitize(cleaned: raw, original: text)
+        if sanitized.isEmpty { throw ClaudeError.emptyOutput }
+        return sanitized
+    }
 
-        let (data, resp): (Data, URLResponse)
+    /// Quick check that the `claude` binary resolves on PATH. Used at launch
+    /// to decide whether cleanup is viable.
+    func isAvailable(timeout: TimeInterval = 2) async -> Bool {
         do {
-            (data, resp) = try await URLSession.shared.data(for: req)
+            _ = try await runEnv(args: ["which", "claude"], input: nil, timeout: timeout)
+            return true
         } catch {
-            throw ClaudeError.serverUnreachable
+            return false
+        }
+    }
+
+    // MARK: - Subprocess plumbing
+
+    /// Spawns `/usr/bin/env claude <args>` with stdin piped and stdout captured.
+    private func runClaude(input: String, args: [String], timeout: TimeInterval) async throws -> Data {
+        try await runEnv(args: ["claude"] + args, input: input, timeout: timeout)
+    }
+
+    /// Generic `/usr/bin/env <args>` runner. macOS GUI apps inherit a stripped
+    /// PATH, so we extend it here to include the common install locations for
+    /// user-installed CLIs (npm global, ~/.local/bin, Homebrew).
+    @discardableResult
+    private func runEnv(args: [String], input: String?, timeout: TimeInterval) async throws -> Data {
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        proc.arguments = args
+        proc.environment = Self.augmentedEnvironment()
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        proc.standardOutput = stdoutPipe
+        proc.standardError = stderrPipe
+
+        let stdinPipe: Pipe?
+        if input != nil {
+            let p = Pipe()
+            proc.standardInput = p
+            stdinPipe = p
+        } else {
+            proc.standardInput = FileHandle.nullDevice
+            stdinPipe = nil
         }
 
-        guard let http = resp as? HTTPURLResponse else {
-            throw ClaudeError.decodeFailed
-        }
-        guard (200..<300).contains(http.statusCode) else {
-            let body = String(data: data, encoding: .utf8) ?? ""
-            throw ClaudeError.badStatus(code: http.statusCode, body: body)
-        }
+        return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data, Error>) in
+            // One-shot guard so we don't resume the continuation twice
+            // (e.g. process exits exactly as the timeout fires).
+            let didResume = Atomic(false)
 
-        guard
-            let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let result = obj["result"] as? String
-        else { throw ClaudeError.decodeFailed }
+            let timeoutItem = DispatchWorkItem {
+                if proc.isRunning {
+                    proc.terminate()
+                    if didResume.compareAndSet(expected: false, new: true) {
+                        cont.resume(throwing: ClaudeError.timedOut)
+                    }
+                }
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timeoutItem)
 
-        return Self.sanitize(cleaned: result, original: text)
+            proc.terminationHandler = { p in
+                timeoutItem.cancel()
+                let outData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+                let errData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                let errStr = String(data: errData, encoding: .utf8) ?? ""
+
+                guard didResume.compareAndSet(expected: false, new: true) else { return }
+
+                if p.terminationStatus != 0 {
+                    cont.resume(throwing: ClaudeError.processFailed(code: p.terminationStatus, stderr: errStr))
+                    return
+                }
+                cont.resume(returning: outData)
+            }
+
+            do {
+                try proc.run()
+            } catch {
+                timeoutItem.cancel()
+                if didResume.compareAndSet(expected: false, new: true) {
+                    // POSIX ENOENT (2) when /usr/bin/env can't find the binary.
+                    cont.resume(throwing: ClaudeError.binaryNotFound)
+                }
+                return
+            }
+
+            if let stdinPipe, let input {
+                let handle = stdinPipe.fileHandleForWriting
+                if let data = input.data(using: .utf8) {
+                    handle.write(data)
+                }
+                try? handle.close()
+            }
+        }
+    }
+
+    /// PATH extension so `/usr/bin/env claude` resolves when launched from
+    /// /Applications (where Finder hands us a minimal PATH).
+    private static func augmentedEnvironment() -> [String: String] {
+        var env = ProcessInfo.processInfo.environment
+        let home = NSHomeDirectory()
+        let extras = [
+            "\(home)/.local/bin",
+            "\(home)/.npm-global/bin",
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+        ]
+        let existing = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+        let merged = (extras + existing.split(separator: ":").map(String.init))
+            .reduce(into: [String]()) { acc, p in if !acc.contains(p) { acc.append(p) } }
+            .joined(separator: ":")
+        env["PATH"] = merged
+        return env
     }
 
     /// Defensive filter on the model's response. Rejects common failure modes
@@ -127,16 +227,16 @@ struct ClaudeClient {
 
         return text
     }
+}
 
-    /// Quick health check (GET /health). Returns true if the server is reachable.
-    func ping(timeout: TimeInterval = 2) async -> Bool {
-        var req = URLRequest(url: baseURL.appendingPathComponent("health"))
-        req.timeoutInterval = timeout
-        do {
-            let (_, resp) = try await URLSession.shared.data(for: req)
-            return (resp as? HTTPURLResponse)?.statusCode == 200
-        } catch {
-            return false
-        }
+/// Tiny atomic-bool helper for the timeout/termination race.
+private final class Atomic<T: Equatable> {
+    private var value: T
+    private let lock = NSLock()
+    init(_ initial: T) { value = initial }
+    func compareAndSet(expected: T, new: T) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        if value == expected { value = new; return true }
+        return false
     }
 }

@@ -5,7 +5,7 @@ struct TranscriptRecord: Codable, Identifiable, Equatable {
     let id: UUID
     let timestamp: Date
     let rawText: String
-    let finalText: String
+    var finalText: String
     let durationMs: Int
     let dismissed: Bool
 
@@ -44,6 +44,14 @@ final class HistoryStore: ObservableObject {
             dismissed: dismissed
         )
         records.insert(r, at: 0)
+        save()
+    }
+
+    /// Mutate the most-recent record's `finalText` in place. Used by the
+    /// inline correction popover so a fix doesn't create a duplicate row.
+    func updateLast(finalText: String) {
+        guard !records.isEmpty else { return }
+        records[0].finalText = finalText
         save()
     }
 
