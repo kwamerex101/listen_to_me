@@ -7,6 +7,16 @@ struct SettingsView: View {
     @State private var hotkey: HotkeyBinding = Preferences.shared.hotkeyBinding
     @State private var soundEnabled: Bool = Preferences.shared.soundEnabled
 
+    /// Reads the version straight from the bundle so future bumps don't
+    /// require touching this view.
+    static var versionString: String {
+        let info = Bundle.main.infoDictionary
+        let short = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String
+        if let build, build != short { return "\(short) (\(build))" }
+        return short
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
@@ -91,7 +101,7 @@ struct SettingsView: View {
 
                 section(title: "About") {
                     row(label: "Version") {
-                        Text("0.1.0")
+                        Text(Self.versionString)
                             .font(.system(size: 13))
                             .foregroundStyle(.secondary)
                     }
