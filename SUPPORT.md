@@ -19,7 +19,7 @@ Run through this checklist first — it covers the most common setup problems:
 - [ ] Accessibility permission granted: System Settings → Privacy & Security → Accessibility
 - [ ] If using AI cleanup: the [Claude Code CLI](https://claude.com/claude-code) is installed and `claude` resolves on PATH (or Cleanup Mode is set to "Never")
 
-## Known limitations in v0.6.1
+## Known limitations in v0.7.0
 
 - **No notarization** — the app is ad-hoc signed. macOS Gatekeeper will block
   it on first launch; right-click → Open to bypass, or run
