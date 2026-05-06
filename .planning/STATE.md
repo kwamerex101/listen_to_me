@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: Ready to discuss
-stopped_at: Phase 3 shipped (v0.9.0 + v0.9.1 patch); advancing to Phase 4 (Per-App Style Tuning)
-last_updated: "2026-05-05T23:30:00.000Z"
-last_activity: "2026-05-05 — Phase 3 (Auto-Learning Dictionary) shipped v0.9.0 PR #13. v0.9.1 PR #14 patched sliding-window singleWordSwap, per-app AX fallback, 7s+cancellation, diagnostic file log, SUPPORT.md Electron-blindness limitation. User-verified end-to-end on Apple Notes (matched→merged captured + promoted). Claude Desktop / Slack / Notion / VS Code documented as auto-learn out-of-scope until Phase 3.x keystroke-observation work. Advancing to Phase 4."
+stopped_at: Phase 4 shipped v0.10.0; advancing to Phase 5 (UX/UI Polish + Micro-Animations)
+last_updated: "2026-05-05T23:55:00.000Z"
+last_activity: "2026-05-05 — Phase 4 (Per-App Style Tuning) shipped v0.10.0 (build 12). User-verified all smoke tests A–I plus C' (timeout-clear doesn't persist) and D' (HARD RULES preserved under PREPEND). Stack: ToneInferencer (deterministic 5-tone rubric over 9 features), StyleSamplesStore (FIFO 50-cap per bundleId), migrated StyleStore to bundleId-keyed StyleEntry, PillView .suggestion phase with Keep/Dismiss + 8s passive timeout, StyleView per-app tone rows with Revert. Advancing to Phase 5."
 progress:
   total_phases: 5
-  completed_phases: 3
-  total_plans: 4
-  completed_plans: 3
+  completed_phases: 4
+  total_plans: 5
+  completed_plans: 4
   percent: 80
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-05)
 
 **Core value:** Speak once, ship clean text into any app — fast, offline-by-default, no recurring subscription beyond what you already pay for Claude.
-**Current focus:** Phase 4 — Per-App Style Tuning (STYLE-01..03)
+**Current focus:** Phase 5 — UX/UI Polish + Micro-Animations (POLISH-01..04)
 
 ## Current Position
 
-Phase: 4 of 5 (Per-App Style Tuning)
+Phase: 5 of 5 (UX/UI Polish + Micro-Animations)
 Plan: 0 of TBD in current phase
 Status: Ready to discuss
-Last activity: 2026-05-05 — Phase 3 (Auto-Learning Dictionary) shipped v0.9.0 PR #13 + v0.9.1 PR #14. End-to-end verified on Apple Notes; Electron AX-blindness for Claude Desktop / Slack / Notion / VS Code documented as known limitation. Advancing to Phase 4.
+Last activity: 2026-05-05 — Phase 4 (Per-App Style Tuning) shipped v0.10.0 build 12. User-verified end-to-end (smoke tests A–I + timeout-clear-doesn't-persist + HARD-RULES preserved under PREPEND). Advancing to Phase 5 (final phase of milestone).
 
 Progress: [████████░░] 80%
 

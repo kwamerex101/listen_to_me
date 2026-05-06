@@ -13,7 +13,7 @@ Five phases. Phase 1 (Multi-Display Awareness) lands first — small, self-conta
 - [x] **Phase 1: Multi-Display Awareness** ✓ - Pill repositions to the screen containing the cursor before becoming visible, and re-anchors on system display-config changes (shipped v0.7.0, PR #10)
 - [x] **Phase 2: Selection-Aware Paste** ✓ - Paster reads AX selection state before every paste, records it in PasteToken, and respects indent when inserting new lines (shipped v0.8.0, PR #11; v0.8.1 patches indent through cleanup-replace)
 - [x] **Phase 3: Auto-Learning Dictionary** ✓ - Whisper misreads silently captured on retype, auto-promoted after 3 occurrences, manageable via Dictionary tab (shipped v0.9.0 PR #13; v0.9.1 PR #14 patches sliding-window diff, per-app AX fallback, 7s+cancellation, diagnostic log)
-- [ ] **Phase 4: Per-App Style Tuning** - App infers tone per bundleId from rolling sample, overrides the Claude cleanup prompt, and offers one-time inline accept/dismiss
+- [x] **Phase 4: Per-App Style Tuning** ✓ - App infers tone per bundleId from rolling 50-sample window, prepends a per-tone STYLE NOTE above the strict-cleanup prompt (HARD RULES preserved), offers one-time inline keep/dismiss banner via PillView .suggestion phase, accept/revert via Style tab (shipped v0.10.0)
 - [ ] **Phase 5: UX/UI Polish + Micro-Animations** - Hover states across the main window, consistent click feedback on all buttons, smooth tab transitions, and pill animation refinements informed by a Wispr Flow comparison research pass
 
 ## Phase Details
