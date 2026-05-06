@@ -94,21 +94,36 @@ private struct NavRow: View {
         .help(compact ? section.label : "")
     }
 
+    /// Symbol shown for this row's current state — the filled / coloured
+    /// variant when selected, the neutral outline otherwise.
+    private var symbolName: String {
+        selected ? section.selectedSymbol : section.sfSymbol
+    }
+
+    /// Foreground color for the icon. Selected → the section's unique tint;
+    /// unselected → secondary neutral.
+    private var iconColor: Color {
+        selected ? section.selectedTint : .secondary
+    }
+
     @ViewBuilder
     private var content: some View {
         if compact {
-            Image(systemName: section.sfSymbol)
+            Image(systemName: symbolName)
                 .font(.system(size: 15, weight: selected ? .semibold : .regular))
                 .frame(width: 32, height: 22)
-                .foregroundStyle(selected ? .primary : .secondary)
+                .foregroundStyle(iconColor)
+                .contentTransition(.symbolEffect(.replace))
         } else {
             HStack(spacing: 10) {
-                Image(systemName: section.sfSymbol)
-                    .font(.system(size: 13))
+                Image(systemName: symbolName)
+                    .font(.system(size: 13, weight: selected ? .semibold : .regular))
                     .frame(width: 18)
-                    .foregroundStyle(selected ? .primary : .secondary)
+                    .foregroundStyle(iconColor)
+                    .contentTransition(.symbolEffect(.replace))
                 Text(section.label)
                     .font(.system(size: 13, weight: selected ? .medium : .regular))
+                    .foregroundStyle(selected ? .primary : .secondary)
                 Spacer(minLength: 0)
             }
         }

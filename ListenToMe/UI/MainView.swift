@@ -39,6 +39,33 @@ enum WfSection: String, CaseIterable, Identifiable {
         // case .pages: return "doc.plaintext"
         }
     }
+
+    /// Filled / "selected" variant of the symbol. For symbols without a
+    /// dedicated `.fill` glyph (scissors, textformat) we keep the same
+    /// outline but apply a coloured tint via `selectedTint` below — that
+    /// alone reads clearly as "selected".
+    var selectedSymbol: String {
+        switch self {
+        case .home: return "square.grid.2x2.fill"
+        case .dictionary: return "doc.text.fill"
+        case .snippets: return "scissors"            // no .fill variant
+        case .style: return "textformat"             // no .fill variant
+        case .settings: return "gearshape.fill"
+        }
+    }
+
+    /// Per-section accent color used in the sidebar when this section is
+    /// the active selection. Matches the page-header badge tint used on
+    /// each page so visual identity is consistent across the app.
+    var selectedTint: Color {
+        switch self {
+        case .home: return .blue
+        case .dictionary: return .teal
+        case .snippets: return .pink
+        case .style: return .indigo
+        case .settings: return .gray
+        }
+    }
 }
 
 struct MainView: View {

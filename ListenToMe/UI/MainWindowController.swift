@@ -2,12 +2,13 @@ import AppKit
 import SwiftUI
 
 @MainActor
-final class MainWindowController {
+final class MainWindowController: NSObject {
     static let shared = MainWindowController()
 
     private var window: NSWindow?
+    private let delegate = WindowDelegate()
 
-    private init() {}
+    private override init() { super.init() }
 
     func toggle() {
         if let w = window, w.isVisible {
@@ -21,23 +22,20 @@ final class MainWindowController {
     /// `minSize` (e.g. macOS state restoration).
     private static let defaultContentSize = NSSize(width: 1100, height: 720)
 
-    /// Hard window content minimum. Below this, the layout cannot render
-    /// without clipping. Match SwiftUI's `DT.windowMin{Width,Height}` floor
-    /// in `MainView` to avoid a mismatch.
-    /// At this width the sidebar is in COMPACT mode (64pt icons-only) and
-    /// the content area gets ~520pt — enough for hero + single-column
-    /// stats + readable today list.
-    private static let minContentSize = NSSize(width: 600, height: 520)
+    /// Hard window content minimum.
+    ///
+    /// At this width:
+    ///   - sidebar is in compact mode (64pt icons-only)
+    ///   - content area gets ~656pt — enough for hero, single-column stats,
+    ///     and a readable today list with no clipping
+    /// Stay synchronized with `DT.windowMin{Width,Height}` in
+    /// DesignTokens.swift.
+    fileprivate static let minContentSize = NSSize(width: 720, height: 560)
 
     func open() {
         if window == nil {
             let root = MainView()
             let host = NSHostingController(rootView: root)
-            // Don't let SwiftUI's intrinsic content size resize the window.
-            // Without this, switching between tabs (Home → Dictionary, etc.)
-            // makes NSHostingController push a new preferredContentSize up,
-            // which AppKit applies to the window — the symptom is the window
-            // randomly growing/shrinking when the user changes section.
             host.sizingOptions = []
 
             let w = NSWindow(
@@ -50,19 +48,21 @@ final class MainWindowController {
             w.titlebarAppearsTransparent = true
             w.titleVisibility = .hidden
             w.contentViewController = host
-            // contentMinSize is what AppKit uses to clamp user-driven
-            // resizes against the SwiftUI content area; minSize without it
-            // can be undershot in some macOS versions when the title bar
-            // is transparent. Set both for belt + suspenders.
+
+            // Belt + suspenders + a delegate that clamps live drags. With
+            // `.fullSizeContentView`, AppKit can let `contentMinSize` /
+            // `minSize` be undershot during a resize drag — the only path
+            // that's bulletproof is intercepting `windowWillResize:toSize:`
+            // and returning a clamped size. See WindowDelegate below.
             w.contentMinSize = Self.minContentSize
             w.minSize = Self.minContentSize
+            w.delegate = delegate
+
             w.isReleasedWhenClosed = false
-            w.backgroundColor = .windowBackgroundColor   // adapts to light/dark
-            // Persist user resizes across launches under a stable key.
+            w.backgroundColor = .windowBackgroundColor
             w.setFrameAutosaveName("ListenToMeMainWindow")
 
-            // If autosave restored a sub-min frame (or there was none), force
-            // the default size once on first creation.
+            // If autosave restored a sub-min frame, snap to default.
             if w.frame.size.width < Self.minContentSize.width
                 || w.frame.size.height < Self.minContentSize.height {
                 w.setContentSize(Self.defaultContentSize)
@@ -70,8 +70,8 @@ final class MainWindowController {
             }
             window = w
         } else if let w = window {
-            // On subsequent opens, never let the window appear cramped — if
-            // something pushed it under the minimum, snap back to the default.
+            // Belt: every time the window is reopened, verify it's at least
+            // at min. Anything smaller snaps to default.
             if w.frame.size.width < Self.minContentSize.width
                 || w.frame.size.height < Self.minContentSize.height {
                 w.setContentSize(Self.defaultContentSize)
@@ -87,5 +87,35 @@ final class MainWindowController {
     /// Called from windowWillClose via NSWindowDelegate hookup if needed.
     func didClose() {
         NSApp.setActivationPolicy(.accessory)
+    }
+}
+
+// MARK: - Window delegate (resize clamp)
+
+/// Hard-clamps user-driven window resizes against `minContentSize`. AppKit's
+/// `contentMinSize` / `minSize` properties are advisory under
+/// `.fullSizeContentView` and can be undershot during a live resize drag
+/// — `windowWillResize:toSize:` is the only callback macOS guarantees will
+/// be honoured for every interactive frame.
+private final class WindowDelegate: NSObject, NSWindowDelegate {
+    func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
+        let m = MainWindowController.minContentSize
+        return NSSize(
+            width:  max(frameSize.width,  m.width),
+            height: max(frameSize.height, m.height)
+        )
+    }
+
+    func windowDidEndLiveResize(_ notification: Notification) {
+        // Final safety net — if anything (state restore, AppleScript, etc.)
+        // sets a sub-min frame, snap back at the end of any live resize.
+        guard let w = notification.object as? NSWindow else { return }
+        let m = MainWindowController.minContentSize
+        if w.frame.size.width < m.width || w.frame.size.height < m.height {
+            var f = w.frame
+            f.size.width  = max(f.size.width,  m.width)
+            f.size.height = max(f.size.height, m.height)
+            w.setFrame(f, display: true, animate: true)
+        }
     }
 }
