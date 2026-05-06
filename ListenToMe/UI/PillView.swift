@@ -39,6 +39,14 @@ struct PillView: View {
     @State private var exhaleY: CGFloat = 0
     @State private var exhaleOpacity: Double = 1
 
+    // Silence-dim (POLISH-04a) — fade waveform after sustained quiet,
+    // wake instantly on speech return. Replaces (does not stack on) the
+    // level-reactive scale, honouring the perf-budget cap of 2 concurrent
+    // infinite springs (heartbeat + record-pulse).
+    @State private var silenceTimer: Timer?
+    @State private var silenceDimmed: Bool = false
+
+
     var body: some View {
         VStack(spacing: 0) {
             Spacer(minLength: 0)
@@ -60,6 +68,7 @@ struct PillView: View {
         .onChange(of: state.level) { _, newValue in
             levelBuffer.removeFirst()
             levelBuffer.append(newValue)
+            updateSilenceState()
         }
         .onChange(of: phaseID) { _, _ in
             handlePhaseChange()
@@ -69,6 +78,14 @@ struct PillView: View {
     // MARK: - Phase-driven motion triggers
 
     private func handlePhaseChange() {
+        // Always clear any silence-dim state when leaving recording —
+        // mitigates T-05-03 (timer leak on phase exit).
+        if state.phase != .recording {
+            silenceTimer?.invalidate()
+            silenceTimer = nil
+            silenceDimmed = false
+        }
+
         switch state.phase {
         case .recording:
             levelBuffer = Array(repeating: 0, count: 16)
@@ -88,6 +105,46 @@ struct PillView: View {
             cancelExhale()
         }
     }
+
+    // MARK: - Silence-dim (POLISH-04a / Wispr W4)
+
+    /// Smoothed, unsigned RMS over the most recent buffer slice. Mirrors
+    /// `smoothedLevel` but bounded to the tail so it tracks live silence.
+    private var silenceSmoothed: Float {
+        let tail = levelBuffer.suffix(8)
+        guard !tail.isEmpty else { return 0 }
+        return tail.reduce(0, +) / Float(tail.count)
+    }
+
+    private func updateSilenceState() {
+        guard state.phase == .recording else { return }
+        let smoothed = silenceSmoothed
+
+        if smoothed < 0.02 {
+            // Sustained quiet — arm the dim timer (5s) if not already running
+            // and not already dimmed.
+            if !silenceDimmed, silenceTimer == nil {
+                silenceTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: false) { _ in
+                    Task { @MainActor in
+                        withAnimation(Motion.silenceDim) {
+                            silenceDimmed = true
+                        }
+                        silenceTimer = nil
+                    }
+                }
+            }
+        } else if smoothed > 0.05 {
+            // Speech is back — wake instantly, cancel any pending dim.
+            silenceTimer?.invalidate()
+            silenceTimer = nil
+            if silenceDimmed {
+                withAnimation(Motion.silenceWake) {
+                    silenceDimmed = false
+                }
+            }
+        }
+    }
+
 
     private func triggerPressPop() {
         withAnimation(Motion.pressUp) { pressPop = 1.06 }
@@ -288,8 +345,17 @@ struct PillView: View {
                 }
                 .buttonStyle(PressableStyle())
 
-                CompactWaveformView(levels: levelBuffer)
-                    .frame(maxWidth: .infinity)
+                ZStack {
+                    CompactWaveformView(levels: levelBuffer)
+                        .opacity(silenceDimmed ? 0.4 : 1.0)
+                    if silenceDimmed {
+                        Image(systemName: "mic.slash")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.7))
+                            .transition(.opacity.combined(with: .scale))
+                    }
+                }
+                .frame(maxWidth: .infinity)
 
                 Button(action: { AppState.shared.onStopTap?() }) {
                     ZStack {
