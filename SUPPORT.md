@@ -19,7 +19,29 @@ Run through this checklist first — it covers the most common setup problems:
 - [ ] Accessibility permission granted: System Settings → Privacy & Security → Accessibility
 - [ ] If using AI cleanup: the [Claude Code CLI](https://claude.com/claude-code) is installed and `claude` resolves on PATH (or Cleanup Mode is set to "Never")
 
-## Known limitations in v0.9.1
+## v0.10.0 — Per-App Style Tuning
+
+ListenToMe now learns how you write into each app and adjusts cleanup tone
+automatically.
+
+- **What you'll see.** After 20 dictations into the same app, you may see a
+  one-time banner above your existing pill: *Suggesting casual tone for Slack
+  — Keep / Dismiss*. The banner stays up for 8 seconds; if you miss it, it
+  re-fires on the next dictation into that app.
+- **Keep** applies that tone to all future dictations into that app —
+  permanent until you Revert.
+- **Dismiss** declines, and that exact tone won't be re-suggested for that
+  app. If the tone you write in drifts to a different one (e.g. you start
+  writing code in Slack), a fresh suggestion fires for the new tone.
+- **Open the Style tab** to see inferred tones, accepted overrides, and a
+  Revert button on any row where you've accepted a tone.
+- **Tones:** `casual`, `formal`, `code`, `markdown`, or `none` (when style
+  signals are mixed). Inference is fully local — no data leaves your machine.
+- **What's stored:** up to 50 cleaned-text samples per app at
+  `~/Library/Application Support/ListenToMe/style-samples.json`, and one
+  StyleEntry per app at `~/Library/Application Support/ListenToMe/styles.json`.
+
+## Known limitations in v0.10.0
 
 - **No notarization** — the app is ad-hoc signed. macOS Gatekeeper will block
   it on first launch; right-click → Open to bypass, or run
@@ -56,3 +78,12 @@ Run through this checklist first — it covers the most common setup problems:
 - **Diagnostic log for retype-detection** lives at
   `~/Library/Application Support/ListenToMe/retype-debug.log` if you want
   to inspect why a particular retype didn't capture.
+- **Tone inference thresholds are calibrated against typical English
+  content.** Edge cases (heavy emoji, non-English text) may keep the
+  inferred tone at `none` until enough signal accumulates over the 50-sample
+  rolling window.
+- **Existing `styles.json` rules from before v0.10.0 are not automatically
+  migrated.** The legacy schema lacked bundle IDs, so a safe mapping isn't
+  possible. The old file is preserved on disk for manual recovery; just
+  re-establish per-app tones by dictating again — the suggestion banner
+  will offer to apply each tone.

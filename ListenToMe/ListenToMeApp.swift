@@ -31,6 +31,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Pending retype-detection probe. Cancelled when a new dictation starts
     /// so we don't AX-poll an out-of-context window 7s later.
     private var retypeTask: Task<Void, Never>?
+    /// Pending auto-reset back to .idle. Stored so a `.suggestion` banner
+    /// firing right after a `.success` can cancel the reset and let the user
+    /// read the banner without it being yanked away after 3s (Phase 4 A4).
+    private var autoResetTask: Task<Void, Never>?
+    /// Auto-dismiss timer for the .suggestion banner. Cleared on Keep/Dismiss
+    /// to avoid clobbering a freshly-set phase.
+    private var suggestionTimeoutTask: Task<Void, Never>?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -76,6 +83,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         state.onStopTap = { [weak self] in self?.handleRelease() }
         state.onCancelTap = { [weak self] in self?.handleCancel() }
         state.onPillTap = { [weak self] in self?.handlePillTap() }
+        state.onSuggestionKeep = { [weak self] in self?.handleSuggestionKeep() }
+        state.onSuggestionDismiss = { [weak self] in self?.handleSuggestionDismiss() }
+
+        // Warm Phase 4 singletons so their JSON files are touched on launch
+        // and `entries` / `samplesByBundle` are loaded before the first
+        // dictation lands.
+        _ = StyleSamplesStore.shared
+        _ = StyleStore.shared
 
         // Emit phase-change notifications for menu bar
         Task { @MainActor [weak self] in
@@ -223,6 +238,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     let token = Paster.pasteTracked(expanded)
                     lastPasteToken = token
                     scheduleRetypeDetection(token: token)
+                    recordStyleSample(token: token, cleaned: expanded)
                     Haptics.success()
                     SoundCue.success()
                     HistoryStore.shared.add(rawText: raw, finalText: expanded, durationMs: durMs)
@@ -255,7 +271,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         cleanupTask?.cancel()
         cleanupTask = Task { [weak self] in
             do {
-                let cleaned = try await ClaudeClient.shared.clean(expanded)
+                let cleaned = try await ClaudeClient.shared.clean(expanded, bundleId: token.bundleId)
                 try Task.checkCancellation()
                 await MainActor.run {
                     guard let self else { return }
@@ -265,6 +281,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         self.lastPasteToken = newToken
                         self.state.lastTranscript = cleaned
                         self.scheduleRetypeDetection(token: newToken)
+                        self.recordStyleSample(token: newToken, cleaned: cleaned)
                         HistoryStore.shared.add(rawText: raw, finalText: cleaned, durationMs: durMs)
                     } else {
                         // Validation failed (focus changed, clipboard touched,
@@ -503,15 +520,96 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func autoReset(after seconds: Double = 1.4) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
+        autoResetTask?.cancel()
+        autoResetTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(seconds))
+            if Task.isCancelled { return }
             guard let self else { return }
             // Don't yank the pill back to idle if the user is mid-correction
-            // — they're actively editing.
+            // — they're actively editing. Also bail if we've since entered a
+            // .suggestion banner (Phase 4 A4: banner cancels this task, but
+            // belt-and-braces guard).
             if case .correcting = self.state.phase { return }
+            if case .suggestion = self.state.phase { return }
             self.state.phase = .idle
             // Idle pill is click-through again so it doesn't intercept stray
             // clicks on whatever's underneath.
             PillWindow.shared.setInteractive(false)
         }
+    }
+
+    // MARK: - Phase 4 — Style sample capture, inference, suggestion
+
+    /// After a successful paste, append the cleaned text to
+    /// `StyleSamplesStore` and trigger inference. Skips when bundleId is nil
+    /// or empty (Pitfall P5: no usable scoping key — Desktop with no
+    /// frontmost app, etc.). Also skips voice-command outputs by virtue of
+    /// only being called from the two paste-success branches; the command
+    /// path never reaches Paster.replace (Pitfall P2).
+    private func recordStyleSample(token: PasteToken, cleaned: String) {
+        guard let bundleId = token.bundleId, !bundleId.isEmpty else { return }
+        StyleSamplesStore.shared.record(sample: cleaned, bundleId: bundleId)
+        runStyleInference(bundleId: bundleId)
+    }
+
+    /// Run the deterministic tone rubric and update StyleStore. Fires the
+    /// suggestion banner if the gate passes (no acceptedTone, tone != .none,
+    /// tone not previously dismissed).
+    private func runStyleInference(bundleId: String) {
+        let samples = StyleSamplesStore.shared.samples(for: bundleId)
+        guard samples.count >= 20 else { return }
+        let tone = ToneInferencer.infer(samples: samples)
+        StyleStore.shared.update(bundleId: bundleId, inferredTone: tone)
+        if let suggested = StyleStore.shared.shouldSuggest(bundleId: bundleId) {
+            fireSuggestion(bundleId: bundleId, tone: suggested)
+        }
+    }
+
+    /// Enter `.suggestion` phase. Cancels any pending `.success` autoReset so
+    /// the banner has a stable read-time; the pill becomes interactive so
+    /// Keep / Dismiss receive clicks. Also schedules an 8s passive timeout —
+    /// timeout-clear does NOT persist to dismissedTones (CHECK CONCERN-2),
+    /// so a missed banner re-fires on the next dictation into this app.
+    private func fireSuggestion(bundleId: String, tone: InferredTone) {
+        autoResetTask?.cancel()
+        autoResetTask = nil
+        suggestionTimeoutTask?.cancel()
+
+        state.phase = .suggestion(bundleId: bundleId, tone: tone)
+        PillWindow.shared.setInteractive(true)
+
+        suggestionTimeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(8))
+            guard let self else { return }
+            if case .suggestion = self.state.phase {
+                // Timeout-only clear. Do NOT call onSuggestionDismiss — that
+                // would persistently kill this (bundleId, tone) pair.
+                self.state.phase = .idle
+                PillWindow.shared.setInteractive(false)
+            }
+        }
+    }
+
+    private func handleSuggestionKeep() {
+        if case .suggestion(let bundleId, _) = state.phase {
+            StyleStore.shared.accept(bundleId: bundleId)
+        }
+        suggestionTimeoutTask?.cancel()
+        suggestionTimeoutTask = nil
+        state.phase = .idle
+        PillWindow.shared.setInteractive(false)
+    }
+
+    private func handleSuggestionDismiss() {
+        if case .suggestion(let bundleId, let tone) = state.phase {
+            // Pitfall P3: dismiss writes to disk BEFORE clearing phase, so a
+            // crash mid-flow doesn't lose the dismissal (CandidateStore
+            // remove-before-promote precedent).
+            StyleStore.shared.dismiss(bundleId: bundleId, tone: tone)
+        }
+        suggestionTimeoutTask?.cancel()
+        suggestionTimeoutTask = nil
+        state.phase = .idle
+        PillWindow.shared.setInteractive(false)
     }
 }

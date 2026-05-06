@@ -20,3 +20,32 @@ vendor/
 # System
 .DS_Store
 *.swp
+*.swo
+._*
+*.icloud
+ListenToMe/Resources/AppIcon.icns
+
+# Planning artifacts (local-only)
+.planning/
+
+# Coding agent artifacts (Claude Code worktrees, Cursor, Aider)
+.claude/
+.cursor/
+.aider*
+
+# Editor / IDE
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# Merge / patch leftovers
+*.orig
+*.rej
+
+# Secrets & local env
+.env
+.env.*
+
+# Defensive log catch-all
+*.log

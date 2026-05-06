@@ -106,7 +106,7 @@ struct PillView: View {
             // Only exhale if we're returning from a meaningful phase, not on
             // app launch (where pill starts in idle).
             triggerExhale()
-        case .transcribing, .cleaning, .polishing, .correcting:
+        case .transcribing, .cleaning, .polishing, .correcting, .suggestion:
             cancelExhale()
         }
     }
@@ -213,6 +213,7 @@ struct PillView: View {
         case .success:      return 60
         case .error:        return 280
         case .correcting:   return 48
+        case .suggestion:   return 400
         }
     }
 
@@ -220,6 +221,7 @@ struct PillView: View {
         if state.showPermissionPrompt { return 170 }
         if case .idle = state.phase { return 12 }
         if case .correcting = state.phase { return 12 }
+        if case .suggestion = state.phase { return 56 }
         return 34
     }
 
@@ -263,6 +265,7 @@ struct PillView: View {
         case .success: return 4
         case .error: return 5
         case .correcting: return 7
+        case .suggestion: return 8
         }
     }
 
@@ -400,7 +403,50 @@ struct PillView: View {
             // Correction popover handles the UI; pill stays minimal so it
             // doesn't compete with the floating edit window.
             Color.clear
+
+        case .suggestion(let bundleId, let tone):
+            suggestionContent(bundleId: bundleId, tone: tone)
         }
+    }
+
+    @ViewBuilder
+    private func suggestionContent(bundleId: String, tone: InferredTone) -> some View {
+        let appName = NSRunningApplication
+            .runningApplications(withBundleIdentifier: bundleId)
+            .first?.localizedName ?? bundleId
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Suggesting \(tone.displayLabel) tone for \(appName)")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                Text("Keep or dismiss")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.65))
+            }
+            Spacer(minLength: 0)
+            Button(action: { AppState.shared.onSuggestionKeep?() }) {
+                Text("Keep")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color.accentColor)
+                    )
+            }
+            .buttonStyle(PressableStyle())
+            Button(action: { AppState.shared.onSuggestionDismiss?() }) {
+                Text("Dismiss")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.75))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+            }
+            .buttonStyle(PressableStyle())
+        }
+        .padding(.horizontal, 14)
     }
 
     /// Smoothed audio level — average of the level buffer. The buffer is

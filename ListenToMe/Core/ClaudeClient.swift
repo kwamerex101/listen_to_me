@@ -45,7 +45,25 @@ struct ClaudeClient {
 
     /// Spawns `claude --print --bare ...` and feeds the transcript on stdin.
     /// Returns the cleaned text (already passed through `sanitize`).
-    func clean(_ text: String, timeout: TimeInterval = 20) async throws -> String {
+    ///
+    /// `bundleId` (Phase 4) opts the call into per-app tone tuning. When set
+    /// AND `StyleStore.promptHint(for:)` returns non-nil, the per-tone STYLE
+    /// NOTE is PREPENDED above `cleanupSystemPrompt` (HARD RULES section
+    /// untouched). When nil or no hint exists, the default prompt is used —
+    /// preserving exact pre-0.10.0 behavior at every existing call site.
+    func clean(_ text: String,
+               bundleId: String? = nil,
+               timeout: TimeInterval = 20) async throws -> String {
+        // Build effective system prompt on the MainActor (StyleStore.shared
+        // is @MainActor-isolated). Falls back to the default cleanup prompt
+        // when no bundleId is provided or no hint is available.
+        let systemPrompt: String = await MainActor.run {
+            guard let bundleId, let hint = StyleStore.shared.promptHint(for: bundleId) else {
+                return Self.cleanupSystemPrompt
+            }
+            return hint + "\n\n" + Self.cleanupSystemPrompt
+        }
+
         // NOTE: deliberately NOT passing `--bare` — bare mode requires
         // ANTHROPIC_API_KEY (it ignores OAuth/keychain). The whole point of
         // shelling out to `claude` is to reuse the user's Claude Code
@@ -58,7 +76,7 @@ struct ClaudeClient {
                 "--disable-slash-commands",
                 "--model", "haiku",
                 "--output-format", "text",
-                "--append-system-prompt", Self.cleanupSystemPrompt,
+                "--append-system-prompt", systemPrompt,
             ],
             timeout: timeout
         )
