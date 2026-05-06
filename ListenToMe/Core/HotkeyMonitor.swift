@@ -9,12 +9,22 @@ final class HotkeyMonitor {
 
     var onPress: (() -> Void)?
     var onRelease: (() -> Void)?
+    /// CORR-01: Fires when the user taps the hotkey briefly (press +
+    /// release within `shortTapWindow`). AppDelegate uses this to open
+    /// the correction popover without needing a click on the pill.
+    var onShortTap: (() -> Void)?
 
     private(set) var isActive: Bool = false
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var isDown = false
+    private var pressedAt: Date?
     private var retryTimer: Timer?
+
+    /// Maximum hold-time that still counts as a short tap. Above this, the
+    /// gesture is a normal press-and-hold dictation. 220ms is comfortably
+    /// above accidental brushes but below any deliberate hold.
+    private let shortTapWindow: TimeInterval = 0.22
 
     private init() {}
 
@@ -85,15 +95,23 @@ final class HotkeyMonitor {
     }
 
     /// Modifier-combo detection driven by the user-selected binding.
+    /// Tracks press timestamp so a release within `shortTapWindow` can
+    /// dispatch `onShortTap` instead of (or in addition to) `onRelease`.
     private func handle(event: CGEvent) {
         let combo = Preferences.shared.hotkeyBinding.matches(flags: event.flags)
 
         if combo && !isDown {
             isDown = true
+            pressedAt = Date()
             onPress?()
         } else if !combo && isDown {
             isDown = false
+            let pressed = pressedAt
+            pressedAt = nil
             onRelease?()
+            if let pressed, Date().timeIntervalSince(pressed) <= shortTapWindow {
+                onShortTap?()
+            }
         }
     }
 
