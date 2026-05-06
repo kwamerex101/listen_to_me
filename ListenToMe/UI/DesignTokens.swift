@@ -122,6 +122,16 @@ enum DT {
     /// Sidebar widths.
     static let sidebarRegularWidth: CGFloat = 230
     static let sidebarCompactWidth: CGFloat = 64
+
+    /// Cap a page's content column at this width on ultra-wide windows so
+    /// the dashboard reads as a focused layout instead of sprawling. The
+    /// outer ScrollView still fills the window; only the content column
+    /// is bounded.
+    static let pageMaxWidth: CGFloat = 1320
+
+    /// Equal-height KPI tile minimum so the three top cards always line up
+    /// regardless of which one's contents are the tallest.
+    static let kpiTileMinHeight: CGFloat = 200
 }
 
 /// View-environment helper for size class. Anywhere downstream of MainView

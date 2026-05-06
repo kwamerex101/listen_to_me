@@ -22,6 +22,11 @@ struct HomeView: View {
             .padding(.top, 60)
             .padding(.horizontal, isNarrow ? DT.space6 : DT.space10)
             .padding(.bottom, DT.space10)
+            // Cap the content width on very wide screens so the page reads
+            // as a focused dashboard instead of stretching infinitely. The
+            // outer ScrollView still fills the window; only the content
+            // column has a max width.
+            .frame(maxWidth: DT.pageMaxWidth, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -130,6 +135,9 @@ struct HomeView: View {
                     totalWordsCard
                     streakCard
                 }
+                // Force every tile in the row to the tallest tile's height
+                // so the gauge, sparkline, and streak cells all line up.
+                .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -152,11 +160,12 @@ struct HomeView: View {
             Text("\(wpm)")
                 .font(DT.statNumber)
 
+            // Gauge fills the rest of the card so all three KPI tiles end
+            // up the same height in the row.
             ZStack {
                 GaugeArc(value: wpmGaugeValue, tint: .teal)
-                    .frame(height: 80)
                 VStack(spacing: 0) {
-                    Spacer().frame(height: 22)
+                    Spacer().frame(height: 28)
                     Text(percentileLabel(for: wpm))
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
@@ -164,14 +173,16 @@ struct HomeView: View {
                         .font(.system(size: 18, weight: .bold))
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: DT.kpiTileMinHeight, alignment: .topLeading)
         .padding(DT.space5)
         .card()
     }
 
     /// Total words tile — large number + week-over-week growth chip if
-    /// there's enough data, plus a tiny daily-word-count sparkline.
+    /// there's enough data, plus a daily-word-count sparkline that fills
+    /// the rest of the card so it lines up with the WPM gauge.
     private var totalWordsCard: some View {
         let metrics = history.dailyMetrics(lastDays: 14)
         let growth = history.weekOverWeekGrowth
@@ -193,19 +204,30 @@ struct HomeView: View {
             Text(formatBigNumber(history.totalWords))
                 .font(DT.statNumber)
 
+            Text("Last 14 days")
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
+                .padding(.top, DT.space1)
+
+            // Sparkline fills the remaining height so this tile matches
+            // the WPM card's vertical extent.
             Sparkline(values: metrics.map { Double($0.words) }, tint: DT.accent)
-                .frame(height: 36)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: DT.kpiTileMinHeight, alignment: .topLeading)
         .padding(DT.space5)
         .card()
     }
 
-    /// Streak tile — current count + a row of 7 day-cells that visually
-    /// represent the past week (filled flame for active, dim cell for not).
+    /// Streak tile — current count + the past week as day-cells + a
+    /// "this week" total below to fill the card and balance with the
+    /// other KPIs.
     private var streakCard: some View {
         let week = Array(history.dailyMetrics(lastDays: 7))
         let streak = history.dayStreak
+        let activeThisWeek = week.filter { $0.isActive }.count
+        let wordsThisWeek = week.reduce(0) { $0 + $1.words }
+
         return VStack(alignment: .leading, spacing: DT.space3) {
             HStack(spacing: 6) {
                 Image(systemName: "flame.fill")
@@ -225,42 +247,91 @@ struct HomeView: View {
                     .foregroundStyle(.secondary)
             }
 
-            HStack(spacing: 4) {
-                ForEach(week.indices, id: \.self) { i in
-                    let active = week[i].isActive
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        .fill(active ? Color.orange.opacity(0.85) : DT.surfaceElevated)
-                        .frame(width: 18, height: 28)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                .strokeBorder(DT.separator, lineWidth: 0.5)
-                        )
+            // Past 7 days as day-cells (filled when active). Cells expand
+            // horizontally so the row spans the card.
+            GeometryReader { geo in
+                let count = week.count
+                let gap: CGFloat = 6
+                let totalGap = gap * CGFloat(max(count - 1, 0))
+                let cellW = max(12, (geo.size.width - totalGap) / CGFloat(max(count, 1)))
+                HStack(spacing: gap) {
+                    ForEach(week.indices, id: \.self) { i in
+                        let active = week[i].isActive
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .fill(active ? Color.orange.opacity(0.85) : DT.surfaceElevated)
+                            .frame(width: cellW, height: 30)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                    .strokeBorder(DT.separator, lineWidth: 0.5)
+                            )
+                    }
                 }
+            }
+            .frame(height: 30)
+
+            Spacer(minLength: 0)
+
+            // Footer row — fills remaining vertical space and gives the
+            // tile body a balanced bottom edge.
+            HStack(spacing: DT.space4) {
+                metricChip(
+                    label: "this week",
+                    value: "\(activeThisWeek)/7 days"
+                )
+                metricChip(
+                    label: "words 7d",
+                    value: formatBigNumber(wordsThisWeek)
+                )
                 Spacer(minLength: 0)
             }
-            .padding(.top, DT.space1)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: DT.kpiTileMinHeight, alignment: .topLeading)
         .padding(DT.space5)
         .card()
+    }
+
+    /// Small label/value chip used in the streak tile footer.
+    private func metricChip(label: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label.uppercased())
+                .font(.system(size: 9, weight: .semibold))
+                .tracking(0.5)
+                .foregroundStyle(.tertiary)
+            Text(value)
+                .font(DT.captionStrong.monospacedDigit())
+                .foregroundStyle(.primary)
+        }
     }
 
     // MARK: - Heatmap card (GitHub-style)
 
     private var heatmapCard: some View {
-        VStack(alignment: .leading, spacing: DT.space4) {
+        // Show more weeks on wider windows so the heatmap genuinely fills
+        // the card. 12 at compact, up to 26 at the widest.
+        let weeks: Int = {
+            switch windowWidth {
+            case ..<DT.compactBreakpoint: return 12
+            case ..<1100:                 return 16
+            case ..<1320:                 return 20
+            default:                      return 26
+            }
+        }()
+
+        return VStack(alignment: .leading, spacing: DT.space4) {
             HStack(alignment: .firstTextBaseline) {
                 Text("Activity")
                     .font(DT.sectionTitle)
                 Spacer()
-                Text("LAST 12 WEEKS")
+                Text("LAST \(weeks) WEEKS")
                     .font(DT.eyebrow)
                     .tracking(0.6)
                     .foregroundStyle(.secondary)
             }
 
-            ActivityHeatmap(metrics: history.heatmapMetrics(weeks: 12))
-                .frame(height: 130)
+            // The heatmap sizes its own cells based on the available width
+            // (see ActivityHeatmap GeometryReader) so it fills horizontally.
+            ActivityHeatmap(metrics: history.heatmapMetrics(weeks: weeks), weeks: weeks)
+                .frame(maxWidth: .infinity)
 
             HStack(spacing: 6) {
                 Text("Less")
@@ -473,13 +544,11 @@ private struct Sparkline: View {
 
 /// GitHub-style activity heatmap. Each column is one week (Sunday at the
 /// top, Saturday at the bottom); each row is a day-of-week. Cells are
-/// coloured by intensity (word count relative to the top observed value).
+/// coloured by intensity (word count relative to the top observed value),
+/// and SIZE responsively to fill the available card width.
 struct ActivityHeatmap: View {
     let metrics: [HistoryStore.DailyMetric]
-
-    /// Cell size + spacing kept compact so 12 weeks fits on narrow widths.
-    private let cell: CGFloat = 14
-    private let gap: CGFloat = 4
+    let weeks: Int
 
     /// Map a 0..1 intensity to a discrete colour bucket (4 visible levels +
     /// neutral). Mirrors GitHub's contribution graph palette but in our
@@ -494,44 +563,60 @@ struct ActivityHeatmap: View {
         }
     }
 
+    /// Day-of-week labels column width. Kept narrow so most of the card
+    /// is the actual heatmap.
+    private let labelColumnWidth: CGFloat = 28
+    private let gap: CGFloat = 4
+
     var body: some View {
-        let columns = weekColumns()
-        let topWords = max(1, metrics.map { $0.words }.max() ?? 1)
-        let cal = Calendar.current
+        GeometryReader { geo in
+            // Lay out by computing a single cell size that fills the
+            // available width given `weeks` columns + the label gutter.
+            let availableW = geo.size.width - labelColumnWidth
+            let totalGap = gap * CGFloat(max(weeks - 1, 0))
+            let cell = max(10, min(28, (availableW - totalGap) / CGFloat(max(weeks, 1))))
 
-        VStack(alignment: .leading, spacing: gap) {
-            ForEach(0..<7, id: \.self) { rowIdx in
-                HStack(spacing: gap) {
-                    // Day-of-week label every other row to save space.
-                    Text(rowIdx % 2 == 0 ? Self.dayLabel(rowIdx) : "")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.tertiary)
-                        .frame(width: 22, alignment: .leading)
+            let columns = weekColumns()
+            let topWords = max(1, metrics.map { $0.words }.max() ?? 1)
+            let cal = Calendar.current
 
-                    ForEach(columns.indices, id: \.self) { colIdx in
-                        let col = columns[colIdx]
-                        if rowIdx < col.count {
-                            let day = col[rowIdx]
-                            let intensity = Double(day.words) / Double(topWords)
-                            let isToday = cal.isDateInToday(day.date)
-                            RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                .fill(Self.color(forIntensity: intensity))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                        .strokeBorder(
-                                            isToday ? Color.orange : DT.separator,
-                                            lineWidth: isToday ? 1.5 : 0.5
-                                        )
-                                )
-                                .frame(width: cell, height: cell)
-                                .help("\(formattedDate(day.date)) — \(day.words) words")
-                        } else {
-                            Color.clear.frame(width: cell, height: cell)
+            VStack(alignment: .leading, spacing: gap) {
+                ForEach(0..<7, id: \.self) { rowIdx in
+                    HStack(spacing: gap) {
+                        Text(rowIdx % 2 == 1 ? Self.dayLabel(rowIdx) : "")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.tertiary)
+                            .frame(width: labelColumnWidth - gap, alignment: .leading)
+
+                        ForEach(columns.indices, id: \.self) { colIdx in
+                            let col = columns[colIdx]
+                            if rowIdx < col.count {
+                                let day = col[rowIdx]
+                                let intensity = Double(day.words) / Double(topWords)
+                                let isToday = cal.isDateInToday(day.date)
+                                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                    .fill(Self.color(forIntensity: intensity))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                            .strokeBorder(
+                                                isToday ? Color.orange : DT.separator,
+                                                lineWidth: isToday ? 1.5 : 0.5
+                                            )
+                                    )
+                                    .frame(width: cell, height: cell)
+                                    .help("\(formattedDate(day.date)) — \(day.words) words")
+                            } else {
+                                Color.clear.frame(width: cell, height: cell)
+                            }
                         }
                     }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        // Heatmap height = 7 rows × cell + 6 gaps. Compute a sensible
+        // intrinsic height so the card doesn't collapse to zero.
+        .frame(height: 7 * 22 + 6 * gap)
     }
 
     /// Slice the metric series into columns of length 7 (one per week),
