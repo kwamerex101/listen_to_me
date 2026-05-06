@@ -76,6 +76,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AudioRecorder.shared.onLevel = { [weak self] level in
             self?.state.level = level
         }
+        // QUAL-03: when the watchdog fires, treat as a normal release so
+        // the pipeline finishes the dictation cleanly — better than just
+        // dropping the audio.
+        AudioRecorder.shared.onMaxDurationReached = { [weak self] in
+            guard case .recording = self?.state.phase else { return }
+            self?.handleRelease()
+        }
 
         // Wire hotkey
         HotkeyMonitor.shared.onPress = { [weak self] in self?.handlePress() }
@@ -276,7 +283,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         cleanupTask?.cancel()
         cleanupTask = Task { [weak self] in
             do {
-                let cleaned = try await ClaudeClient.shared.clean(expanded, bundleId: token.bundleId)
+                let timeout = TimeInterval(Preferences.shared.cleanupTimeoutSec)
+                let cleaned = try await ClaudeClient.shared.clean(
+                    expanded,
+                    bundleId: token.bundleId,
+                    timeout: timeout
+                )
                 try Task.checkCancellation()
                 await MainActor.run {
                     guard let self else { return }
