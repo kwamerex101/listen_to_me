@@ -54,6 +54,9 @@ struct MainView: View {
                 case .settings: SettingsView()
                 }
             }
+            .id(selection)                                  // forces identity transition
+            .transition(.opacity)                           // cross-fade
+            .animation(Motion.tabFade, value: selection)    // 200ms easeInOut (content only — sidebar stays static)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(.windowBackgroundColor))
         }

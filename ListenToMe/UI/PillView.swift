@@ -1,27 +1,5 @@
 import SwiftUI
 
-/// Centralised motion vocabulary. Tuning the feel of the pill happens here.
-private enum Motion {
-    /// Size morphs (width/height) between phases. Snappy but never overshoots.
-    static let phaseSize  = Animation.spring(response: 0.34, dampingFraction: 0.78)
-    /// Content swap (id transition). Slightly looser to let the new content
-    /// land with a touch of life without bouncing.
-    static let phaseSwap  = Animation.spring(response: 0.40, dampingFraction: 0.72)
-    /// Press-pop scale beat when recording starts.
-    static let pressUp    = Animation.spring(response: 0.18, dampingFraction: 0.55)
-    static let pressDown  = Animation.spring(response: 0.32, dampingFraction: 0.55)
-    /// Success spring for the checkmark scale-in.
-    static let successPop = Animation.spring(response: 0.32, dampingFraction: 0.55)
-    /// Halo expand-and-fade after a successful paste.
-    static let halo       = Animation.easeOut(duration: 0.45)
-    /// Error shake — mirrors macOS's native NSWindow.shake feel.
-    static let shake      = Animation.easeInOut(duration: 0.45)
-    /// Idle breath (autoreversing) — long enough to fade into background.
-    static let idleBreath = Animation.easeInOut(duration: 1.6).repeatForever(autoreverses: true)
-    /// Stop-button reactive scale to live audio level.
-    static let stopReact  = Animation.spring(response: 0.18, dampingFraction: 0.7)
-}
-
 /// Horizontal-translation shake for the error state. Standard SwiftUI
 /// recipe — animates `animatableData` and emits a sin-wave displacement.
 private struct Shake: GeometryEffect {
