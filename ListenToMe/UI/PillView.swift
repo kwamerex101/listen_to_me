@@ -1,27 +1,5 @@
 import SwiftUI
 
-/// Centralised motion vocabulary. Tuning the feel of the pill happens here.
-private enum Motion {
-    /// Size morphs (width/height) between phases. Snappy but never overshoots.
-    static let phaseSize  = Animation.spring(response: 0.34, dampingFraction: 0.78)
-    /// Content swap (id transition). Slightly looser to let the new content
-    /// land with a touch of life without bouncing.
-    static let phaseSwap  = Animation.spring(response: 0.40, dampingFraction: 0.72)
-    /// Press-pop scale beat when recording starts.
-    static let pressUp    = Animation.spring(response: 0.18, dampingFraction: 0.55)
-    static let pressDown  = Animation.spring(response: 0.32, dampingFraction: 0.55)
-    /// Success spring for the checkmark scale-in.
-    static let successPop = Animation.spring(response: 0.32, dampingFraction: 0.55)
-    /// Halo expand-and-fade after a successful paste.
-    static let halo       = Animation.easeOut(duration: 0.45)
-    /// Error shake — mirrors macOS's native NSWindow.shake feel.
-    static let shake      = Animation.easeInOut(duration: 0.45)
-    /// Idle breath (autoreversing) — long enough to fade into background.
-    static let idleBreath = Animation.easeInOut(duration: 1.6).repeatForever(autoreverses: true)
-    /// Stop-button reactive scale to live audio level.
-    static let stopReact  = Animation.spring(response: 0.18, dampingFraction: 0.7)
-}
-
 /// Horizontal-translation shake for the error state. Standard SwiftUI
 /// recipe — animates `animatableData` and emits a sin-wave displacement.
 private struct Shake: GeometryEffect {
@@ -61,6 +39,24 @@ struct PillView: View {
     @State private var exhaleY: CGFloat = 0
     @State private var exhaleOpacity: Double = 1
 
+    // Silence-dim (POLISH-04a) — fade waveform after sustained quiet,
+    // wake instantly on speech return. Replaces (does not stack on) the
+    // level-reactive scale, honouring the perf-budget cap of 2 concurrent
+    // infinite springs (heartbeat + record-pulse).
+    @State private var silenceTimer: Timer?
+    @State private var silenceDimmed: Bool = false
+
+    // Promotion-flash (POLISH-04c) — gold ring overlay fired when the
+    // dictionary auto-promotes (or the user manually accepts) a candidate.
+    @State private var promotionScale: CGFloat = 0.6
+    @State private var promotionOpacity: Double = 0.0
+
+    // Hover lift — cursor over the pill triggers a subtle scale, border,
+    // and shadow bump so the pill feels reactive even when not in a
+    // click-bearing phase.
+    @State private var hovered: Bool = false
+
+
     var body: some View {
         VStack(spacing: 0) {
             Spacer(minLength: 0)
@@ -71,26 +67,40 @@ struct PillView: View {
                 .offset(y: exhaleY)
                 .modifier(Shake(animatableData: shakeTrigger))
                 .contentShape(Rectangle())
+                .onHover { hovered = $0 }
                 .onTapGesture {
                     if isPillTappable { state.onPillTap?() }
                 }
                 .animation(Motion.phaseSize, value: pillWidth)
                 .animation(Motion.phaseSize, value: pillHeight)
                 .animation(Motion.phaseSwap, value: visualID)
+                .animation(Motion.hoverLift, value: hovered)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         .onChange(of: state.level) { _, newValue in
             levelBuffer.removeFirst()
             levelBuffer.append(newValue)
+            updateSilenceState()
         }
         .onChange(of: phaseID) { _, _ in
             handlePhaseChange()
+        }
+        .onChange(of: state.flashPromotion) { _, isFlashing in
+            triggerPromotionFlash(if: isFlashing)
         }
     }
 
     // MARK: - Phase-driven motion triggers
 
     private func handlePhaseChange() {
+        // Always clear any silence-dim state when leaving recording —
+        // mitigates T-05-03 (timer leak on phase exit).
+        if state.phase != .recording {
+            silenceTimer?.invalidate()
+            silenceTimer = nil
+            silenceDimmed = false
+        }
+
         switch state.phase {
         case .recording:
             levelBuffer = Array(repeating: 0, count: 16)
@@ -110,6 +120,60 @@ struct PillView: View {
             cancelExhale()
         }
     }
+
+    // MARK: - Promotion flash (POLISH-04c)
+
+    private func triggerPromotionFlash(if isFlashing: Bool) {
+        guard isFlashing else { return }
+        // Snap to start state (no animation), then animate to faded-out
+        // larger ring. Mirrors the success-halo shape — sibling overlay.
+        promotionScale = 0.6
+        promotionOpacity = 1.0
+        withAnimation(Motion.promotionFlash) {
+            promotionScale = 1.4
+            promotionOpacity = 0.0
+        }
+    }
+
+    // MARK: - Silence-dim (POLISH-04a / Wispr W4)
+
+    /// Smoothed, unsigned RMS over the most recent buffer slice. Mirrors
+    /// `smoothedLevel` but bounded to the tail so it tracks live silence.
+    private var silenceSmoothed: Float {
+        let tail = levelBuffer.suffix(8)
+        guard !tail.isEmpty else { return 0 }
+        return tail.reduce(0, +) / Float(tail.count)
+    }
+
+    private func updateSilenceState() {
+        guard state.phase == .recording else { return }
+        let smoothed = silenceSmoothed
+
+        if smoothed < 0.02 {
+            // Sustained quiet — arm the dim timer (5s) if not already running
+            // and not already dimmed.
+            if !silenceDimmed, silenceTimer == nil {
+                silenceTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: false) { _ in
+                    Task { @MainActor in
+                        withAnimation(Motion.silenceDim) {
+                            silenceDimmed = true
+                        }
+                        silenceTimer = nil
+                    }
+                }
+            }
+        } else if smoothed > 0.05 {
+            // Speech is back — wake instantly, cancel any pending dim.
+            silenceTimer?.invalidate()
+            silenceTimer = nil
+            if silenceDimmed {
+                withAnimation(Motion.silenceWake) {
+                    silenceDimmed = false
+                }
+            }
+        }
+    }
+
 
     private func triggerPressPop() {
         withAnimation(Motion.pressUp) { pressPop = 1.06 }
@@ -150,10 +214,12 @@ struct PillView: View {
 
     // MARK: - Pill body
 
-    /// Composite scale from press-pop and idle breath.
+    /// Composite scale from press-pop, idle breath, and hover lift.
+    /// Hover bump is small (≤4%) so it reads as "alive" rather than "expanding".
     private var rootScale: CGFloat {
         let breathFactor: CGFloat = (isIdleAndCalm && idleBreathOn) ? 0.97 : 1.0
-        return pressPop * breathFactor
+        let hoverFactor:  CGFloat = hovered ? 1.04 : 1.0
+        return pressPop * breathFactor * hoverFactor
     }
 
     private var pill: some View {
@@ -169,7 +235,34 @@ struct PillView: View {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(Color.white.opacity(borderOpacity), lineWidth: 1)
             )
-            .shadow(color: .black.opacity(0.5), radius: isCompact ? 6 : 16, x: 0, y: isCompact ? 3 : 8)
+            // POLISH-04(c) — gold promotion-flash ring (sibling to success halo).
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(
+                        LinearGradient(
+                            colors: [Color(red: 1.0, green: 0.84, blue: 0.0),    // gold
+                                     Color(red: 1.0, green: 0.65, blue: 0.0)],   // amber
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 2
+                    )
+                    .scaleEffect(promotionScale)
+                    .opacity(promotionOpacity)
+                    .allowsHitTesting(false)
+            )
+            // Layered shadow: a crisp inner edge that defines the pill against
+            // light backgrounds, plus an ambient cloud that gives depth. Hover
+            // intensifies the ambient layer so the pill visibly "lifts".
+            .shadow(color: .black.opacity(0.28), radius: 1.0, x: 0, y: 0.5)
+            .shadow(
+                color: .black.opacity(hovered ? 0.62 : 0.46),
+                radius: isCompact ? (hovered ? 14 :  9)
+                                  : (hovered ? 26 : 19),
+                x: 0,
+                y: isCompact ? (hovered ?  7 :  4)
+                             : (hovered ? 14 : 10)
+            )
             .padding(.bottom, 4)
             .onAppear {
                 // Both breath axes share one timeline so they stay in phase.
@@ -193,11 +286,15 @@ struct PillView: View {
     }
 
     /// Border opacity tracks the idle breath but stays visible elsewhere.
+    /// Hover adds a small bump so the edge crispens when the cursor enters.
     private var borderOpacity: Double {
+        let base: Double
         if isIdleAndCalm {
-            return idleBreathOn ? 0.6 : 0.3
+            base = idleBreathOn ? 0.6 : 0.3
+        } else {
+            base = 0.45
         }
-        return 0.45
+        return min(base + (hovered ? 0.25 : 0), 0.95)
     }
 
     // MARK: - Sizing
@@ -310,8 +407,17 @@ struct PillView: View {
                 }
                 .buttonStyle(PressableStyle())
 
-                CompactWaveformView(levels: levelBuffer)
-                    .frame(maxWidth: .infinity)
+                ZStack {
+                    CompactWaveformView(levels: levelBuffer)
+                        .opacity(silenceDimmed ? 0.4 : 1.0)
+                    if silenceDimmed {
+                        Image(systemName: "mic.slash")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.7))
+                            .transition(.opacity.combined(with: .scale))
+                    }
+                }
+                .frame(maxWidth: .infinity)
 
                 Button(action: { AppState.shared.onStopTap?() }) {
                     ZStack {

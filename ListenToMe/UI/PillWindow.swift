@@ -38,7 +38,11 @@ final class PillWindow: NSPanel {
         hasShadow = false           // SwiftUI renders its own shadow
         backgroundColor = .clear
         isOpaque = false
-        ignoresMouseEvents = true
+        // We let mouse events through to the SwiftUI host so .onHover fires
+        // on the pill itself (Phase 5 hover lift). Click-through cost is
+        // negligible at 48×12 idle. setInteractive() remains for callers
+        // that want to flip click semantics; hover is always live.
+        ignoresMouseEvents = false
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
 
         let host = NSHostingView(rootView: PillView())

@@ -63,7 +63,7 @@ struct TransformsView: View {
                                 .fill(Color.primary.opacity(0.12))
                         )
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.pressable)
                 .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty
                           || newPrompt.trimmingCharacters(in: .whitespaces).isEmpty)
             }
@@ -115,10 +115,11 @@ struct TransformsView: View {
                 Image(systemName: "xmark.circle.fill")
                     .foregroundStyle(.secondary)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.pressable)
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
+        .hoverableRow()
     }
 
     private func commit() {

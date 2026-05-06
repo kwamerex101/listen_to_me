@@ -35,7 +35,7 @@ struct ScratchpadView: View {
                 }
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
-                .buttonStyle(.plain)
+                .buttonStyle(.pressable)
                 .disabled(store.text.isEmpty)
             }
         }

@@ -10,48 +10,41 @@ struct StyleView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                header
+            VStack(alignment: .leading, spacing: DT.space6) {
+                PageHeader(
+                    title: "Style",
+                    subtitle: "ListenToMe learns how you write into each app and adjusts cleanup automatically. After 20 dictations into the same app, a tone is inferred. Keep what fits; revert any that do not.",
+                    icon: "textformat",
+                    iconTint: .indigo
+                )
+
                 if store.entries.isEmpty {
-                    emptyState
+                    EmptyState(
+                        icon: "wand.and.stars",
+                        title: "No tone inferred yet",
+                        subtitle: "Keep dictating — once any app has 20+ dictations, the inferred tone for that app will appear here."
+                    )
                 } else {
                     list
                 }
             }
-            .padding(20)
+            .padding(.top, 60)
+            .padding(.horizontal, DT.space10)
+            .padding(.bottom, DT.space10)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-    }
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Style")
-                .font(.system(size: 22, weight: .semibold))
-            Text("ListenToMe learns how you write into each app and adjusts cleanup automatically. After 20 dictations into the same app, a tone is inferred. Keep what fits; revert any that do not.")
-                .font(.system(size: 13))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    private var emptyState: some View {
-        Text("No tone inferred yet. Keep dictating — once any app has 20+ dictations, an inferred tone will appear here.")
-            .font(.system(size: 13))
-            .foregroundStyle(.secondary)
-            .padding(.vertical, 12)
     }
 
     private var list: some View {
         VStack(spacing: 0) {
             ForEach(store.entries) { entry in
                 row(entry)
-                Divider()
+                if entry.id != store.entries.last?.id {
+                    Divider().background(DT.separator)
+                }
             }
         }
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
-        )
+        .card()
     }
 
     private func row(_ entry: StyleEntry) -> some View {
@@ -59,44 +52,73 @@ struct StyleView: View {
             .runningApplications(withBundleIdentifier: entry.bundleId)
             .first?.localizedName ?? entry.bundleId
         let count = samples.count(for: entry.bundleId)
-        return HStack(spacing: 10) {
+
+        return HStack(alignment: .center, spacing: DT.space4) {
+            // App identity column
             VStack(alignment: .leading, spacing: 2) {
                 Text(appName)
-                    .font(.system(size: 14, weight: .medium))
+                    .font(DT.bodyStrong)
                 Text(entry.bundleId)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
+            .frame(maxWidth: 220, alignment: .leading)
+
             Spacer()
-            Text("inferred: \(entry.inferredTone.displayLabel)")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
+
+            // Inferred tone pill (always visible)
+            tonePill(label: "inferred", value: entry.inferredTone.displayLabel, tint: .secondary)
+
+            // Accepted tone pill (only when set, more prominent — accent)
             if let accepted = entry.acceptedTone {
-                Text("accepted: \(accepted.displayLabel)")
-                    .font(.system(size: 12, weight: .medium))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(Color.accentColor.opacity(0.18))
-                    )
+                tonePill(label: "accepted", value: accepted.displayLabel, tint: DT.accent, prominent: true)
             }
+
+            // Sample count
             Text("\(count) samples")
-                .font(.system(size: 11).monospacedDigit())
-                .foregroundStyle(.secondary)
+                .font(DT.monoCaption)
+                .foregroundStyle(.tertiary)
+                .padding(.horizontal, DT.space2)
+
+            // Revert button
             if entry.acceptedTone != nil {
                 Button("Revert") { store.revert(bundleId: entry.bundleId) }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 12))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .strokeBorder(Color.primary.opacity(0.20))
-                    )
+                    .buttonStyle(.secondary)
+                    .controlSize(.small)
             }
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 12)
+        .padding(.horizontal, DT.space5)
+        .padding(.vertical, DT.space4)
+        .hoverableRow(cornerRadius: 0)
+    }
+
+    /// Compact label pill — `label` in muted small caps + `value` styled by
+    /// the tint. Used for both inferred (secondary) and accepted (accent).
+    @ViewBuilder
+    private func tonePill(
+        label: String,
+        value: String,
+        tint: Color,
+        prominent: Bool = false
+    ) -> some View {
+        HStack(spacing: 4) {
+            Text(label.uppercased())
+                .font(.system(size: 9, weight: .semibold))
+                .tracking(0.5)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(DT.captionStrong)
+                .foregroundStyle(prominent ? tint : .primary)
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 4)
+        .background(
+            Capsule()
+                .fill(prominent ? tint.opacity(0.14) : DT.surfaceCard)
+        )
+        .overlay(
+            Capsule()
+                .strokeBorder(prominent ? tint.opacity(0.30) : DT.separator, lineWidth: 0.5)
+        )
     }
 }

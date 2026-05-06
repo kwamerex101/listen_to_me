@@ -6,6 +6,8 @@ struct SettingsView: View {
     @State private var accessibilityGranted: Bool = HotkeyMonitor.isAccessibilityGranted()
     @State private var hotkey: HotkeyBinding = Preferences.shared.hotkeyBinding
     @State private var soundEnabled: Bool = Preferences.shared.soundEnabled
+    @State private var appearance: AppearanceMode = Preferences.shared.appearance
+    @ObservedObject private var modelManager = WhisperModelManager.shared
 
     /// Reads the version straight from the bundle so future bumps don't
     /// require touching this view.
@@ -19,9 +21,13 @@ struct SettingsView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
-                Text("Settings")
-                    .font(.system(size: 24, weight: .semibold))
+            VStack(alignment: .leading, spacing: DT.space6) {
+                PageHeader(
+                    title: "Settings",
+                    subtitle: nil,
+                    icon: "gearshape",
+                    iconTint: .gray
+                )
 
                 section(title: "Shortcuts") {
                     row(label: "Dictation hotkey") {
@@ -63,6 +69,28 @@ struct SettingsView: View {
                     }
                 }
 
+                section(title: "Appearance") {
+                    row(label: "Theme") {
+                        Picker("", selection: $appearance) {
+                            ForEach(AppearanceMode.allCases, id: \.self) { mode in
+                                Text(mode.label).tag(mode)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                        .onChange(of: appearance) { _, new in
+                            Preferences.shared.appearance = new
+                        }
+                    }
+                }
+
+                section(title: "Whisper Model") {
+                    row(label: "Local model") {
+                        modelStatusView
+                    }
+                    .hoverableRow()
+                }
+
                 section(title: "System") {
                     row(label: "Launch at login") {
                         Toggle("", isOn: $launchAtLogin)
@@ -84,9 +112,11 @@ struct SettingsView: View {
                                         NSWorkspace.shared.open(url)
                                     }
                                 }
+                                .buttonStyle(.pressable)
                             }
                         }
                     }
+                    .hoverableRow()   // only this Settings row is interactive (Grant…)
                     row(label: "Microphone") {
                         Text("Built-in microphone")
                             .font(.system(size: 13))
@@ -117,25 +147,68 @@ struct SettingsView: View {
             cleanupMode = Preferences.shared.cleanupMode
             hotkey = Preferences.shared.hotkeyBinding
             soundEnabled = Preferences.shared.soundEnabled
+            appearance = Preferences.shared.appearance
+            modelManager.refreshStatus()
         }
+    }
+
+    /// Compact status view for the Whisper model row — branches on the
+    /// manager's current status (ready / missing / downloading / failed).
+    @ViewBuilder
+    private var modelStatusView: some View {
+        switch modelManager.status {
+        case .ready(let bytes):
+            HStack(spacing: 10) {
+                Text("Downloaded ✓ (\(formatBytes(bytes)))")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.green)
+            }
+        case .missing:
+            HStack(spacing: 10) {
+                Text("Not downloaded (~148 MB)")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.orange)
+                Button("Download") { modelManager.startDownload() }
+                    .buttonStyle(.pressable)
+            }
+        case .downloading(let progress):
+            HStack(spacing: 10) {
+                ProgressView(value: progress)
+                    .progressViewStyle(.linear)
+                    .frame(width: 110)
+                Text("\(Int(progress * 100))%")
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                Button("Cancel") { modelManager.cancelDownload() }
+                    .buttonStyle(.pressable)
+            }
+        case .failed(let message):
+            HStack(spacing: 10) {
+                Text("⚠ \(message)")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.red)
+                    .lineLimit(2)
+                Button("Retry") { modelManager.startDownload() }
+                    .buttonStyle(.pressable)
+            }
+        }
+    }
+
+    private func formatBytes(_ bytes: Int64) -> String {
+        let mb = Double(bytes) / 1_000_000
+        return String(format: "%.0f MB", mb)
     }
 
     private func section<Content: View>(
         title: String,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title.uppercased())
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .tracking(0.5)
+        VStack(alignment: .leading, spacing: DT.space2) {
+            SectionEyebrow(title: title)
             VStack(spacing: 0) {
                 content()
             }
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color.primary.opacity(0.05))
-            )
+            .card()
         }
     }
 
@@ -145,12 +218,12 @@ struct SettingsView: View {
     ) -> some View {
         HStack {
             Text(label)
-                .font(.system(size: 13))
+                .font(DT.body)
             Spacer()
             trailing()
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, DT.space4)
+        .padding(.vertical, DT.space3)
     }
 
     private func kbd(_ text: String) -> some View {

@@ -60,6 +60,31 @@ enum HotkeyBinding: String, CaseIterable {
     }
 }
 
+/// Theme override. `system` follows the macOS appearance; the others pin
+/// the app's NSAppearance regardless of system setting.
+enum AppearanceMode: String, CaseIterable {
+    case system, light, dark
+
+    var label: String {
+        switch self {
+        case .system: return "System"
+        case .light:  return "Light"
+        case .dark:   return "Dark"
+        }
+    }
+
+    /// Apply this preference to NSApp. `nil` lets each window inherit
+    /// the system appearance.
+    @MainActor
+    func apply() {
+        switch self {
+        case .system: NSApp.appearance = nil
+        case .light:  NSApp.appearance = NSAppearance(named: .aqua)
+        case .dark:   NSApp.appearance = NSAppearance(named: .darkAqua)
+        }
+    }
+}
+
 /// User preferences persisted in UserDefaults.
 final class Preferences {
     static let shared = Preferences()
@@ -68,6 +93,7 @@ final class Preferences {
     private let kCleanupMode = "wf.cleanupMode"
     private let kHotkeyBinding = "wf.hotkeyBinding"
     private let kSoundEnabled = "wf.soundEnabled"
+    private let kAppearance = "wf.appearance"
 
     private init() {
         if defaults.object(forKey: kCleanupMode) == nil {
@@ -78,6 +104,9 @@ final class Preferences {
         }
         if defaults.object(forKey: kSoundEnabled) == nil {
             defaults.set(true, forKey: kSoundEnabled)
+        }
+        if defaults.object(forKey: kAppearance) == nil {
+            defaults.set(AppearanceMode.system.rawValue, forKey: kAppearance)
         }
     }
 
@@ -103,6 +132,17 @@ final class Preferences {
     var soundEnabled: Bool {
         get { defaults.bool(forKey: kSoundEnabled) }
         set { defaults.set(newValue, forKey: kSoundEnabled) }
+    }
+
+    var appearance: AppearanceMode {
+        get {
+            let raw = defaults.string(forKey: kAppearance) ?? AppearanceMode.system.rawValue
+            return AppearanceMode(rawValue: raw) ?? .system
+        }
+        set {
+            defaults.set(newValue.rawValue, forKey: kAppearance)
+            Task { @MainActor in newValue.apply() }
+        }
     }
 }
 

@@ -36,6 +36,23 @@ final class AppState: ObservableObject {
     /// when cleanup is enabled but the binary is missing.
     @Published var claudeAvailable: Bool = true
 
+    /// One-shot trigger for the gold promotion-flash overlay (POLISH-04c).
+    /// Set true at the moment a dictionary candidate is auto-promoted at
+    /// runtime. Auto-resets to false 0.7s later so a re-arm during the
+    /// animation just restarts the cycle (T-05-01 accept). Do NOT set
+    /// from JSON rehydrate paths — flash is for live moments only
+    /// (T-05-02 mitigation; CandidateStore.load() does not call the
+    /// promotion path).
+    @Published var flashPromotion: Bool = false {
+        didSet {
+            guard flashPromotion else { return }
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 700_000_000)
+                self?.flashPromotion = false
+            }
+        }
+    }
+
     /// Called by the "Dictate now" button — same behavior as pressing the hotkey.
     var onStartTap: (() -> Void)?
     /// Called by pill's stop button — same behavior as releasing the hotkey.

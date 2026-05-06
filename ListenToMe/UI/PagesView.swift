@@ -26,7 +26,7 @@ struct PagesView: View {
                         .font(.system(size: 14))
                         .foregroundStyle(.primary)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.pressable)
                 .help("New page")
             }
             .padding(.horizontal, 20)
@@ -46,7 +46,7 @@ struct PagesView: View {
                         .foregroundStyle(.secondary)
                     Button("New Page", action: newPage)
                         .font(.system(size: 13, weight: .medium))
-                        .buttonStyle(.plain)
+                        .buttonStyle(.pressable)
                         .foregroundStyle(.primary)
                         .padding(.top, 4)
                 }
@@ -85,8 +85,9 @@ struct PagesView: View {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(selected ? Color.primary.opacity(0.09) : Color.clear)
             )
+            .hoverableRow()   // hover overlay paints on top of selection fill
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressable)
         .padding(.horizontal, 8)
         .padding(.vertical, 2)
         .contextMenu {
