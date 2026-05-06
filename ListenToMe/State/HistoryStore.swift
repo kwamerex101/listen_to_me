@@ -119,6 +119,46 @@ final class HistoryStore: ObservableObject {
         }
     }
 
+    /// Heatmap series — last `weeks` Sundays through today. Returns rows
+    /// indexed Sunday (0) … Saturday (6) so a `LazyHGrid` of 7 rows lays
+    /// out cleanly column-by-column (each column = one week).
+    func heatmapMetrics(weeks: Int = 12) -> [DailyMetric] {
+        let cal = Calendar.current
+        let todayStart = cal.startOfDay(for: Date())
+        let weekday = cal.component(.weekday, from: todayStart) - 1   // 0 = Sun
+        let totalDays = (weeks - 1) * 7 + weekday + 1
+        return dailyMetrics(lastDays: totalDays)
+    }
+
+    /// Growth: total words this rolling 7-day window vs. the prior 7-day
+    /// window. `nil` if the prior window had zero words (avoid divide-by-0
+    /// and "+∞%" UI artefacts).
+    var weekOverWeekGrowth: Double? {
+        let cal = Calendar.current
+        let todayStart = cal.startOfDay(for: Date())
+        guard let weekAgo = cal.date(byAdding: .day, value: -7, to: todayStart),
+              let twoWeeks = cal.date(byAdding: .day, value: -14, to: todayStart) else { return nil }
+        let usable = records.filter { !$0.dismissed }
+        let recent = usable.filter { $0.timestamp >= weekAgo }
+            .reduce(0) { $0 + $1.wordCount }
+        let prior  = usable.filter { $0.timestamp >= twoWeeks && $0.timestamp < weekAgo }
+            .reduce(0) { $0 + $1.wordCount }
+        guard prior > 0 else { return nil }
+        return (Double(recent) - Double(prior)) / Double(prior)
+    }
+
+    /// Personal-best 1-day word count over the entire history. Used to
+    /// compute the "Top X%" gauge label without external data.
+    var bestDayWords: Int {
+        let cal = Calendar.current
+        var byDay: [Date: Int] = [:]
+        for r in records where !r.dismissed {
+            let d = cal.startOfDay(for: r.timestamp)
+            byDay[d, default: 0] += r.wordCount
+        }
+        return byDay.values.max() ?? 0
+    }
+
     // MARK: - Persistence
 
     private func load() {
