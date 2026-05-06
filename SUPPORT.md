@@ -19,6 +19,37 @@ Run through this checklist first — it covers the most common setup problems:
 - [ ] Accessibility permission granted: System Settings → Privacy & Security → Accessibility
 - [ ] If using AI cleanup: the [Claude Code CLI](https://claude.com/claude-code) is installed and `claude` resolves on PATH (or Cleanup Mode is set to "Never")
 
+## v0.12.0 — Omnibus
+
+Continuous follow-on release packing four scopes:
+
+- **History v2** — `bundleId` now recorded per dictation; powers a new
+  "Where you dictate" card on Home that breaks down word count and
+  dictation count by target app over the last 30 days. History is
+  capped at 5,000 records with a debounced background save so the audio
+  pipeline never blocks on JSON encoding.
+- **Per-app activity card** — horizontal-bar breakdown with stable
+  per-app tints (hashed from bundleId, no persistence needed).
+- **Hidden prefs UI** — new "Advanced" section in Settings: max
+  recording duration (30–600s) and cleanup timeout (5–60s). The
+  AudioRecorder now auto-stops at the cap to defend against stuck
+  hotkeys.
+- **Correction popover** — multi-line `TextEditor` (Cmd+Return applies,
+  plain Return inserts a newline), plus a "Voice" button that records
+  speech and replaces the popover's text using the same Whisper /
+  voice-edit pipeline as the main flow.
+- **Short-tap hotkey** — tap the dictation hotkey briefly (under
+  220ms) to open the correction popover from the same eligible phases
+  as a pill click.
+- **Dictionary banner** — explicit guidance that auto-capture doesn't
+  work in Electron / web apps (Claude Desktop, Slack, Notion, VS
+  Code); manual entries still work everywhere.
+- **Pure-logic test target** — first XCTest target on the project,
+  with 26 tests pinning RetypeDiffer, VoiceEditor, ToneInferencer, and
+  SnippetsStore behaviour.
+- **Design polish** — softer card borders with a subtle gradient
+  highlight, slightly larger body text, more refined typography hierarchy.
+
 ## v0.11.0 — UX/UI Polish
 
 The milestone-closing release. Every interactive surface in the main
@@ -46,7 +77,7 @@ targeted micro-animation refinements.
   briefly shows a gold ring scaling outward and fading. Moment of
   delight. Doesn't fire from disk-rehydrate at app launch.
 
-## Known limitations in v0.11.0
+## Known limitations in v0.12.0
 
 - **Tab switches reset scroll position.** Acceptable trade-off for the
   cross-fade transition for v1; we'll revisit if it surfaces as a real
