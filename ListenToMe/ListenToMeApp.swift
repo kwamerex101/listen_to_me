@@ -42,6 +42,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
 
+        // Apply user's theme preference before any UI lands so the first
+        // paint is correct and we avoid a flash to the system appearance.
+        Preferences.shared.appearance.apply()
+
         MenuBarController.shared.install()
 
         // Always-visible compact pill
