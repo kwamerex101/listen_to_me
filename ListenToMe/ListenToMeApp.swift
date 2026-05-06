@@ -255,7 +255,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         cleanupTask?.cancel()
         cleanupTask = Task { [weak self] in
             do {
-                let cleaned = try await ClaudeClient.shared.clean(expanded)
+                let cleaned = try await ClaudeClient.shared.clean(expanded, bundleId: token.bundleId)
                 try Task.checkCancellation()
                 await MainActor.run {
                     guard let self else { return }

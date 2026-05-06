@@ -106,7 +106,7 @@ struct PillView: View {
             // Only exhale if we're returning from a meaningful phase, not on
             // app launch (where pill starts in idle).
             triggerExhale()
-        case .transcribing, .cleaning, .polishing, .correcting:
+        case .transcribing, .cleaning, .polishing, .correcting, .suggestion:
             cancelExhale()
         }
     }
@@ -213,6 +213,7 @@ struct PillView: View {
         case .success:      return 60
         case .error:        return 280
         case .correcting:   return 48
+        case .suggestion:   return 400
         }
     }
 
@@ -220,6 +221,7 @@ struct PillView: View {
         if state.showPermissionPrompt { return 170 }
         if case .idle = state.phase { return 12 }
         if case .correcting = state.phase { return 12 }
+        if case .suggestion = state.phase { return 56 }
         return 34
     }
 
@@ -263,6 +265,7 @@ struct PillView: View {
         case .success: return 4
         case .error: return 5
         case .correcting: return 7
+        case .suggestion: return 8
         }
     }
 
@@ -399,6 +402,10 @@ struct PillView: View {
         case .correcting:
             // Correction popover handles the UI; pill stays minimal so it
             // doesn't compete with the floating edit window.
+            Color.clear
+
+        case .suggestion:
+            // Phase 4 Task 2 stub: full content lands in Task 3.
             Color.clear
         }
     }

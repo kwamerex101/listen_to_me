@@ -16,6 +16,9 @@ enum Phase: Equatable {
     /// Inline correction popover is open — user is editing the just-pasted
     /// text. Pill goes neutral; the actual UI lives in `CorrectionWindow`.
     case correcting
+    /// One-time per-(bundleId, tone) banner offering to apply an inferred
+    /// per-app cleanup tone. Dismissed via Keep / Dismiss / 8s timeout.
+    case suggestion(bundleId: String, tone: InferredTone)
 }
 
 @MainActor
@@ -42,6 +45,13 @@ final class AppState: ObservableObject {
     /// Called when the user clicks the pill in success/polishing — opens
     /// the inline correction popover.
     var onPillTap: (() -> Void)?
+    /// Called when the user presses Keep on the .suggestion banner — accepts
+    /// the inferred tone permanently for this bundleId.
+    var onSuggestionKeep: (() -> Void)?
+    /// Called when the user presses Dismiss on the .suggestion banner —
+    /// adds the tone to dismissedTones for this bundleId so it won't fire
+    /// again until samples drift to a different tone.
+    var onSuggestionDismiss: (() -> Void)?
 
     private init() {}
 }

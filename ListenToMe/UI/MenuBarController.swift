@@ -121,6 +121,7 @@ final class MenuBarController {
         case .success: statusLabel?.title = "ListenToMe — Done"
         case .error(let m): statusLabel?.title = "ListenToMe — Error: \(m)"
         case .correcting: statusLabel?.title = "ListenToMe — Correcting"
+        case .suggestion(_, let tone): statusLabel?.title = "ListenToMe — Suggesting \(tone.displayLabel) tone"
         }
 
         let trusted = HotkeyMonitor.isAccessibilityGranted()
