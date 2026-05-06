@@ -21,10 +21,13 @@ final class MainWindowController {
     /// `minSize` (e.g. macOS state restoration).
     private static let defaultContentSize = NSSize(width: 1100, height: 720)
 
-    /// Minimum content area. The sidebar takes ~230pt; the content area
-    /// needs at least ~620pt to render the hero card + 3-up stats row + a
-    /// readable today list without horizontal clipping.
-    private static let minContentSize = NSSize(width: 880, height: 580)
+    /// Hard window content minimum. Below this, the layout cannot render
+    /// without clipping. Match SwiftUI's `DT.windowMin{Width,Height}` floor
+    /// in `MainView` to avoid a mismatch.
+    /// At this width the sidebar is in COMPACT mode (64pt icons-only) and
+    /// the content area gets ~520pt — enough for hero + single-column
+    /// stats + readable today list.
+    private static let minContentSize = NSSize(width: 600, height: 520)
 
     func open() {
         if window == nil {

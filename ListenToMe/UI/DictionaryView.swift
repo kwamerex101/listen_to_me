@@ -9,71 +9,55 @@ struct DictionaryView: View {
     @State private var promotedExpanded = true
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header
+        ScrollView {
+            VStack(alignment: .leading, spacing: DT.space6) {
+                PageHeader(
+                    title: "Dictionary",
+                    subtitle: "Words Whisper should recognize. Names, jargon, product terms — add them here and transcription picks them up.",
+                    icon: "doc.text",
+                    iconTint: DT.accent
+                )
 
-            if store.entries.isEmpty && candidateStore.candidates.isEmpty {
-                empty
-            } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        candidatesSection
-                        promotedSection
-                        manualList
-                    }
+                addWordRow
+
+                if store.entries.isEmpty && candidateStore.candidates.isEmpty {
+                    EmptyState(
+                        icon: "doc.text",
+                        title: "No custom words yet",
+                        subtitle: "Add a word above, or keep dictating — ListenToMe captures retype-corrections automatically."
+                    )
+                } else {
+                    candidatesSection
+                    promotedSection
+                    manualSection
                 }
             }
+            .padding(.top, 60)
+            .padding(.horizontal, DT.space10)
+            .padding(.bottom, DT.space10)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.top, 60)
-        .padding(.horizontal, 40)
-        .padding(.bottom, 40)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    // MARK: - Header
+    // MARK: - Add row
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Dictionary")
-                    .font(.system(size: 24, weight: .semibold))
-                Spacer()
-            }
-            Text("Words Whisper should recognize. Names, jargon, product terms — add them here and transcription picks them up.")
-                .font(.system(size: 13))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+    private var addWordRow: some View {
+        HStack(spacing: DT.space3) {
+            TextField("Add a word or phrase…", text: $newWord)
+                .textFieldStyle(.plain)
+                .font(.system(size: 14))
+                .focused($focused)
+                .onSubmit(commit)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .formField()
+                .frame(maxWidth: .infinity)
 
-            HStack(spacing: 10) {
-                TextField("Add a word or phrase…", text: $newWord)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 14))
-                    .focused($focused)
-                    .onSubmit(commit)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 9)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(Color.primary.opacity(0.05))
-                    )
-
-                Button(action: commit) {
-                    Text("Add")
-                        .font(.system(size: 13, weight: .semibold))
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 9)
-                        .background(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .fill(Color.primary.opacity(0.12))
-                        )
-                }
-                .buttonStyle(.pressable)
+            Button(action: commit) { Text("Add") }
+                .buttonStyle(.primary)
                 .keyboardShortcut(.return, modifiers: [])
                 .disabled(newWord.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-            .padding(.top, 12)
         }
-        .padding(.bottom, 20)
     }
 
     // MARK: - Candidates section
@@ -82,81 +66,90 @@ struct DictionaryView: View {
         DisclosureGroup(isExpanded: $candidatesExpanded) {
             if candidateStore.candidates.isEmpty {
                 Text("No misreads detected yet — keep dictating.")
-                    .font(.system(size: 13))
+                    .font(DT.body)
                     .foregroundStyle(.secondary)
-                    .padding(.vertical, 12)
+                    .padding(.vertical, DT.space4)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 VStack(spacing: 0) {
                     ForEach(candidateStore.candidates) { candidate in
                         candidateRow(candidate)
-                        Divider()
+                        if candidate.id != candidateStore.candidates.last?.id {
+                            Divider().background(DT.separator)
+                        }
                     }
                 }
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
-                )
+                .card()
+                .padding(.top, DT.space2)
             }
         } label: {
-            HStack {
-                Text("Candidates")
-                    .font(.system(size: 16, weight: .semibold))
-                Text("(\(candidateStore.candidates.count))")
-                    .font(.system(size: 14))
-                    .foregroundStyle(.secondary)
-            }
+            sectionLabel("Candidates", count: candidateStore.candidates.count, tint: .orange)
         }
-        .padding(.bottom, 16)
     }
 
     private func candidateRow(_ candidate: DictionaryCandidate) -> some View {
-        HStack(spacing: 10) {
+        HStack(spacing: DT.space3) {
             // original → replacement
-            Text(candidate.original)
-                .font(.system(size: 14))
-                .foregroundStyle(.secondary)
-            Image(systemName: "arrow.right")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-            Text(candidate.replacement)
-                .font(.system(size: 14))
+            HStack(spacing: 6) {
+                Text(candidate.original)
+                    .font(DT.body)
+                    .foregroundStyle(.secondary)
+                    .strikethrough()
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(DT.accent.opacity(0.7))
+                Text(candidate.replacement)
+                    .font(DT.bodyStrong)
+            }
+            .frame(maxWidth: 280, alignment: .leading)
+
             Spacer()
+
             // occurrence badge
-            Text("\(candidate.occurrences.count)/3")
-                .font(.system(size: 12).monospacedDigit())
-                .foregroundStyle(.secondary)
+            occurrenceBadge(count: candidate.occurrences.count)
+
             // last-seen date
             if let lastDate = candidate.occurrences.last?.date {
                 Text(lastDate, style: .date)
                     .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.tertiary)
             }
-            // source app (bundle ID string, truncated — Phase 5 adds icon)
+            // source app
             if let bundleId = candidate.occurrences.last?.bundleId {
                 Text(bundleId.components(separatedBy: ".").last ?? bundleId)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                    .font(DT.monoCaption)
+                    .foregroundStyle(.tertiary)
                     .lineLimit(1)
             }
-            // action buttons
+
             Button("Accept") { candidateStore.accept(id: candidate.id) }
-                .buttonStyle(.pressable)
-                .font(.system(size: 12, weight: .medium))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(Color.primary.opacity(0.10))
-                )
+                .buttonStyle(.secondary)
+                .controlSize(.small)
             Button("Reject") { candidateStore.reject(id: candidate.id) }
                 .buttonStyle(.pressable)
-                .font(.system(size: 12))
+                .font(DT.captionStrong)
                 .foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 10)
-        .hoverableRow()
+        .padding(.horizontal, DT.space5)
+        .padding(.vertical, DT.space3)
+        .hoverableRow(cornerRadius: 0)
+    }
+
+    private func occurrenceBadge(count: Int) -> some View {
+        let progress = Double(min(count, 3)) / 3.0
+        return HStack(spacing: 4) {
+            Image(systemName: "flame.fill")
+                .font(.system(size: 10))
+                .foregroundStyle(progress >= 1 ? Color.orange : Color.orange.opacity(0.5))
+            Text("\(count)/3")
+                .font(DT.monoCaption.monospacedDigit())
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(
+            Capsule().fill(Color.orange.opacity(0.10))
+        )
     }
 
     // MARK: - Promoted section
@@ -169,93 +162,118 @@ struct DictionaryView: View {
                     VStack(spacing: 0) {
                         ForEach(promoted) { entry in
                             promotedRow(entry)
-                            Divider()
+                            if entry.id != promoted.last?.id {
+                                Divider().background(DT.separator)
+                            }
                         }
                     }
-                    .background(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
-                    )
+                    .card()
+                    .padding(.top, DT.space2)
                 } label: {
-                    HStack {
-                        Text("Promoted")
-                            .font(.system(size: 16, weight: .semibold))
-                        Text("(\(promoted.count))")
-                            .font(.system(size: 14))
-                            .foregroundStyle(.secondary)
-                    }
+                    sectionLabel("Promoted", count: promoted.count, tint: DT.accent)
                 }
-                .padding(.bottom, 16)
             }
         }
     }
 
     private func promotedRow(_ entry: DictionaryEntry) -> some View {
         HStack {
+            Image(systemName: "checkmark.seal.fill")
+                .font(.system(size: 11))
+                .foregroundStyle(DT.accent)
             Text(entry.word)
-                .font(.system(size: 14))
+                .font(DT.bodyStrong)
+            if let from = entry.promotedFrom {
+                Text("from “\(from)”")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+            }
             Spacer()
             Button(action: { store.remove(id: entry.id) }) {
                 Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 14))
+                    .foregroundStyle(.tertiary)
             }
             .buttonStyle(.pressable)
-            .help("Originally transcribed as: \(entry.promotedFrom ?? entry.word)")
+            .help("Remove from dictionary")
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 12)
-        .hoverableRow()
+        .padding(.horizontal, DT.space5)
+        .padding(.vertical, DT.space4)
+        .hoverableRow(cornerRadius: 0)
     }
 
-    // MARK: - Manual list
+    // MARK: - Manual section
 
-    private var manualList: some View {
+    private var manualSection: some View {
         let manual = store.entries.filter { $0.origin == .manual }
         return Group {
             if !manual.isEmpty {
-                VStack(spacing: 0) {
-                    ForEach(manual) { entry in
-                        row(entry.word)
-                        Divider()
+                VStack(alignment: .leading, spacing: DT.space2) {
+                    sectionLabel("Manual", count: manual.count, tint: .gray, asEyebrow: true)
+
+                    VStack(spacing: 0) {
+                        ForEach(manual) { entry in
+                            manualRow(entry.word)
+                            if entry.id != manual.last?.id {
+                                Divider().background(DT.separator)
+                            }
+                        }
                     }
+                    .card()
                 }
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
-                )
             }
         }
     }
 
-    // MARK: - Empty state
-
-    private var empty: some View {
-        VStack(spacing: 6) {
-            Image(systemName: "doc.text")
-                .font(.system(size: 28))
-                .foregroundStyle(.secondary)
-            Text("No custom words yet.")
-                .font(.system(size: 13))
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.top, 80)
-    }
-
-    private func row(_ word: String) -> some View {
+    private func manualRow(_ word: String) -> some View {
         HStack {
+            Image(systemName: "text.cursor")
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
             Text(word)
-                .font(.system(size: 14))
+                .font(DT.body)
             Spacer()
             Button(action: { store.remove(word) }) {
                 Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 14))
+                    .foregroundStyle(.tertiary)
             }
             .buttonStyle(.pressable)
+            .help("Remove word")
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 12)
-        .hoverableRow()
+        .padding(.horizontal, DT.space5)
+        .padding(.vertical, DT.space4)
+        .hoverableRow(cornerRadius: 0)
+    }
+
+    // MARK: - Helpers
+
+    @ViewBuilder
+    private func sectionLabel(_ title: String, count: Int, tint: Color, asEyebrow: Bool = false) -> some View {
+        if asEyebrow {
+            HStack(spacing: 6) {
+                SectionEyebrow(title: title)
+                Text("\(count)")
+                    .font(.system(size: 10, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 1)
+                    .background(Capsule().fill(DT.surfaceCard))
+            }
+        } else {
+            HStack(spacing: 8) {
+                Text(title)
+                    .font(DT.sectionTitle)
+                Text("\(count)")
+                    .font(DT.captionStrong.monospacedDigit())
+                    .foregroundStyle(tint)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(
+                        Capsule().fill(tint.opacity(0.14))
+                    )
+            }
+        }
     }
 
     private func commit() {

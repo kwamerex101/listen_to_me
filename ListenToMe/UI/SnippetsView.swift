@@ -6,124 +6,101 @@ struct SnippetsView: View {
     @State private var newExpansion: String = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header
+        ScrollView {
+            VStack(alignment: .leading, spacing: DT.space6) {
+                PageHeader(
+                    title: "Snippets",
+                    subtitle: "Keywords you speak that expand into longer text. Replaced before AI cleanup so emails, links and canned replies come out clean.",
+                    icon: "scissors",
+                    iconTint: .pink
+                )
 
-            if store.snippets.isEmpty {
-                empty
-            } else {
-                list
+                addSnippetRow
+
+                if store.snippets.isEmpty {
+                    EmptyState(
+                        icon: "scissors",
+                        title: "No snippets yet",
+                        subtitle: "Add a keyword above and ListenToMe will replace it with the expansion before cleanup."
+                    )
+                } else {
+                    list
+                }
             }
+            .padding(.top, 60)
+            .padding(.horizontal, DT.space10)
+            .padding(.bottom, DT.space10)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.top, 60)
-        .padding(.horizontal, 40)
-        .padding(.bottom, 40)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Snippets")
-                .font(.system(size: 24, weight: .semibold))
-            Text("Keywords you speak that expand into longer text. Replaced before AI cleanup so emails, links and canned replies come out clean.")
-                .font(.system(size: 13))
+    private var addSnippetRow: some View {
+        HStack(spacing: DT.space3) {
+            TextField("Keyword (e.g. “my email”)", text: $newKeyword)
+                .textFieldStyle(.plain)
+                .font(.system(size: 14))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .formField()
+                .frame(maxWidth: 260)
+
+            Image(systemName: "arrow.right")
+                .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
 
-            HStack(spacing: 10) {
-                TextField("Keyword (e.g. “my email”)", text: $newKeyword)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 14))
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 9)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(Color.primary.opacity(0.05))
-                    )
-                    .frame(maxWidth: 240)
+            TextField("Expansion", text: $newExpansion)
+                .textFieldStyle(.plain)
+                .font(.system(size: 14))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .formField()
+                .frame(maxWidth: .infinity)
 
-                Text("→")
-                    .foregroundStyle(.secondary)
-
-                TextField("Expansion", text: $newExpansion)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 14))
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 9)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(Color.primary.opacity(0.05))
-                    )
-
-                Button(action: commit) {
-                    Text("Add")
-                        .font(.system(size: 13, weight: .semibold))
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 9)
-                        .background(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .fill(Color.primary.opacity(0.12))
-                        )
-                }
-                .buttonStyle(.pressable)
+            Button(action: commit) { Text("Add") }
+                .buttonStyle(.primary)
                 .disabled(newKeyword.trimmingCharacters(in: .whitespaces).isEmpty
                           || newExpansion.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-            .padding(.top, 12)
         }
-        .padding(.bottom, 20)
-    }
-
-    private var empty: some View {
-        VStack(spacing: 6) {
-            Image(systemName: "scissors")
-                .font(.system(size: 28))
-                .foregroundStyle(.secondary)
-            Text("No snippets yet.")
-                .font(.system(size: 13))
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.top, 80)
     }
 
     private var list: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                ForEach(store.snippets) { snippet in
-                    row(snippet)
-                    Divider()
+        VStack(spacing: 0) {
+            ForEach(store.snippets) { snippet in
+                row(snippet)
+                if snippet.id != store.snippets.last?.id {
+                    Divider().background(DT.separator)
                 }
             }
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
-            )
         }
+        .card()
     }
 
     private func row(_ snippet: Snippet) -> some View {
-        HStack(alignment: .top, spacing: 16) {
+        HStack(alignment: .top, spacing: DT.space4) {
             Text(snippet.keyword)
-                .font(.system(size: 14, weight: .medium))
-                .frame(width: 180, alignment: .leading)
-            Text("→")
-                .foregroundStyle(.secondary)
+                .font(DT.bodyStrong)
+                .frame(width: 200, alignment: .leading)
+            Image(systemName: "arrow.right")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(DT.accent.opacity(0.7))
+                .padding(.top, 4)
             Text(snippet.expansion)
-                .font(.system(size: 14))
+                .font(DT.body)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
                 .truncationMode(.tail)
             Spacer(minLength: 0)
             Button(action: { store.remove(id: snippet.id) }) {
                 Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 14))
+                    .foregroundStyle(.tertiary)
             }
             .buttonStyle(.pressable)
+            .help("Remove snippet")
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 12)
-        .hoverableRow()
+        .padding(.horizontal, DT.space5)
+        .padding(.vertical, DT.space4)
+        .hoverableRow(cornerRadius: 0)
     }
 
     private func commit() {

@@ -88,6 +88,37 @@ final class HistoryStore: ObservableObject {
         return records.filter { cal.isDate($0.timestamp, inSameDayAs: today) }
     }
 
+    /// Aggregated per-day metrics for charts. `lastDays` returns a series of
+    /// length `lastDays` (today plus the previous N-1 days), oldest first,
+    /// with zero-filled days for dates that have no records.
+    struct DailyMetric: Identifiable, Equatable {
+        let date: Date
+        let words: Int
+        let wpm: Int           // 0 when no usable durations that day
+        var id: Date { date }
+        var isActive: Bool { words > 0 }
+    }
+
+    func dailyMetrics(lastDays n: Int) -> [DailyMetric] {
+        let cal = Calendar.current
+        let todayStart = cal.startOfDay(for: Date())
+        let usable = records.filter { !$0.dismissed }
+        var byDay: [Date: (words: Int, ms: Int)] = [:]
+        for r in usable {
+            let d = cal.startOfDay(for: r.timestamp)
+            var entry = byDay[d] ?? (0, 0)
+            entry.words += r.wordCount
+            if r.durationMs > 0 { entry.ms += r.durationMs }
+            byDay[d] = entry
+        }
+        return (0..<n).reversed().compactMap { offset in
+            guard let day = cal.date(byAdding: .day, value: -offset, to: todayStart) else { return nil }
+            let entry = byDay[day] ?? (0, 0)
+            let wpm = entry.ms > 0 ? Int(Double(entry.words) / (Double(entry.ms) / 60_000.0)) : 0
+            return DailyMetric(date: day, words: entry.words, wpm: wpm)
+        }
+    }
+
     // MARK: - Persistence
 
     private func load() {

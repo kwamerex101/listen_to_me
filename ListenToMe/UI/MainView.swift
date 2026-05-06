@@ -45,36 +45,50 @@ struct MainView: View {
     @State private var selection: WfSection = .home
 
     var body: some View {
-        HStack(spacing: 0) {
-            SidebarView(selection: $selection)
-                .frame(width: 230)
-                .background(Color(.controlBackgroundColor))
+        // GeometryReader at the root drives the responsive size class for the
+        // entire window. Children read it via the `windowWidth` environment.
+        GeometryReader { geo in
+            let isCompact = geo.size.width < DT.compactBreakpoint
 
-            Divider()
+            HStack(spacing: 0) {
+                SidebarView(selection: $selection, compact: isCompact)
+                    .frame(width: isCompact ? DT.sidebarCompactWidth : DT.sidebarRegularWidth)
+                    .background(Color(.controlBackgroundColor))
+                    .animation(.easeInOut(duration: 0.18), value: isCompact)
 
-            Group {
-                switch selection {
-                case .home: HomeView()
-                case .dictionary: DictionaryView()
-                case .snippets: SnippetsView()
-                case .style: StyleView()
-                case .settings: SettingsView()
-                // case .transforms: TransformsView()
-                // case .scratchpad: ScratchpadView()
-                // case .pages: PagesView()
+                Divider()
+
+                Group {
+                    switch selection {
+                    case .home: HomeView()
+                    case .dictionary: DictionaryView()
+                    case .snippets: SnippetsView()
+                    case .style: StyleView()
+                    case .settings: SettingsView()
+                    // case .transforms: TransformsView()
+                    // case .scratchpad: ScratchpadView()
+                    // case .pages: PagesView()
+                    }
                 }
+                .id(selection)
+                .transition(.opacity)
+                .animation(Motion.tabFade, value: selection)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(.windowBackgroundColor))
             }
-            .id(selection)                                  // forces identity transition
-            .transition(.opacity)                           // cross-fade
-            .animation(Motion.tabFade, value: selection)    // 200ms easeInOut (content only — sidebar stays static)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(.windowBackgroundColor))
+            // Push the window's measured width down so any descendant can
+            // ask `@Environment(\.windowWidth)` and respond with explicit
+            // size-class behaviour instead of re-measuring.
+            .environment(\.windowWidth, geo.size.width)
         }
-        // The host fills available space; the AppKit window enforces the
-        // hard minimum via contentMinSize (see MainWindowController).
-        // SwiftUI minWidth/minHeight here matches the window minimum so the
-        // layout never reports a smaller ideal back up to NSHostingController.
-        .frame(minWidth: 880, maxWidth: .infinity, minHeight: 580, maxHeight: .infinity)
+        // SwiftUI floor matches the AppKit window contentMinSize. The window
+        // controller hard-clamps user resizes against this.
+        .frame(
+            minWidth: DT.windowMinWidth,
+            maxWidth: .infinity,
+            minHeight: DT.windowMinHeight,
+            maxHeight: .infinity
+        )
     }
 }
 

@@ -21,9 +21,13 @@ struct SettingsView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
-                Text("Settings")
-                    .font(.system(size: 24, weight: .semibold))
+            VStack(alignment: .leading, spacing: DT.space6) {
+                PageHeader(
+                    title: "Settings",
+                    subtitle: nil,
+                    icon: "gearshape",
+                    iconTint: .gray
+                )
 
                 section(title: "Shortcuts") {
                     row(label: "Dictation hotkey") {
@@ -199,18 +203,12 @@ struct SettingsView: View {
         title: String,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title.uppercased())
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .tracking(0.5)
+        VStack(alignment: .leading, spacing: DT.space2) {
+            SectionEyebrow(title: title)
             VStack(spacing: 0) {
                 content()
             }
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color.primary.opacity(0.05))
-            )
+            .card()
         }
     }
 
@@ -220,12 +218,12 @@ struct SettingsView: View {
     ) -> some View {
         HStack {
             Text(label)
-                .font(.system(size: 13))
+                .font(DT.body)
             Spacer()
             trailing()
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, DT.space4)
+        .padding(.vertical, DT.space3)
     }
 
     private func kbd(_ text: String) -> some View {
