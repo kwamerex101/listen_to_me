@@ -22,7 +22,7 @@ struct SidebarView: View {
 
             // Main nav
             VStack(spacing: 2) {
-                ForEach([WfSection.home, .dictionary, .snippets, .style, .transforms, .scratchpad, .pages], id: \.self) { section in
+                ForEach([WfSection.home, .dictionary, .snippets, .style], id: \.self) { section in
                     NavRow(section: section, selected: selection == section) {
                         selection = section
                     }

@@ -1,7 +1,17 @@
 import SwiftUI
 
 enum WfSection: String, CaseIterable, Identifiable {
-    case home, dictionary, snippets, style, transforms, scratchpad, pages, settings
+    // Active sections shown in the sidebar.
+    case home, dictionary, snippets, style, settings
+
+    // Hidden / experimental sections — commented out of the sidebar list
+    // because they're off-mission for a focused "speak once, ship clean
+    // text" dictation tool. View files and stores are kept on disk so
+    // they can be re-enabled by uncommenting these cases and adding them
+    // back to SidebarView's main-nav ForEach + MainView's switch.
+    // case transforms
+    // case scratchpad
+    // case pages
     var id: String { rawValue }
 
     var label: String {
@@ -10,10 +20,10 @@ enum WfSection: String, CaseIterable, Identifiable {
         case .dictionary: return "Dictionary"
         case .snippets: return "Snippets"
         case .style: return "Style"
-        case .transforms: return "Transforms"
-        case .scratchpad: return "Scratchpad"
-        case .pages: return "Pages"
         case .settings: return "Settings"
+        // case .transforms: return "Transforms"
+        // case .scratchpad: return "Scratchpad"
+        // case .pages: return "Pages"
         }
     }
 
@@ -23,10 +33,10 @@ enum WfSection: String, CaseIterable, Identifiable {
         case .dictionary: return "doc.text"
         case .snippets: return "scissors"
         case .style: return "textformat"
-        case .transforms: return "wand.and.stars"
-        case .scratchpad: return "note.text"
-        case .pages: return "doc.plaintext"
         case .settings: return "gearshape"
+        // case .transforms: return "wand.and.stars"
+        // case .scratchpad: return "note.text"
+        // case .pages: return "doc.plaintext"
         }
     }
 }
@@ -48,10 +58,10 @@ struct MainView: View {
                 case .dictionary: DictionaryView()
                 case .snippets: SnippetsView()
                 case .style: StyleView()
-                case .transforms: TransformsView()
-                case .scratchpad: ScratchpadView()
-                case .pages: PagesView()
                 case .settings: SettingsView()
+                // case .transforms: TransformsView()
+                // case .scratchpad: ScratchpadView()
+                // case .pages: PagesView()
                 }
             }
             .id(selection)                                  // forces identity transition
@@ -60,10 +70,11 @@ struct MainView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(.windowBackgroundColor))
         }
-        // Tell SwiftUI we expand to fill the host. Without this, sections
-        // with intrinsic content size (e.g. a sparse Dictionary) can leak a
-        // smaller ideal size up to the NSHostingController.
-        .frame(minWidth: 900, maxWidth: .infinity, minHeight: 600, maxHeight: .infinity)
+        // The host fills available space; the AppKit window enforces the
+        // hard minimum via contentMinSize (see MainWindowController).
+        // SwiftUI minWidth/minHeight here matches the window minimum so the
+        // layout never reports a smaller ideal back up to NSHostingController.
+        .frame(minWidth: 880, maxWidth: .infinity, minHeight: 580, maxHeight: .infinity)
     }
 }
 

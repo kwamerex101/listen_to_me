@@ -5,149 +5,260 @@ struct HomeView: View {
     @ObservedObject private var state = AppState.shared
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
-                HStack(alignment: .top, spacing: 24) {
-                    VStack(alignment: .leading, spacing: 24) {
-                        Text("Welcome back, Rex")
-                            .font(.system(size: 22, weight: .semibold))
+        GeometryReader { geo in
+            ScrollView {
+                VStack(alignment: .leading, spacing: DT.space7) {
+                    Text("Welcome back, Rex")
+                        .font(DT.pageTitle)
 
-                        heroCard
-                    }
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                    heroCard(width: geo.size.width)
 
-                    statsCard
+                    statsRow(width: geo.size.width)
+
+                    todaySection
                 }
-
-                todaySection
+                .padding(.top, 60)
+                // Margins shrink at narrow widths so the content stays
+                // well-proportioned instead of feeling cramped.
+                .padding(.horizontal, geo.size.width < 720 ? DT.space6 : DT.space10)
+                .padding(.bottom, DT.space10)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(.top, 60)
-            .padding(.horizontal, 40)
-            .padding(.bottom, 40)
         }
     }
 
-    private var heroCard: some View {
-        ZStack(alignment: .bottomLeading) {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color.black)
-                .frame(height: 200)
+    // MARK: - Hero
 
-            // Subtle radial glow at top-right
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(
-                    RadialGradient(
-                        colors: [Color.white.opacity(0.06), Color.clear],
-                        center: .topTrailing,
-                        startRadius: 0,
-                        endRadius: 260
-                    )
-                )
-                .frame(height: 200)
+    /// `width` is the available horizontal space for the page content area.
+    /// We use it to collapse decorative chrome (the right-edge waveform) at
+    /// narrow widths so the headline never gets squeezed.
+    private func heroCard(width: CGFloat) -> some View {
+        let showDecorWaveform = width >= 720
+
+        return ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: DT.radiusXl, style: .continuous)
+                .fill(DT.heroGradient)
+
+            RoundedRectangle(cornerRadius: DT.radiusXl, style: .continuous)
+                .fill(DT.heroGlow)
                 .allowsHitTesting(false)
 
-            VStack(alignment: .leading, spacing: 14) {
+            if showDecorWaveform {
+                HStack {
+                    Spacer()
+                    heroWaveform
+                        .frame(width: 220, height: 100)
+                        .padding(.trailing, DT.space8)
+                        .opacity(0.55)
+                }
+                .frame(maxHeight: .infinity)
+                .allowsHitTesting(false)
+                .transition(.opacity)
+            }
+
+            VStack(alignment: .leading, spacing: DT.space4) {
                 Text("Speak once, ship clean text.")
-                    .font(.system(size: 28, weight: .medium, design: .serif))
+                    .font(DT.heroDisplay)
                     .italic()
                     .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.85)
                 Text("Hold Fn + ⌘ anywhere and dictate. AI cleans up automatically.")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.white.opacity(0.6))
+                    .font(DT.body)
+                    .foregroundStyle(.white.opacity(0.65))
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.9)
 
-                Button(action: { state.onStartTap?() }) {
-                    HStack(spacing: 6) {
-                        if case .recording = state.phase {
-                            Circle()
-                                .fill(Color.red)
-                                .frame(width: 7, height: 7)
-                            Text("Recording…")
-                        } else {
-                            Text("Dictate now")
-                        }
-                    }
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.black)
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 9)
-                    .background(Color.white)
-                    .clipShape(Capsule())
-                }
-                .buttonStyle(.pressable)
-                .disabled({
-                    if case .idle = state.phase { return false }
-                    if case .recording = state.phase { return false }
-                    return true
-                }())
-                .animation(.easeInOut(duration: 0.15), value: state.phase)
+                heroCTA
+                    .padding(.top, DT.space2)
             }
-            .padding(24)
+            .padding(DT.space7)
+            // Constrain text column width when the waveform is visible so
+            // the headline never collides with the decoration.
+            .frame(
+                maxWidth: showDecorWaveform ? max(width - 280, 360) : .infinity,
+                alignment: .leading
+            )
+        }
+        .frame(height: 220)
+        .animation(.easeInOut(duration: 0.18), value: showDecorWaveform)
+    }
+
+    private var heroCTA: some View {
+        Button(action: { state.onStartTap?() }) {
+            HStack(spacing: 8) {
+                if case .recording = state.phase {
+                    Circle()
+                        .fill(Color.red)
+                        .frame(width: 7, height: 7)
+                    Text("Recording…")
+                } else {
+                    Image(systemName: "mic.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text("Dictate now")
+                }
+            }
+            .font(DT.bodyStrong)
+            .foregroundStyle(DT.onAccent)
+            .padding(.horizontal, DT.space5)
+            .padding(.vertical, 11)
+            .background(
+                Capsule().fill(DT.accent)
+            )
+            .overlay(
+                Capsule().strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+            )
+            .shadow(color: DT.accent.opacity(0.35), radius: 14, x: 0, y: 6)
+        }
+        .buttonStyle(.pressable)
+        .disabled({
+            if case .idle = state.phase { return false }
+            if case .recording = state.phase { return false }
+            return true
+        }())
+        .animation(.easeInOut(duration: 0.15), value: state.phase)
+    }
+
+    /// Static, decorative waveform — 18 vertical bars whose heights follow a
+    /// gentle sine curve. Pure SwiftUI, no Canvas, no work per frame.
+    private var heroWaveform: some View {
+        GeometryReader { geo in
+            HStack(spacing: 4) {
+                ForEach(0..<18, id: \.self) { i in
+                    let phase = Double(i) / 18.0
+                    let h = 0.30 + 0.50 * abs(sin(phase * .pi * 2))
+                    Capsule()
+                        .fill(Color.white.opacity(0.55))
+                        .frame(width: 4, height: max(8, geo.size.height * h))
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
     }
 
-    private var statsCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            statRow(value: formatBigNumber(history.totalWords), unit: "total words")
-            Divider().opacity(0)
-            statRow(value: "\(history.averageWPM)", unit: "wpm")
-            Divider().opacity(0)
-            statRow(value: "\(history.dayStreak)", unit: "day streak")
+    // MARK: - Stats row
+
+    /// Stats reflow at narrow widths so each card stays readable:
+    /// - ≥780pt → 3 columns
+    /// - 560–779pt → 2 columns + 1 wrapping below
+    /// - <560pt → single column
+    @ViewBuilder
+    private func statsRow(width: CGFloat) -> some View {
+        let cards: [(String, Color, String, String)] = [
+            ("text.alignleft",     DT.accent,    formatBigNumber(history.totalWords), "total words"),
+            ("gauge.with.needle",  .purple,      "\(history.averageWPM)",             "wpm avg"),
+            ("flame.fill",         .orange,      "\(history.dayStreak)",              "day streak"),
+        ]
+
+        if width >= 780 {
+            HStack(spacing: DT.space4) {
+                ForEach(0..<cards.count, id: \.self) { i in
+                    statCard(icon: cards[i].0, tint: cards[i].1, value: cards[i].2, unit: cards[i].3)
+                }
+            }
+        } else if width >= 560 {
+            VStack(spacing: DT.space4) {
+                HStack(spacing: DT.space4) {
+                    statCard(icon: cards[0].0, tint: cards[0].1, value: cards[0].2, unit: cards[0].3)
+                    statCard(icon: cards[1].0, tint: cards[1].1, value: cards[1].2, unit: cards[1].3)
+                }
+                statCard(icon: cards[2].0, tint: cards[2].1, value: cards[2].2, unit: cards[2].3)
+            }
+        } else {
+            VStack(spacing: DT.space4) {
+                ForEach(0..<cards.count, id: \.self) { i in
+                    statCard(icon: cards[i].0, tint: cards[i].1, value: cards[i].2, unit: cards[i].3)
+                }
+            }
         }
-        .padding(22)
-        .frame(width: 200, alignment: .leading)
+    }
+
+    private func statCard(icon: String, tint: Color, value: String, unit: String) -> some View {
+        VStack(alignment: .leading, spacing: DT.space2) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(tint)
+                Text(unit.uppercased())
+                    .font(DT.eyebrow)
+                    .tracking(0.6)
+                    .foregroundStyle(.secondary)
+            }
+
+            Text(value)
+                .font(DT.statNumber)
+                .foregroundStyle(.primary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(DT.space5)
         .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color.primary.opacity(0.05))
+            RoundedRectangle(cornerRadius: DT.radiusLg, style: .continuous)
+                .fill(DT.surfaceCard)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: DT.radiusLg, style: .continuous)
+                .strokeBorder(DT.separator, lineWidth: 0.5)
         )
     }
 
-    private func statRow(value: String, unit: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(value)
-                .font(.system(size: 28, weight: .semibold, design: .serif))
-            Text(unit)
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-        }
-    }
+    // MARK: - Today
 
     private var todaySection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: DT.space3) {
+            HStack(spacing: DT.space3) {
                 Text("TODAY")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(DT.eyebrow)
                     .foregroundStyle(.secondary)
                     .tracking(0.6)
                 Rectangle()
-                    .fill(Color.primary.opacity(0.1))
+                    .fill(DT.separator)
                     .frame(height: 1)
             }
 
             if history.todayRecords.isEmpty {
-                HStack(spacing: 8) {
-                    Image(systemName: "waveform")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.tertiary)
-                    Text("Nothing yet. Hold Fn + ⌘ anywhere to dictate.")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.vertical, 16)
+                emptyTodayState
             } else {
                 VStack(spacing: 0) {
                     ForEach(history.todayRecords) { record in
                         RecordRow(record: record)
                         if record.id != history.todayRecords.last?.id {
                             Divider()
+                                .background(DT.separator)
                         }
                     }
                 }
                 .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(Color.primary.opacity(0.1), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: DT.radiusLg, style: .continuous)
+                        .fill(DT.surfaceCard.opacity(0.6))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: DT.radiusLg, style: .continuous)
+                        .strokeBorder(DT.separator, lineWidth: 0.5)
                 )
             }
         }
+    }
+
+    private var emptyTodayState: some View {
+        HStack(spacing: DT.space3) {
+            Image(systemName: "waveform")
+                .font(.system(size: 13))
+                .foregroundStyle(DT.accent)
+            Text("Nothing yet. Hold Fn + ⌘ anywhere to dictate.")
+                .font(DT.body)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, DT.space5)
+        .padding(.vertical, DT.space5)
+        .background(
+            RoundedRectangle(cornerRadius: DT.radiusLg, style: .continuous)
+                .fill(DT.surfaceCard.opacity(0.6))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: DT.radiusLg, style: .continuous)
+                .strokeBorder(DT.separator, lineWidth: 0.5)
+        )
     }
 
     private func formatBigNumber(_ n: Int) -> String {
@@ -170,33 +281,32 @@ private struct RecordRow: View {
     }()
 
     var body: some View {
-        HStack(alignment: .top, spacing: 16) {
+        HStack(alignment: .top, spacing: DT.space5) {
             Text(Self.fmt.string(from: record.timestamp))
-                .font(.system(size: 12))
+                .font(DT.monoCaption)
                 .foregroundStyle(.secondary)
-                .frame(width: 72, alignment: .leading)
-                .padding(.top, 1)
+                .frame(width: 78, alignment: .leading)
+                .padding(.top, 2)
 
             if record.dismissed {
                 Text("This transcription was dismissed.")
-                    .font(.system(size: 13))
+                    .font(DT.body)
                     .foregroundStyle(.secondary)
                     .italic()
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 Text(record.finalText)
-                    .font(.system(size: 13))
+                    .font(DT.body)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            // Trailing action icons — always visible, brighter on hover
             if !record.dismissed {
                 HStack(spacing: 4) {
                     actionButton(
                         icon: copied ? "checkmark" : "doc.on.doc",
-                        help: "Copy transcript",
+                        help: copied ? "Copied" : "Copy transcript",
                         action: copyText
                     )
                     actionButton(
@@ -205,13 +315,27 @@ private struct RecordRow: View {
                         action: { history.remove(id: record.id) }
                     )
                 }
-                .opacity(hovered ? 1 : 0.35)
+                .opacity(hovered ? 1 : 0.32)
                 .animation(.easeInOut(duration: 0.12), value: hovered)
             }
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 14)
-        .background(hovered ? Color.primary.opacity(0.03) : Color.clear)
+        .padding(.horizontal, DT.space5)
+        .padding(.vertical, DT.space4)
+        .background(
+            // Subtle accent-tinted hover so the eye lands on the active row
+            // without losing the row's neutral "data" feeling.
+            hovered
+                ? DT.accent.opacity(0.06)
+                : Color.clear
+        )
+        .overlay(alignment: .leading) {
+            // Leading-edge accent bar, only visible on hover. Adds visual
+            // anchor without permanently colouring the row.
+            Rectangle()
+                .fill(DT.accent)
+                .frame(width: hovered ? 3 : 0)
+                .animation(.easeInOut(duration: 0.12), value: hovered)
+        }
         .onHover { hovered = $0 }
         .animation(.easeInOut(duration: 0.12), value: hovered)
     }

@@ -20,7 +20,11 @@ final class MainWindowController {
     /// Default size when the window is first created or has shrunk below
     /// `minSize` (e.g. macOS state restoration).
     private static let defaultContentSize = NSSize(width: 1100, height: 720)
-    private static let minContentSize = NSSize(width: 900, height: 600)
+
+    /// Minimum content area. The sidebar takes ~230pt; the content area
+    /// needs at least ~620pt to render the hero card + 3-up stats row + a
+    /// readable today list without horizontal clipping.
+    private static let minContentSize = NSSize(width: 880, height: 580)
 
     func open() {
         if window == nil {
@@ -43,6 +47,11 @@ final class MainWindowController {
             w.titlebarAppearsTransparent = true
             w.titleVisibility = .hidden
             w.contentViewController = host
+            // contentMinSize is what AppKit uses to clamp user-driven
+            // resizes against the SwiftUI content area; minSize without it
+            // can be undershot in some macOS versions when the title bar
+            // is transparent. Set both for belt + suspenders.
+            w.contentMinSize = Self.minContentSize
             w.minSize = Self.minContentSize
             w.isReleasedWhenClosed = false
             w.backgroundColor = .windowBackgroundColor   // adapts to light/dark
