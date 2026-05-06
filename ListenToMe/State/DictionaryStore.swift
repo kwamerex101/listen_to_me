@@ -46,6 +46,17 @@ final class DictionaryStore: ObservableObject {
 
     @Published private(set) var entries: [DictionaryEntry] = []
 
+    /// Whether the user has dismissed the "Electron limitation" banner in
+    /// the Dictionary view. Persists in UserDefaults so it stays dismissed
+    /// across launches.
+    var electronTipDismissed: Bool {
+        get { UserDefaults.standard.bool(forKey: "wf.electronTipDismissed") }
+        set {
+            UserDefaults.standard.set(newValue, forKey: "wf.electronTipDismissed")
+            objectWillChange.send()
+        }
+    }
+
     private let url: URL = {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let dir = base.appendingPathComponent("ListenToMe", isDirectory: true)

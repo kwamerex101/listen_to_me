@@ -20,6 +20,8 @@ struct DictionaryView: View {
 
                 addWordRow
 
+                electronTipBanner
+
                 if store.entries.isEmpty && candidateStore.candidates.isEmpty {
                     EmptyState(
                         icon: "doc.text",
@@ -36,6 +38,49 @@ struct DictionaryView: View {
             .padding(.horizontal, DT.space10)
             .padding(.bottom, DT.space10)
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    // MARK: - Electron limitation tip
+
+    /// Surfaces the known auto-capture limitation in Electron / web apps so
+    /// users know to add words manually for those targets. Hidden once the
+    /// user has dismissed it once via the close button.
+    @ViewBuilder
+    private var electronTipBanner: some View {
+        if !DictionaryStore.shared.electronTipDismissed {
+            HStack(alignment: .top, spacing: DT.space3) {
+                Image(systemName: "info.circle.fill")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.orange)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Auto-capture is native-app only")
+                        .font(DT.bodyStrong)
+                    Text("Claude Desktop, Slack, Notion, VS Code, and other Electron apps don't expose their text fields to macOS Accessibility. Type misreads here manually for those apps; the rest of cleanup still works.")
+                        .font(DT.body)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                Button(action: {
+                    DictionaryStore.shared.electronTipDismissed = true
+                }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.pressable)
+                .help("Dismiss")
+            }
+            .padding(DT.space4)
+            .background(
+                RoundedRectangle(cornerRadius: DT.radiusMd, style: .continuous)
+                    .fill(Color.orange.opacity(0.08))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: DT.radiusMd, style: .continuous)
+                    .strokeBorder(Color.orange.opacity(0.25), lineWidth: 0.5)
+            )
         }
     }
 
