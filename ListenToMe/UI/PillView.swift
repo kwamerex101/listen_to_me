@@ -46,6 +46,11 @@ struct PillView: View {
     @State private var silenceTimer: Timer?
     @State private var silenceDimmed: Bool = false
 
+    // Promotion-flash (POLISH-04c) — gold ring overlay fired when the
+    // dictionary auto-promotes (or the user manually accepts) a candidate.
+    @State private var promotionScale: CGFloat = 0.6
+    @State private var promotionOpacity: Double = 0.0
+
 
     var body: some View {
         VStack(spacing: 0) {
@@ -72,6 +77,9 @@ struct PillView: View {
         }
         .onChange(of: phaseID) { _, _ in
             handlePhaseChange()
+        }
+        .onChange(of: state.flashPromotion) { _, isFlashing in
+            triggerPromotionFlash(if: isFlashing)
         }
     }
 
@@ -103,6 +111,20 @@ struct PillView: View {
             triggerExhale()
         case .transcribing, .cleaning, .polishing, .correcting, .suggestion:
             cancelExhale()
+        }
+    }
+
+    // MARK: - Promotion flash (POLISH-04c)
+
+    private func triggerPromotionFlash(if isFlashing: Bool) {
+        guard isFlashing else { return }
+        // Snap to start state (no animation), then animate to faded-out
+        // larger ring. Mirrors the success-halo shape — sibling overlay.
+        promotionScale = 0.6
+        promotionOpacity = 1.0
+        withAnimation(Motion.promotionFlash) {
+            promotionScale = 1.4
+            promotionOpacity = 0.0
         }
     }
 
@@ -203,6 +225,22 @@ struct PillView: View {
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(Color.white.opacity(borderOpacity), lineWidth: 1)
+            )
+            // POLISH-04(c) — gold promotion-flash ring (sibling to success halo).
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(
+                        LinearGradient(
+                            colors: [Color(red: 1.0, green: 0.84, blue: 0.0),    // gold
+                                     Color(red: 1.0, green: 0.65, blue: 0.0)],   // amber
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 2
+                    )
+                    .scaleEffect(promotionScale)
+                    .opacity(promotionOpacity)
+                    .allowsHitTesting(false)
             )
             .shadow(color: .black.opacity(0.5), radius: isCompact ? 6 : 16, x: 0, y: isCompact ? 3 : 8)
             .padding(.bottom, 4)

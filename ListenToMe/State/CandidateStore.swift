@@ -50,6 +50,11 @@ final class CandidateStore: ObservableObject {
                 DictionaryStore.shared.add(promoted: candidate.replacement,
                                            promotedFrom: candidate.original,
                                            bundleId: bundleId)
+                // POLISH-04(c) — gold flash on the pill. Runtime path only;
+                // load() rehydrates `candidates` directly from JSON without
+                // calling this method, so launch with already-promoted
+                // entries does NOT fire the flash (T-05-02 mitigation).
+                AppState.shared.flashPromotion = true
                 return
             }
         } else {
@@ -69,6 +74,9 @@ final class CandidateStore: ObservableObject {
         DictionaryStore.shared.add(promoted: candidate.replacement,
                                    promotedFrom: candidate.original,
                                    bundleId: candidate.occurrences.last?.bundleId)
+        // POLISH-04(c) — gold flash on the pill (manual accept is also a
+        // runtime path; reaches the user only via direct UI action).
+        AppState.shared.flashPromotion = true
     }
 
     // Manual reject from UI — permanent removal.
