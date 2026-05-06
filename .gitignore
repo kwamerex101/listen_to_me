@@ -21,3 +21,6 @@ vendor/
 .DS_Store
 *.swp
 ListenToMe/Resources/AppIcon.icns
+
+# Planning artifacts (local-only)
+.planning/
