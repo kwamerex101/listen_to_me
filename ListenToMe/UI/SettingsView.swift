@@ -87,6 +87,7 @@ struct SettingsView: View {
                             }
                         }
                     }
+                    .hoverableRow()   // only this Settings row is interactive (Grant…)
                     row(label: "Microphone") {
                         Text("Built-in microphone")
                             .font(.system(size: 13))

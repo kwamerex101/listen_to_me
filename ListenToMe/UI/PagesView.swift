@@ -85,6 +85,7 @@ struct PagesView: View {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(selected ? Color.primary.opacity(0.09) : Color.clear)
             )
+            .hoverableRow()   // hover overlay paints on top of selection fill
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 8)

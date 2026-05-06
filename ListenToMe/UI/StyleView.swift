@@ -98,5 +98,6 @@ struct StyleView: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
+        .hoverableRow()
     }
 }

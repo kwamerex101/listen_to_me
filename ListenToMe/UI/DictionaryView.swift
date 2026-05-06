@@ -156,6 +156,7 @@ struct DictionaryView: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 10)
+        .hoverableRow()
     }
 
     // MARK: - Promoted section
@@ -203,6 +204,7 @@ struct DictionaryView: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
+        .hoverableRow()
     }
 
     // MARK: - Manual list
@@ -253,6 +255,7 @@ struct DictionaryView: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
+        .hoverableRow()
     }
 
     private func commit() {
