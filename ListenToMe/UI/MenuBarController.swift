@@ -6,11 +6,11 @@ final class MenuBarController {
 
     private var statusItem: NSStatusItem?
     private weak var statusLabel: NSMenuItem?
-    private weak var hotkeyLabel: NSMenuItem?
     private weak var accessibilityItem: NSMenuItem?
     private weak var cleanupItem: NSMenuItem?
     private weak var claudeStatusItem: NSMenuItem?
     private weak var launchAtLoginItem: NSMenuItem?
+    private weak var warningSeparator: NSMenuItem?
 
     private init() {}
 
@@ -23,6 +23,13 @@ final class MenuBarController {
 
         let menu = NSMenu()
         menu.delegate = MenuDelegate.shared   // refresh on open
+
+        // Streamlined menu — show only what's actionable. Status header, the
+        // primary action (Open), the two tweakable rows (AI Cleanup, Launch
+        // at Login), a warning band that appears only when permissions or
+        // claude CLI need attention, and Quit. Disabled status labels (the
+        // old "Hotkey: Fn + ⌘", "Claude CLI: Installed ✓", etc.) have been
+        // removed — they sat in the menu permanently for no payoff.
 
         let status = NSMenuItem(title: "ListenToMe — Idle", action: nil, keyEquivalent: "")
         status.isEnabled = false
@@ -38,22 +45,6 @@ final class MenuBarController {
         )
         openWindow.target = self
         menu.addItem(openWindow)
-
-        let hk = NSMenuItem(title: "Hotkey: Fn + ⌘", action: nil, keyEquivalent: "")
-        hk.isEnabled = false
-        menu.addItem(hk)
-        hotkeyLabel = hk
-
-        menu.addItem(.separator())
-
-        let ax = NSMenuItem(
-            title: "Accessibility: checking…",
-            action: #selector(openAccessibilityPrefs),
-            keyEquivalent: ""
-        )
-        ax.target = self
-        menu.addItem(ax)
-        accessibilityItem = ax
 
         menu.addItem(.separator())
 
@@ -74,15 +65,6 @@ final class MenuBarController {
         cleanupItem = cleanupParent
         refreshCleanupChecks()
 
-        let claude = NSMenuItem(
-            title: "Claude CLI: checking…",
-            action: #selector(openClaudeInstallDocs),
-            keyEquivalent: ""
-        )
-        claude.target = self
-        menu.addItem(claude)
-        claudeStatusItem = claude
-
         let launch = NSMenuItem(
             title: "Launch at Login",
             action: #selector(toggleLaunchAtLogin),
@@ -92,6 +74,33 @@ final class MenuBarController {
         launch.state = LaunchAtLogin.isEnabled ? .on : .off
         menu.addItem(launch)
         launchAtLoginItem = launch
+
+        // Conditional warning band — only visible when permissions or
+        // Claude CLI need attention. refresh() flips isHidden.
+        let warnSep = NSMenuItem.separator()
+        warnSep.isHidden = true
+        menu.addItem(warnSep)
+        warningSeparator = warnSep
+
+        let ax = NSMenuItem(
+            title: "Accessibility: checking…",
+            action: #selector(openAccessibilityPrefs),
+            keyEquivalent: ""
+        )
+        ax.target = self
+        ax.isHidden = true
+        menu.addItem(ax)
+        accessibilityItem = ax
+
+        let claude = NSMenuItem(
+            title: "Claude CLI: checking…",
+            action: #selector(openClaudeInstallDocs),
+            keyEquivalent: ""
+        )
+        claude.target = self
+        claude.isHidden = true
+        menu.addItem(claude)
+        claudeStatusItem = claude
 
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(
@@ -129,36 +138,34 @@ final class MenuBarController {
 
         launchAtLoginItem?.state = LaunchAtLogin.isEnabled ? .on : .off
 
-        if trusted && tapActive {
-            accessibilityItem?.title = "Accessibility: Granted ✓"
-            accessibilityItem?.action = nil
-            hotkeyLabel?.title = "Hotkey: Fn + ⌘ (ready)"
-        } else if trusted && !tapActive {
-            accessibilityItem?.title = "Accessibility: Granted — restart app to activate"
+        // Accessibility — show only when something needs the user's attention.
+        var showAX = false
+        if trusted && !tapActive {
+            accessibilityItem?.title = "⚠ Restart app to activate hotkey"
             accessibilityItem?.action = #selector(restartApp)
             accessibilityItem?.target = self
-            hotkeyLabel?.title = "Hotkey: Fn + ⌘ (restart required)"
-        } else {
+            showAX = true
+        } else if !trusted {
             accessibilityItem?.title = "⚠ Grant Accessibility Permission…"
             accessibilityItem?.action = #selector(openAccessibilityPrefs)
             accessibilityItem?.target = self
-            hotkeyLabel?.title = "Hotkey: Fn + ⌘ (needs permission)"
+            showAX = true
         }
+        accessibilityItem?.isHidden = !showAX
 
-        // Claude CLI status — only loud when cleanup is wanted but unavailable.
+        // Claude CLI — show only when cleanup is wanted but missing
+        // (the only case the user can act on from here).
         let cleanupOn = Preferences.shared.cleanupMode != .off
-        if AppState.shared.claudeAvailable {
-            claudeStatusItem?.title = "Claude CLI: Installed ✓"
-            claudeStatusItem?.action = nil
-        } else if cleanupOn {
+        let showClaude = cleanupOn && !AppState.shared.claudeAvailable
+        if showClaude {
             claudeStatusItem?.title = "⚠ Claude CLI not found — cleanup disabled"
             claudeStatusItem?.action = #selector(openClaudeInstallDocs)
             claudeStatusItem?.target = self
-        } else {
-            claudeStatusItem?.title = "Claude CLI: not installed (cleanup off)"
-            claudeStatusItem?.action = #selector(openClaudeInstallDocs)
-            claudeStatusItem?.target = self
         }
+        claudeStatusItem?.isHidden = !showClaude
+
+        // The warning separator is only visible when at least one warning is.
+        warningSeparator?.isHidden = !(showAX || showClaude)
     }
 
     @objc private func openClaudeInstallDocs() {

@@ -51,6 +51,11 @@ struct PillView: View {
     @State private var promotionScale: CGFloat = 0.6
     @State private var promotionOpacity: Double = 0.0
 
+    // Hover lift — cursor over the pill triggers a subtle scale, border,
+    // and shadow bump so the pill feels reactive even when not in a
+    // click-bearing phase.
+    @State private var hovered: Bool = false
+
 
     var body: some View {
         VStack(spacing: 0) {
@@ -62,12 +67,14 @@ struct PillView: View {
                 .offset(y: exhaleY)
                 .modifier(Shake(animatableData: shakeTrigger))
                 .contentShape(Rectangle())
+                .onHover { hovered = $0 }
                 .onTapGesture {
                     if isPillTappable { state.onPillTap?() }
                 }
                 .animation(Motion.phaseSize, value: pillWidth)
                 .animation(Motion.phaseSize, value: pillHeight)
                 .animation(Motion.phaseSwap, value: visualID)
+                .animation(Motion.hoverLift, value: hovered)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         .onChange(of: state.level) { _, newValue in
@@ -207,10 +214,12 @@ struct PillView: View {
 
     // MARK: - Pill body
 
-    /// Composite scale from press-pop and idle breath.
+    /// Composite scale from press-pop, idle breath, and hover lift.
+    /// Hover bump is small (≤4%) so it reads as "alive" rather than "expanding".
     private var rootScale: CGFloat {
         let breathFactor: CGFloat = (isIdleAndCalm && idleBreathOn) ? 0.97 : 1.0
-        return pressPop * breathFactor
+        let hoverFactor:  CGFloat = hovered ? 1.04 : 1.0
+        return pressPop * breathFactor * hoverFactor
     }
 
     private var pill: some View {
@@ -242,7 +251,18 @@ struct PillView: View {
                     .opacity(promotionOpacity)
                     .allowsHitTesting(false)
             )
-            .shadow(color: .black.opacity(0.5), radius: isCompact ? 6 : 16, x: 0, y: isCompact ? 3 : 8)
+            // Layered shadow: a crisp inner edge that defines the pill against
+            // light backgrounds, plus an ambient cloud that gives depth. Hover
+            // intensifies the ambient layer so the pill visibly "lifts".
+            .shadow(color: .black.opacity(0.28), radius: 1.0, x: 0, y: 0.5)
+            .shadow(
+                color: .black.opacity(hovered ? 0.62 : 0.46),
+                radius: isCompact ? (hovered ? 14 :  9)
+                                  : (hovered ? 26 : 19),
+                x: 0,
+                y: isCompact ? (hovered ?  7 :  4)
+                             : (hovered ? 14 : 10)
+            )
             .padding(.bottom, 4)
             .onAppear {
                 // Both breath axes share one timeline so they stay in phase.
@@ -266,11 +286,15 @@ struct PillView: View {
     }
 
     /// Border opacity tracks the idle breath but stays visible elsewhere.
+    /// Hover adds a small bump so the edge crispens when the cursor enters.
     private var borderOpacity: Double {
+        let base: Double
         if isIdleAndCalm {
-            return idleBreathOn ? 0.6 : 0.3
+            base = idleBreathOn ? 0.6 : 0.3
+        } else {
+            base = 0.45
         }
-        return 0.45
+        return min(base + (hovered ? 0.25 : 0), 0.95)
     }
 
     // MARK: - Sizing

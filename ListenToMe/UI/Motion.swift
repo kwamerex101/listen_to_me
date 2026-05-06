@@ -48,4 +48,9 @@ enum Motion {
 
     /// Gold ring on dictionary candidate auto-promotion (POLISH-04c — moment of delight).
     static let promotionFlash = Animation.easeOut(duration: 0.6)
+
+    /// Pill hover lift — subtle scale, border, and shadow bump on cursor entry/exit.
+    /// Snappy enough to feel responsive at the edge of a 48px target, soft enough
+    /// not to compete with the idle breath.
+    static let hoverLift      = Animation.spring(response: 0.28, dampingFraction: 0.78)
 }
