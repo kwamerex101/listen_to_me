@@ -8,7 +8,10 @@ final class CorrectionWindow: NSPanel {
     static let shared = CorrectionWindow()
 
     /// Roughly the width of the recording pill plus padding for typing.
-    static let windowSize = NSSize(width: 540, height: 96)
+    /// Height accommodates 4 lines of body text — long enough for most
+    /// corrections without dominating the screen. The TextEditor inside
+    /// scrolls beyond that.
+    static let windowSize = NSSize(width: 540, height: 160)
 
     private var onApply: ((String) -> Void)?
     private var onCancel: (() -> Void)?
@@ -107,18 +110,21 @@ private struct CorrectionView: View {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.7))
                 Spacer()
-                Text("↵ Apply  ·  Esc Cancel")
+                Text("⌘↵ Apply  ·  Esc Cancel")
                     .font(.system(size: 11, weight: .regular))
                     .foregroundStyle(.white.opacity(0.45))
             }
 
-            TextField("", text: $text)
-                .textFieldStyle(.plain)
+            // CORR-03: TextEditor allows multi-line edits. Plain Return
+            // inserts a newline (so users can fix paragraph breaks);
+            // Cmd+Return applies the correction.
+            TextEditor(text: $text)
+                .scrollContentBackground(.hidden)
                 .font(.system(size: 14, weight: .regular))
                 .foregroundStyle(.white)
                 .tint(.white.opacity(0.9))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
                 .background(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .fill(Color.white.opacity(0.06))
@@ -127,8 +133,8 @@ private struct CorrectionView: View {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
                 )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .focused($focused)
-                .onSubmit { onApply(text) }
                 .onAppear {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                         focused = true
@@ -137,6 +143,14 @@ private struct CorrectionView: View {
                 .onKeyPress(.escape) {
                     onCancel()
                     return .handled
+                }
+                .onKeyPress(.return, phases: .down) { keyPress in
+                    // Cmd+Return applies; plain Return inserts a newline.
+                    if keyPress.modifiers.contains(.command) {
+                        onApply(text)
+                        return .handled
+                    }
+                    return .ignored
                 }
         }
         .padding(.horizontal, 14)
