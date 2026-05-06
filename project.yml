@@ -60,3 +60,27 @@ targets:
         ENABLE_HARDENED_RUNTIME: YES
         COMBINE_HIDPI_IMAGES: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+
+  ListenToMeTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: ListenToMeTests
+    dependencies:
+      - target: ListenToMe
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.rexdanquah.listentome.tests
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        SWIFT_VERSION: "5.9"
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  ListenToMe:
+    build:
+      targets:
+        ListenToMe: all
+        ListenToMeTests: [test]
+    test:
+      targets:
+        - ListenToMeTests
