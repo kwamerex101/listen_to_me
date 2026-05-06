@@ -12,15 +12,6 @@ struct SidebarView: View {
                 Text("ListenToMe")
                     .font(.system(size: 17, weight: .semibold))
                 Spacer()
-                Text("Basic")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.85))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(
-                        Capsule()
-                            .fill(Color.primary.opacity(0.35))
-                    )
             }
             .padding(.horizontal, 20)
             .padding(.top, 60)
