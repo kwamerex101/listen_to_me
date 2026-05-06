@@ -404,10 +404,49 @@ struct PillView: View {
             // doesn't compete with the floating edit window.
             Color.clear
 
-        case .suggestion:
-            // Phase 4 Task 2 stub: full content lands in Task 3.
-            Color.clear
+        case .suggestion(let bundleId, let tone):
+            suggestionContent(bundleId: bundleId, tone: tone)
         }
+    }
+
+    @ViewBuilder
+    private func suggestionContent(bundleId: String, tone: InferredTone) -> some View {
+        let appName = NSRunningApplication
+            .runningApplications(withBundleIdentifier: bundleId)
+            .first?.localizedName ?? bundleId
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Suggesting \(tone.displayLabel) tone for \(appName)")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                Text("Keep or dismiss")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.65))
+            }
+            Spacer(minLength: 0)
+            Button(action: { AppState.shared.onSuggestionKeep?() }) {
+                Text("Keep")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color.accentColor)
+                    )
+            }
+            .buttonStyle(PressableStyle())
+            Button(action: { AppState.shared.onSuggestionDismiss?() }) {
+                Text("Dismiss")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.75))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+            }
+            .buttonStyle(PressableStyle())
+        }
+        .padding(.horizontal, 14)
     }
 
     /// Smoothed audio level — average of the level buffer. The buffer is
