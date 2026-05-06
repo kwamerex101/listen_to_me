@@ -74,6 +74,6 @@ private struct NavRow: View {
             .contentShape(Rectangle())
             .hoverableRow()   // hover overlay paints on top of selection fill
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressable)
     }
 }

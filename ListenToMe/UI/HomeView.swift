@@ -73,7 +73,7 @@ struct HomeView: View {
                     .background(Color.white)
                     .clipShape(Capsule())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.pressable)
                 .disabled({
                     if case .idle = state.phase { return false }
                     if case .recording = state.phase { return false }
@@ -227,7 +227,7 @@ private struct RecordRow: View {
                         .fill(Color.primary.opacity(hovered ? 0.07 : 0))
                 )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressable)
         .help(help)
     }
 

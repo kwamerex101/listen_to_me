@@ -67,7 +67,7 @@ struct DictionaryView: View {
                                 .fill(Color.primary.opacity(0.12))
                         )
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.pressable)
                 .keyboardShortcut(.return, modifiers: [])
                 .disabled(newWord.trimmingCharacters(in: .whitespaces).isEmpty)
             }
@@ -141,7 +141,7 @@ struct DictionaryView: View {
             }
             // action buttons
             Button("Accept") { candidateStore.accept(id: candidate.id) }
-                .buttonStyle(.plain)
+                .buttonStyle(.pressable)
                 .font(.system(size: 12, weight: .medium))
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
@@ -150,7 +150,7 @@ struct DictionaryView: View {
                         .fill(Color.primary.opacity(0.10))
                 )
             Button("Reject") { candidateStore.reject(id: candidate.id) }
-                .buttonStyle(.plain)
+                .buttonStyle(.pressable)
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
         }
@@ -199,7 +199,7 @@ struct DictionaryView: View {
                 Image(systemName: "xmark.circle.fill")
                     .foregroundStyle(.secondary)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.pressable)
             .help("Originally transcribed as: \(entry.promotedFrom ?? entry.word)")
         }
         .padding(.horizontal, 18)
@@ -251,7 +251,7 @@ struct DictionaryView: View {
                 Image(systemName: "xmark.circle.fill")
                     .foregroundStyle(.secondary)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.pressable)
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)

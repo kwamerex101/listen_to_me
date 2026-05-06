@@ -65,7 +65,7 @@ struct SnippetsView: View {
                                 .fill(Color.primary.opacity(0.12))
                         )
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.pressable)
                 .disabled(newKeyword.trimmingCharacters(in: .whitespaces).isEmpty
                           || newExpansion.trimmingCharacters(in: .whitespaces).isEmpty)
             }
@@ -119,7 +119,7 @@ struct SnippetsView: View {
                 Image(systemName: "xmark.circle.fill")
                     .foregroundStyle(.secondary)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.pressable)
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)

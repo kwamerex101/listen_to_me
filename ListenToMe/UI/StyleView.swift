@@ -86,7 +86,7 @@ struct StyleView: View {
                 .foregroundStyle(.secondary)
             if entry.acceptedTone != nil {
                 Button("Revert") { store.revert(bundleId: entry.bundleId) }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.pressable)
                     .font(.system(size: 12))
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)

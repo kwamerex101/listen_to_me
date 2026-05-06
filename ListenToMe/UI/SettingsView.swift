@@ -84,6 +84,7 @@ struct SettingsView: View {
                                         NSWorkspace.shared.open(url)
                                     }
                                 }
+                                .buttonStyle(.pressable)
                             }
                         }
                     }
