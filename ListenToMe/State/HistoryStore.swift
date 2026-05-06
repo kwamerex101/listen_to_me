@@ -198,6 +198,34 @@ final class HistoryStore: ObservableObject {
         return (Double(recent) - Double(prior)) / Double(prior)
     }
 
+    /// Per-app dictation breakdown for the Home "Where you dictate" card.
+    /// Aggregates word count by `bundleId` over the last `lastDays` days
+    /// (default 30). Records without a bundleId roll up into a single
+    /// "Other" bucket so they aren't lost.
+    struct AppUsage: Identifiable, Equatable {
+        let bundleId: String?            // nil = "Other"
+        let words: Int
+        let dictations: Int
+        var id: String { bundleId ?? "__other__" }
+    }
+
+    func appUsageBreakdown(lastDays n: Int = 30) -> [AppUsage] {
+        let cal = Calendar.current
+        let cutoff = cal.date(byAdding: .day, value: -n, to: cal.startOfDay(for: Date()))
+            ?? .distantPast
+        var buckets: [String?: (Int, Int)] = [:]
+        for r in records where !r.dismissed && r.timestamp >= cutoff {
+            let key = r.bundleId
+            var entry = buckets[key] ?? (0, 0)
+            entry.0 += r.wordCount
+            entry.1 += 1
+            buckets[key] = entry
+        }
+        return buckets
+            .map { AppUsage(bundleId: $0.key, words: $0.value.0, dictations: $0.value.1) }
+            .sorted { $0.words > $1.words }
+    }
+
     /// Personal-best 1-day word count over the entire history. Used to
     /// compute the "Top X%" gauge label without external data.
     var bestDayWords: Int {
