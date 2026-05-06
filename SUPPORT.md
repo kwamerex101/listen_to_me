@@ -19,6 +19,43 @@ Run through this checklist first — it covers the most common setup problems:
 - [ ] Accessibility permission granted: System Settings → Privacy & Security → Accessibility
 - [ ] If using AI cleanup: the [Claude Code CLI](https://claude.com/claude-code) is installed and `claude` resolves on PATH (or Cleanup Mode is set to "Never")
 
+## v0.11.0 — UX/UI Polish
+
+The milestone-closing release. Every interactive surface in the main
+window now has hover and press feedback in one shared design language;
+tab transitions cross-fade rather than snap; the pill gains three
+targeted micro-animation refinements.
+
+- **Hover everywhere.** Any row in Sidebar / Dictionary / Snippets /
+  Transforms / Style / Pages now has a subtle background fill on hover.
+  Settings rows are deliberately exempt where they're informational
+  only — hover would suggest interactivity that isn't there.
+- **Press feedback on every button.** All 17 audited buttons in the
+  main window now scale down + dim slightly on press. Same shared
+  `PressableStyle` already used by the pill controls.
+- **Tab cross-fade.** Switching between main-window tabs cross-fades
+  the content area in 200ms. Sidebar stays static during the swap.
+- **Silence-dim.** Hold the hotkey, speak briefly, then stay silent for
+  5+ seconds — the pill's waveform dims to 0.4 opacity and a `mic.slash`
+  glyph appears. Speak again, and it wakes instantly.
+- **Pill morph audit.** The pill's idle-to-recording size morph now
+  feels intentional rather than mechanical — snappier response, slightly
+  higher damping. See commit log for the chosen spring values.
+- **Gold promotion-flash.** When the auto-learning dictionary promotes
+  a candidate (3 retype-corrections, or you click Accept), the pill
+  briefly shows a gold ring scaling outward and fading. Moment of
+  delight. Doesn't fire from disk-rehydrate at app launch.
+
+## Known limitations in v0.11.0
+
+- **Tab switches reset scroll position.** Acceptable trade-off for the
+  cross-fade transition for v1; we'll revisit if it surfaces as a real
+  complaint.
+- **No reduced-motion accessibility fallback yet.** Animations always
+  run. Deferred to a follow-up release.
+- **Promotion flash is rare by design.** It only fires on auto- or
+  manually-promoted dictionary candidates — not on every dictation.
+
 ## v0.10.0 — Per-App Style Tuning
 
 ListenToMe now learns how you write into each app and adjusts cleanup tone
