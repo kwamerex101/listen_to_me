@@ -11,8 +11,13 @@ import SwiftUI
 enum Motion {
     // --- Existing pill vocabulary (preserved verbatim from PillView) ---
 
-    /// Size morphs (width/height) between phases. Snappy but never overshoots.
-    static let phaseSize  = Animation.spring(response: 0.34, dampingFraction: 0.78)
+    /// Size morphs (width/height) between phases. Phase 5 morph-audit tune:
+    /// snappier response (0.34 → 0.30) with slightly higher damping
+    /// (0.78 → 0.82) — overshoot still reads as "intentional reaction"
+    /// but no oscillation. Lands closer to mechanical confidence than
+    /// the previous value, which felt slightly bouncy in side-by-side
+    /// comparison. See POLISH-04(b) commit for rationale.
+    static let phaseSize  = Animation.spring(response: 0.30, dampingFraction: 0.82)
     /// Content swap (id transition). Slightly looser to let the new content
     /// land with a touch of life without bouncing.
     static let phaseSwap  = Animation.spring(response: 0.40, dampingFraction: 0.72)
