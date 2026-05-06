@@ -8,7 +8,10 @@ final class CorrectionWindow: NSPanel {
     static let shared = CorrectionWindow()
 
     /// Roughly the width of the recording pill plus padding for typing.
-    static let windowSize = NSSize(width: 540, height: 96)
+    /// Height accommodates 4 lines of body text — long enough for most
+    /// corrections without dominating the screen. The TextEditor inside
+    /// scrolls beyond that.
+    static let windowSize = NSSize(width: 540, height: 160)
 
     private var onApply: ((String) -> Void)?
     private var onCancel: (() -> Void)?
@@ -97,6 +100,40 @@ private struct CorrectionView: View {
         self.onCancel = onCancel
     }
 
+    /// Toggle voice-replace recording. On first toggle: start AudioRecorder,
+    /// flip the visual state. On second toggle: stop, transcribe with
+    /// Whisper, and replace the popover's text with the new transcription.
+    private func toggleVoice() {
+        if voiceRecording {
+            voiceRecording = false
+            guard let wav = AudioRecorder.shared.stop() else { return }
+            let prompt = DictionaryStore.shared.whisperPrompt
+            Task { @MainActor in
+                do {
+                    let raw = try await WhisperRunner.shared.transcribe(
+                        wav: wav, prompt: prompt
+                    )
+                    // Apply the same voice-edit transforms the main flow uses
+                    // (comma/period/scratch-that), then replace the popover
+                    // contents.
+                    let edited = VoiceEditor.apply(raw)
+                    if !edited.isEmpty { text = edited }
+                } catch {
+                    // Silent on error — user can still type to correct.
+                }
+            }
+        } else {
+            do {
+                _ = try AudioRecorder.shared.start()
+                voiceRecording = true
+            } catch {
+                voiceRecording = false
+            }
+        }
+    }
+
+    @State private var voiceRecording = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
@@ -106,19 +143,44 @@ private struct CorrectionView: View {
                 Text("Edit")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.7))
+
                 Spacer()
-                Text("↵ Apply  ·  Esc Cancel")
+
+                // CORR-02: voice-replace. Click to start; click again to
+                // stop. Captured speech is transcribed and inserted at the
+                // current cursor position (we replace whole text on first
+                // use, then append on subsequent voice rounds).
+                Button(action: toggleVoice) {
+                    HStack(spacing: 4) {
+                        Image(systemName: voiceRecording ? "stop.circle.fill" : "mic.fill")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text(voiceRecording ? "Stop" : "Voice")
+                            .font(.system(size: 11, weight: .semibold))
+                    }
+                    .foregroundStyle(voiceRecording ? Color.red : .white.opacity(0.85))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(
+                        Capsule().fill(Color.white.opacity(voiceRecording ? 0.18 : 0.10))
+                    )
+                }
+                .buttonStyle(.plain)
+
+                Text("⌘↵ Apply  ·  Esc Cancel")
                     .font(.system(size: 11, weight: .regular))
                     .foregroundStyle(.white.opacity(0.45))
             }
 
-            TextField("", text: $text)
-                .textFieldStyle(.plain)
+            // CORR-03: TextEditor allows multi-line edits. Plain Return
+            // inserts a newline (so users can fix paragraph breaks);
+            // Cmd+Return applies the correction.
+            TextEditor(text: $text)
+                .scrollContentBackground(.hidden)
                 .font(.system(size: 14, weight: .regular))
                 .foregroundStyle(.white)
                 .tint(.white.opacity(0.9))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
                 .background(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .fill(Color.white.opacity(0.06))
@@ -127,8 +189,8 @@ private struct CorrectionView: View {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
                 )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .focused($focused)
-                .onSubmit { onApply(text) }
                 .onAppear {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                         focused = true
@@ -138,10 +200,25 @@ private struct CorrectionView: View {
                     onCancel()
                     return .handled
                 }
+                .onKeyPress(.return, phases: .down) { keyPress in
+                    // Cmd+Return applies; plain Return inserts a newline.
+                    if keyPress.modifiers.contains(.command) {
+                        onApply(text)
+                        return .handled
+                    }
+                    return .ignored
+                }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Stop voice capture if the popover dismisses unexpectedly.
+        .onDisappear {
+            if voiceRecording {
+                AudioRecorder.shared.cancel()
+                voiceRecording = false
+            }
+        }
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(Color.black.opacity(0.92))

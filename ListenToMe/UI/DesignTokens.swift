@@ -24,16 +24,21 @@ enum DT {
     /// to "Multicolor" or a specific hue, otherwise default blue).
     static let accent = Color.accentColor
 
-    /// Subtle filled surface for cards and grouped rows. Slightly stronger
-    /// than the previous 0.05 ad-hoc value so cards read as cards in light
-    /// mode without looking heavy in dark mode.
-    static let surfaceCard       = Color.primary.opacity(0.045)
-    static let surfaceCardHover  = Color.primary.opacity(0.075)
-    static let surfaceElevated   = Color.primary.opacity(0.07)
+    /// Subtle filled surface for cards and grouped rows. Tuned slightly
+    /// lower (0.04) for a quieter, more refined feel; cards now lean on
+    /// the hairline border rather than the fill for definition.
+    static let surfaceCard       = Color.primary.opacity(0.04)
+    static let surfaceCardHover  = Color.primary.opacity(0.07)
+    static let surfaceElevated   = Color.primary.opacity(0.065)
+    /// Used for the deeper card variant (e.g. hero subcontent, the
+    /// suggestion banner) — distinct from the regular card surface.
+    static let surfaceSunken     = Color.primary.opacity(0.025)
 
-    /// Border / divider tint that adapts to light & dark.
-    static let separator         = Color.primary.opacity(0.10)
-    static let separatorStrong   = Color.primary.opacity(0.18)
+    /// Border / divider tint that adapts to light & dark. The default has
+    /// been softened from 0.10 → 0.08 so card edges are present but
+    /// quieter; the strong variant is for emphasis where needed.
+    static let separator         = Color.primary.opacity(0.08)
+    static let separatorStrong   = Color.primary.opacity(0.16)
 
     /// Foreground/text hierarchy.
     static let textPrimary       = Color.primary
@@ -89,23 +94,26 @@ enum DT {
     // MARK: - Typography
 
     /// Big page title — used at the top of Home, Settings, etc.
-    static let pageTitle    = Font.system(size: 26, weight: .semibold)
+    /// Bumped to 28pt + tighter tracking for more presence.
+    static let pageTitle    = Font.system(size: 28, weight: .semibold)
     /// Section / heading-2 inside a page.
-    static let sectionTitle = Font.system(size: 16, weight: .semibold)
-    /// Decorative serif used in the hero.
-    static let heroDisplay  = Font.system(size: 30, weight: .medium, design: .serif)
-    /// Body text (rows, paragraphs).
-    static let body         = Font.system(size: 13)
-    static let bodyStrong   = Font.system(size: 13, weight: .semibold)
-    /// Capitalized section labels (TODAY, SHORTCUTS, …).
-    static let eyebrow      = Font.system(size: 11, weight: .semibold)
+    static let sectionTitle = Font.system(size: 17, weight: .semibold)
+    /// Decorative serif used in the hero — slightly heavier weight reads
+    /// better at body sizes on Retina.
+    static let heroDisplay  = Font.system(size: 32, weight: .semibold, design: .serif)
+    /// Body text (rows, paragraphs). Slightly larger for readability.
+    static let body         = Font.system(size: 13.5)
+    static let bodyStrong   = Font.system(size: 13.5, weight: .semibold)
+    /// Capitalized section labels (TODAY, SHORTCUTS, …) — slightly tighter
+    /// to feel like part of a system, not a label hint.
+    static let eyebrow      = Font.system(size: 10.5, weight: .semibold)
     /// Caption / metadata.
     static let caption      = Font.system(size: 12)
     static let captionStrong = Font.system(size: 12, weight: .semibold)
     /// Monospaced timestamps and numeric data.
     static let monoCaption  = Font.system(size: 12, weight: .medium, design: .monospaced)
-    /// Stat-card big number.
-    static let statNumber   = Font.system(size: 30, weight: .semibold, design: .serif)
+    /// Stat-card big number — slightly bigger and tighter.
+    static let statNumber   = Font.system(size: 32, weight: .semibold, design: .serif)
 
     // MARK: - Responsive breakpoints
 
@@ -188,8 +196,9 @@ struct PageHeader: View {
     }
 }
 
-/// A consistent surface card — subtle fill plus a hairline border. Use
-/// everywhere a section needs to read as a bounded surface.
+/// A consistent surface card — subtle fill plus a hairline border + an
+/// optional inner highlight that gives the card a "lifted" feel without
+/// committing to a heavy shadow.
 struct CardSurface: ViewModifier {
     var cornerRadius: CGFloat = DT.radiusLg
     var fill: Color = DT.surfaceCard
@@ -203,8 +212,21 @@ struct CardSurface: ViewModifier {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(stroke, lineWidth: 0.5)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [
+                                stroke,
+                                stroke.opacity(0.55)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ),
+                        lineWidth: 0.5
+                    )
             )
+            // Very subtle drop shadow — almost imperceptible but adds depth
+            // in light mode where the card surfaces would otherwise float.
+            .shadow(color: .black.opacity(0.04), radius: 2, x: 0, y: 1)
     }
 }
 

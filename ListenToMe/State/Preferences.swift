@@ -94,6 +94,8 @@ final class Preferences {
     private let kHotkeyBinding = "wf.hotkeyBinding"
     private let kSoundEnabled = "wf.soundEnabled"
     private let kAppearance = "wf.appearance"
+    private let kMaxRecordingSec = "wf.maxRecordingSec"
+    private let kCleanupTimeoutSec = "wf.cleanupTimeoutSec"
 
     private init() {
         if defaults.object(forKey: kCleanupMode) == nil {
@@ -107,6 +109,12 @@ final class Preferences {
         }
         if defaults.object(forKey: kAppearance) == nil {
             defaults.set(AppearanceMode.system.rawValue, forKey: kAppearance)
+        }
+        if defaults.object(forKey: kMaxRecordingSec) == nil {
+            defaults.set(120, forKey: kMaxRecordingSec)
+        }
+        if defaults.object(forKey: kCleanupTimeoutSec) == nil {
+            defaults.set(20, forKey: kCleanupTimeoutSec)
         }
     }
 
@@ -143,6 +151,27 @@ final class Preferences {
             defaults.set(newValue.rawValue, forKey: kAppearance)
             Task { @MainActor in newValue.apply() }
         }
+    }
+
+    /// Max recording duration in seconds before AudioRecorder auto-stops.
+    /// Hard ceiling to prevent runaway sessions if the hotkey gets stuck.
+    /// Range: 30…600.
+    var maxRecordingSec: Int {
+        get {
+            let v = defaults.integer(forKey: kMaxRecordingSec)
+            return v == 0 ? 120 : min(600, max(30, v))
+        }
+        set { defaults.set(min(600, max(30, newValue)), forKey: kMaxRecordingSec) }
+    }
+
+    /// Timeout for the `claude` cleanup subprocess, in seconds. Below this,
+    /// we abort cleanup and the raw transcript stands. Range: 5…60.
+    var cleanupTimeoutSec: Int {
+        get {
+            let v = defaults.integer(forKey: kCleanupTimeoutSec)
+            return v == 0 ? 20 : min(60, max(5, v))
+        }
+        set { defaults.set(min(60, max(5, newValue)), forKey: kCleanupTimeoutSec) }
     }
 }
 

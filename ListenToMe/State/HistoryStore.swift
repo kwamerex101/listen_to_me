@@ -8,9 +8,43 @@ struct TranscriptRecord: Codable, Identifiable, Equatable {
     var finalText: String
     let durationMs: Int
     let dismissed: Bool
+    /// Bundle identifier of the target app at paste time. nil for legacy
+    /// records and for any dictation where we couldn't resolve the
+    /// frontmost app (e.g. Desktop). Powers the Home "Per-app activity"
+    /// breakdown without pulling from `StyleSamplesStore`.
+    var bundleId: String?
 
     var wordCount: Int {
         finalText.split(whereSeparator: \.isWhitespace).count
+    }
+
+    // Backward-compat decoder — older history.json entries don't have a
+    // `bundleId` key. Decode the optional explicitly so absence reads as
+    // nil instead of throwing.
+    enum CodingKeys: String, CodingKey {
+        case id, timestamp, rawText, finalText, durationMs, dismissed, bundleId
+    }
+
+    init(id: UUID, timestamp: Date, rawText: String, finalText: String,
+         durationMs: Int, dismissed: Bool, bundleId: String? = nil) {
+        self.id = id
+        self.timestamp = timestamp
+        self.rawText = rawText
+        self.finalText = finalText
+        self.durationMs = durationMs
+        self.dismissed = dismissed
+        self.bundleId = bundleId
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        timestamp = try c.decode(Date.self, forKey: .timestamp)
+        rawText = try c.decode(String.self, forKey: .rawText)
+        finalText = try c.decode(String.self, forKey: .finalText)
+        durationMs = try c.decode(Int.self, forKey: .durationMs)
+        dismissed = try c.decode(Bool.self, forKey: .dismissed)
+        bundleId = try c.decodeIfPresent(String.self, forKey: .bundleId)
     }
 }
 
@@ -34,17 +68,34 @@ final class HistoryStore: ObservableObject {
         save()
     }
 
-    func add(rawText: String, finalText: String, durationMs: Int, dismissed: Bool = false) {
+    func add(rawText: String, finalText: String, durationMs: Int,
+             dismissed: Bool = false, bundleId: String? = nil) {
         let r = TranscriptRecord(
             id: UUID(),
             timestamp: Date(),
             rawText: rawText,
             finalText: finalText,
             durationMs: durationMs,
-            dismissed: dismissed
+            dismissed: dismissed,
+            bundleId: bundleId
         )
         records.insert(r, at: 0)
+        cap()
         save()
+    }
+
+    // MARK: - QUAL-02: bounded history
+
+    /// Maximum number of records to keep in memory + on disk. Older entries
+    /// drop off the tail when this is exceeded — prevents unbounded growth
+    /// over months of heavy daily use without losing anything users care
+    /// about (recent + today + this-week stats remain intact).
+    private static let maxRecords = 5000
+
+    private func cap() {
+        if records.count > Self.maxRecords {
+            records = Array(records.prefix(Self.maxRecords))
+        }
     }
 
     /// Mutate the most-recent record's `finalText` in place. Used by the
@@ -147,6 +198,34 @@ final class HistoryStore: ObservableObject {
         return (Double(recent) - Double(prior)) / Double(prior)
     }
 
+    /// Per-app dictation breakdown for the Home "Where you dictate" card.
+    /// Aggregates word count by `bundleId` over the last `lastDays` days
+    /// (default 30). Records without a bundleId roll up into a single
+    /// "Other" bucket so they aren't lost.
+    struct AppUsage: Identifiable, Equatable {
+        let bundleId: String?            // nil = "Other"
+        let words: Int
+        let dictations: Int
+        var id: String { bundleId ?? "__other__" }
+    }
+
+    func appUsageBreakdown(lastDays n: Int = 30) -> [AppUsage] {
+        let cal = Calendar.current
+        let cutoff = cal.date(byAdding: .day, value: -n, to: cal.startOfDay(for: Date()))
+            ?? .distantPast
+        var buckets: [String?: (Int, Int)] = [:]
+        for r in records where !r.dismissed && r.timestamp >= cutoff {
+            let key = r.bundleId
+            var entry = buckets[key] ?? (0, 0)
+            entry.0 += r.wordCount
+            entry.1 += 1
+            buckets[key] = entry
+        }
+        return buckets
+            .map { AppUsage(bundleId: $0.key, words: $0.value.0, dictations: $0.value.1) }
+            .sorted { $0.words > $1.words }
+    }
+
     /// Personal-best 1-day word count over the entire history. Used to
     /// compute the "Top X%" gauge label without external data.
     var bestDayWords: Int {
@@ -168,12 +247,28 @@ final class HistoryStore: ObservableObject {
         records = (try? decoder.decode([TranscriptRecord].self, from: data)) ?? []
     }
 
+    // MARK: - QUAL-02: debounced background save
+
+    /// Pending save task — coalesces bursts of `add(...)` / `remove(...)` /
+    /// `updateLast(...)` calls into a single disk write so the audio
+    /// pipeline never blocks on JSON encoding.
+    private var saveTask: Task<Void, Never>?
+
     private func save() {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = .prettyPrinted
-        if let data = try? encoder.encode(records) {
-            try? data.write(to: url)
+        // Snapshot the current records on the main actor; encode + write
+        // off the main actor on a brief debounce.
+        saveTask?.cancel()
+        let snapshot = records
+        let target = url
+        saveTask = Task.detached(priority: .utility) {
+            try? await Task.sleep(for: .milliseconds(180))
+            if Task.isCancelled { return }
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            encoder.outputFormatting = .prettyPrinted
+            if let data = try? encoder.encode(snapshot) {
+                try? data.write(to: target, options: .atomic)
+            }
         }
     }
 }

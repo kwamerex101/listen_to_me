@@ -76,10 +76,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AudioRecorder.shared.onLevel = { [weak self] level in
             self?.state.level = level
         }
+        // QUAL-03: when the watchdog fires, treat as a normal release so
+        // the pipeline finishes the dictation cleanly — better than just
+        // dropping the audio.
+        AudioRecorder.shared.onMaxDurationReached = { [weak self] in
+            guard case .recording = self?.state.phase else { return }
+            self?.handleRelease()
+        }
 
         // Wire hotkey
         HotkeyMonitor.shared.onPress = { [weak self] in self?.handlePress() }
         HotkeyMonitor.shared.onRelease = { [weak self] in self?.handleRelease() }
+        // CORR-01: short-tap of the hotkey opens the correction popover
+        // (same behaviour as clicking the pill in success/polishing).
+        HotkeyMonitor.shared.onShortTap = { [weak self] in self?.handleShortTap() }
         HotkeyMonitor.shared.start()
 
         // Wire button callbacks
@@ -245,7 +255,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     recordStyleSample(token: token, cleaned: expanded)
                     Haptics.success()
                     SoundCue.success()
-                    HistoryStore.shared.add(rawText: raw, finalText: expanded, durationMs: durMs)
+                    HistoryStore.shared.add(rawText: raw, finalText: expanded,
+                                             durationMs: durMs, bundleId: token.bundleId)
                     state.phase = .success(preview: String(expanded.prefix(30)))
                     PillWindow.shared.setInteractive(true)
                     // Longer success window so the user has time to click the
@@ -275,7 +286,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         cleanupTask?.cancel()
         cleanupTask = Task { [weak self] in
             do {
-                let cleaned = try await ClaudeClient.shared.clean(expanded, bundleId: token.bundleId)
+                let timeout = TimeInterval(Preferences.shared.cleanupTimeoutSec)
+                let cleaned = try await ClaudeClient.shared.clean(
+                    expanded,
+                    bundleId: token.bundleId,
+                    timeout: timeout
+                )
                 try Task.checkCancellation()
                 await MainActor.run {
                     guard let self else { return }
@@ -286,12 +302,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         self.state.lastTranscript = cleaned
                         self.scheduleRetypeDetection(token: newToken)
                         self.recordStyleSample(token: newToken, cleaned: cleaned)
-                        HistoryStore.shared.add(rawText: raw, finalText: cleaned, durationMs: durMs)
+                        HistoryStore.shared.add(rawText: raw, finalText: cleaned,
+                                                 durationMs: durMs, bundleId: newToken.bundleId)
                     } else {
                         // Validation failed (focus changed, clipboard touched,
                         // user opened the correction popover, etc.). Raw stays.
                         self.state.lastTranscript = expanded
-                        HistoryStore.shared.add(rawText: raw, finalText: expanded, durationMs: durMs)
+                        HistoryStore.shared.add(rawText: raw, finalText: expanded,
+                                                 durationMs: durMs, bundleId: token.bundleId)
                     }
                     if self.isStillPolishing(token: token) {
                         let preview = self.state.lastTranscript.prefix(30)
@@ -309,7 +327,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 await MainActor.run {
                     guard let self else { return }
                     Paster.finalize(token: token)
-                    HistoryStore.shared.add(rawText: raw, finalText: expanded, durationMs: durMs)
+                    HistoryStore.shared.add(rawText: raw, finalText: expanded,
+                                             durationMs: durMs, bundleId: token.bundleId)
                     if self.isStillPolishing(token: token) {
                         self.state.phase = .success(preview: String(expanded.prefix(30)))
                         self.autoReset(after: 3.0)
@@ -462,6 +481,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // MARK: - Inline correction popover
+
+    /// CORR-01: alias for `handlePillTap` so a short-tap of the hotkey
+    /// opens the correction popover from the same eligible phases. The
+    /// recording-start that fires on press is balanced by the release —
+    /// AudioRecorder.cancel() in handlePillTap's cleanup task chain
+    /// keeps things tidy. We just re-enter the same gate.
+    private func handleShortTap() {
+        // If we're in `.recording` here, it means a recording was
+        // *already* started by the press half of this tap — abort it
+        // so we don't paste an empty recording.
+        if case .recording = state.phase {
+            handleCancel()
+        }
+        handlePillTap()
+    }
 
     private func handlePillTap() {
         // Only open the correction popover if the user is in a state that

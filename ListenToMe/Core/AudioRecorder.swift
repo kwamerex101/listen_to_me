@@ -16,6 +16,14 @@ final class AudioRecorder {
     /// requests a larger output capacity than we've previously seen.
     private var reusableOutBuffer: AVAudioPCMBuffer?
 
+    /// Watchdog that auto-stops a runaway session (e.g. stuck hotkey).
+    private var maxDurationTask: Task<Void, Never>?
+
+    /// Caller-provided callback fired exactly once when the watchdog
+    /// triggers — AppDelegate listens and tears down the session via the
+    /// normal release path so the rest of the pipeline runs.
+    var onMaxDurationReached: (() -> Void)?
+
     /// Callback fired ~30Hz with normalized level 0…1.
     var onLevel: ((Float) -> Void)?
 
@@ -78,10 +86,22 @@ final class AudioRecorder {
 
         engine.prepare()
         try engine.start()
+
+        // Watchdog: auto-stop after Preferences.maxRecordingSec to defend
+        // against a stuck hotkey or unexpected hold. Cancelled in stop().
+        let cap = Preferences.shared.maxRecordingSec
+        maxDurationTask?.cancel()
+        maxDurationTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(cap))
+            if Task.isCancelled { return }
+            self?.onMaxDurationReached?()
+        }
         return url
     }
 
     func stop() -> URL? {
+        maxDurationTask?.cancel()
+        maxDurationTask = nil
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
         let url = currentURL
@@ -93,6 +113,8 @@ final class AudioRecorder {
 
     /// Stop recording and discard the captured audio.
     func cancel() {
+        maxDurationTask?.cancel()
+        maxDurationTask = nil
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
         if let url = currentURL {

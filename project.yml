@@ -40,8 +40,8 @@ targets:
         CFBundleName: ListenToMe
         CFBundleDisplayName: ListenToMe
         CFBundleIdentifier: com.rexdanquah.listentome
-        CFBundleShortVersionString: "0.11.0"
-        CFBundleVersion: "13"
+        CFBundleShortVersionString: "0.12.0"
+        CFBundleVersion: "14"
         NSHumanReadableCopyright: "© 2026 Rex Danquah"
         NSMicrophoneUsageDescription: "ListenToMe needs microphone access to transcribe your speech."
         NSAppleEventsUsageDescription: "ListenToMe uses Apple Events to paste transcripts into the active app."
@@ -60,3 +60,27 @@ targets:
         ENABLE_HARDENED_RUNTIME: YES
         COMBINE_HIDPI_IMAGES: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+
+  ListenToMeTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: ListenToMeTests
+    dependencies:
+      - target: ListenToMe
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.rexdanquah.listentome.tests
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        SWIFT_VERSION: "5.9"
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  ListenToMe:
+    build:
+      targets:
+        ListenToMe: all
+        ListenToMeTests: [test]
+    test:
+      targets:
+        - ListenToMeTests

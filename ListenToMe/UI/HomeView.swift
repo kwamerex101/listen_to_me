@@ -17,6 +17,8 @@ struct HomeView: View {
 
                 heatmapCard
 
+                appUsageCard
+
                 todaySection
             }
             .padding(.top, 60)
@@ -357,6 +359,97 @@ struct HomeView: View {
         }
         .padding(DT.space5)
         .card()
+    }
+
+    // MARK: - Per-app usage
+
+    /// "Where you dictate" — horizontal-bar breakdown by target app over
+    /// the last 30 days. Hidden when there's no data yet (legacy users
+    /// without `bundleId` history wouldn't see anything useful).
+    @ViewBuilder
+    private var appUsageCard: some View {
+        let usage = history.appUsageBreakdown(lastDays: 30)
+        if !usage.isEmpty {
+            let topByWords = max(usage.first?.words ?? 1, 1)
+            let totalDictations = usage.reduce(0) { $0 + $1.dictations }
+
+            VStack(alignment: .leading, spacing: DT.space4) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Where you dictate")
+                        .font(DT.sectionTitle)
+                    Spacer()
+                    Text("LAST 30 DAYS · \(totalDictations) DICTATIONS")
+                        .font(DT.eyebrow)
+                        .tracking(0.6)
+                        .foregroundStyle(.secondary)
+                }
+
+                VStack(spacing: DT.space2) {
+                    ForEach(usage.prefix(8)) { u in
+                        appUsageRow(u, scale: topByWords)
+                    }
+                }
+            }
+            .padding(DT.space5)
+            .card()
+        }
+    }
+
+    private func appUsageRow(_ usage: HistoryStore.AppUsage, scale: Int) -> some View {
+        let (name, tint) = appDisplay(for: usage.bundleId)
+        let pct = Double(usage.words) / Double(scale)
+        return HStack(spacing: DT.space3) {
+            // Tint dot — keeps this row's app identity at a glance.
+            Circle()
+                .fill(tint)
+                .frame(width: 8, height: 8)
+
+            Text(name)
+                .font(DT.body)
+                .lineLimit(1)
+                .frame(width: 160, alignment: .leading)
+
+            // Bar — fills proportional to the row's share of the top app.
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(DT.surfaceElevated)
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(tint.opacity(0.85))
+                        .frame(width: max(8, geo.size.width * pct))
+                }
+            }
+            .frame(height: 12)
+
+            Text("\(usage.words)w")
+                .font(DT.monoCaption)
+                .foregroundStyle(.secondary)
+                .frame(width: 60, alignment: .trailing)
+
+            Text("·")
+                .foregroundStyle(.tertiary)
+
+            Text("\(usage.dictations)")
+                .font(DT.monoCaption)
+                .foregroundStyle(.tertiary)
+                .frame(width: 32, alignment: .trailing)
+        }
+    }
+
+    /// Resolve `bundleId` to a friendly display name + a stable color.
+    /// Color is a hash of the bundle so repeat apps get the same tint
+    /// across launches without persisting anything extra.
+    private func appDisplay(for bundleId: String?) -> (String, Color) {
+        guard let bundleId else { return ("Other", .gray) }
+        let name = NSRunningApplication
+            .runningApplications(withBundleIdentifier: bundleId)
+            .first?.localizedName
+            ?? bundleId.components(separatedBy: ".").last
+            ?? bundleId
+        // Stable color from the bundleId hash.
+        let palette: [Color] = [.blue, .teal, .indigo, .pink, .orange, .purple, .green, .mint, .cyan, .red]
+        let hash = abs(bundleId.hashValue)
+        return (name, palette[hash % palette.count])
     }
 
     // MARK: - Today

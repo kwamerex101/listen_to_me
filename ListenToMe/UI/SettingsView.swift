@@ -7,6 +7,8 @@ struct SettingsView: View {
     @State private var hotkey: HotkeyBinding = Preferences.shared.hotkeyBinding
     @State private var soundEnabled: Bool = Preferences.shared.soundEnabled
     @State private var appearance: AppearanceMode = Preferences.shared.appearance
+    @State private var maxRecordingSec: Double = Double(Preferences.shared.maxRecordingSec)
+    @State private var cleanupTimeoutSec: Double = Double(Preferences.shared.cleanupTimeoutSec)
     @ObservedObject private var modelManager = WhisperModelManager.shared
 
     /// Reads the version straight from the bundle so future bumps don't
@@ -126,6 +128,35 @@ struct SettingsView: View {
                         Text("English")
                             .font(.system(size: 13))
                             .foregroundStyle(.secondary)
+                    }
+                }
+
+                section(title: "Advanced") {
+                    row(label: "Max recording duration") {
+                        HStack(spacing: 10) {
+                            Slider(value: $maxRecordingSec, in: 30...600, step: 30)
+                                .frame(width: 180)
+                                .onChange(of: maxRecordingSec) { _, new in
+                                    Preferences.shared.maxRecordingSec = Int(new)
+                                }
+                            Text("\(Int(maxRecordingSec))s")
+                                .font(DT.monoCaption)
+                                .foregroundStyle(.secondary)
+                                .frame(width: 44, alignment: .trailing)
+                        }
+                    }
+                    row(label: "Cleanup timeout") {
+                        HStack(spacing: 10) {
+                            Slider(value: $cleanupTimeoutSec, in: 5...60, step: 5)
+                                .frame(width: 180)
+                                .onChange(of: cleanupTimeoutSec) { _, new in
+                                    Preferences.shared.cleanupTimeoutSec = Int(new)
+                                }
+                            Text("\(Int(cleanupTimeoutSec))s")
+                                .font(DT.monoCaption)
+                                .foregroundStyle(.secondary)
+                                .frame(width: 44, alignment: .trailing)
+                        }
                     }
                 }
 
