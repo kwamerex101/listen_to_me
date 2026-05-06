@@ -245,7 +245,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     recordStyleSample(token: token, cleaned: expanded)
                     Haptics.success()
                     SoundCue.success()
-                    HistoryStore.shared.add(rawText: raw, finalText: expanded, durationMs: durMs)
+                    HistoryStore.shared.add(rawText: raw, finalText: expanded,
+                                             durationMs: durMs, bundleId: token.bundleId)
                     state.phase = .success(preview: String(expanded.prefix(30)))
                     PillWindow.shared.setInteractive(true)
                     // Longer success window so the user has time to click the
@@ -286,12 +287,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         self.state.lastTranscript = cleaned
                         self.scheduleRetypeDetection(token: newToken)
                         self.recordStyleSample(token: newToken, cleaned: cleaned)
-                        HistoryStore.shared.add(rawText: raw, finalText: cleaned, durationMs: durMs)
+                        HistoryStore.shared.add(rawText: raw, finalText: cleaned,
+                                                 durationMs: durMs, bundleId: newToken.bundleId)
                     } else {
                         // Validation failed (focus changed, clipboard touched,
                         // user opened the correction popover, etc.). Raw stays.
                         self.state.lastTranscript = expanded
-                        HistoryStore.shared.add(rawText: raw, finalText: expanded, durationMs: durMs)
+                        HistoryStore.shared.add(rawText: raw, finalText: expanded,
+                                                 durationMs: durMs, bundleId: token.bundleId)
                     }
                     if self.isStillPolishing(token: token) {
                         let preview = self.state.lastTranscript.prefix(30)
@@ -309,7 +312,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 await MainActor.run {
                     guard let self else { return }
                     Paster.finalize(token: token)
-                    HistoryStore.shared.add(rawText: raw, finalText: expanded, durationMs: durMs)
+                    HistoryStore.shared.add(rawText: raw, finalText: expanded,
+                                             durationMs: durMs, bundleId: token.bundleId)
                     if self.isStillPolishing(token: token) {
                         self.state.phase = .success(preview: String(expanded.prefix(30)))
                         self.autoReset(after: 3.0)
