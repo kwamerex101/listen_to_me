@@ -61,13 +61,23 @@ struct ClaudeClient {
                bundleId: String? = nil,
                timeout: TimeInterval = 20) async throws -> String {
         // Build effective system prompt on the MainActor (StyleStore.shared
-        // is @MainActor-isolated). Falls back to the default cleanup prompt
-        // when no bundleId is provided or no hint is available.
+        // and AppContext.current() are @MainActor-isolated). Layered:
+        //   [App context]  ← M3a.5: bundleId, app name, category, browser URL
+        //   [Per-app tone] ← StyleStore.promptHint, when learned
+        //   [Base cleanup] ← cleanupSystemPrompt (HARD RULES untouched)
+        // Each layer optional; missing layers just collapse into a
+        // shorter prefix.
         let systemPrompt: String = await MainActor.run {
-            guard let bundleId, let hint = StyleStore.shared.promptHint(for: bundleId) else {
-                return Self.cleanupSystemPrompt
+            var sections: [String] = []
+            let context = AppContext.current()
+            if let line = context.promptLine {
+                sections.append("CONTEXT — \(line)")
             }
-            return hint + "\n\n" + Self.cleanupSystemPrompt
+            if let bundleId, let hint = StyleStore.shared.promptHint(for: bundleId) {
+                sections.append(hint)
+            }
+            sections.append(Self.cleanupSystemPrompt)
+            return sections.joined(separator: "\n\n")
         }
 
         // Backend selection per Preferences. .auto picks API when a key
