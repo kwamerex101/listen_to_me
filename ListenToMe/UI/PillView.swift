@@ -14,6 +14,7 @@ private struct Shake: GeometryEffect {
 
 struct PillView: View {
     @ObservedObject var state: AppState = .shared
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var levelBuffer: [Float] = Array(repeating: 0, count: 16)
 
     // Idle motion — border opacity + body scale, both autoreversed.
@@ -71,6 +72,10 @@ struct PillView: View {
                 .onTapGesture {
                     if isPillTappable { state.onPillTap?() }
                 }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(accessibilityLabelForCurrentPhase)
+                .accessibilityHint(accessibilityHintForCurrentPhase)
+                .accessibilityAddTraits(isPillTappable ? .isButton : [])
                 .animation(Motion.phaseSize, value: pillWidth)
                 .animation(Motion.phaseSize, value: pillHeight)
                 .animation(Motion.phaseSwap, value: visualID)
@@ -266,8 +271,13 @@ struct PillView: View {
             .padding(.bottom, 4)
             .onAppear {
                 // Both breath axes share one timeline so they stay in phase.
-                withAnimation(Motion.idleBreath) {
-                    idleBreathOn = true
+                // Skip when reduce-motion is on — system honors the user's
+                // vestibular preference; an infinite gentle pulse still
+                // counts as motion.
+                if !reduceMotion {
+                    withAnimation(Motion.idleBreath) {
+                        idleBreathOn = true
+                    }
                 }
             }
     }
@@ -282,6 +292,37 @@ struct PillView: View {
         switch state.phase {
         case .success, .polishing: return true
         default: return false
+        }
+    }
+
+    /// VoiceOver label per phase. The pill is the only fixed UI element
+    /// of the app for users navigating with VO; without this it reads as
+    /// an opaque container.
+    private var accessibilityLabelForCurrentPhase: String {
+        if state.showPermissionPrompt {
+            return "ListenToMe — accessibility permission required"
+        }
+        switch state.phase {
+        case .idle:         return "ListenToMe — idle"
+        case .recording:    return "ListenToMe — recording"
+        case .transcribing: return "ListenToMe — transcribing"
+        case .cleaning:     return "ListenToMe — cleaning up transcript"
+        case .polishing:    return "ListenToMe — polishing transcript"
+        case .success:      return "ListenToMe — success"
+        case .error(let m): return "ListenToMe — error: \(m)"
+        case .correcting:   return "ListenToMe — editing transcript"
+        case .suggestion:   return "ListenToMe — style suggestion available"
+        }
+    }
+
+    /// VoiceOver hint — what tapping the pill will do, when relevant.
+    private var accessibilityHintForCurrentPhase: String {
+        switch state.phase {
+        case .success, .polishing: return "Activate to edit the just-pasted transcript"
+        case .recording, .transcribing, .cleaning:
+            return "Use the cancel button to abort"
+        case .suggestion: return "Use Keep or Dismiss to respond"
+        default: return ""
         }
     }
 
@@ -436,8 +477,10 @@ struct PillView: View {
                 .buttonStyle(PressableStyle())
                 .onAppear {
                     recordPulse = false
-                    withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
-                        recordPulse = true
+                    if !reduceMotion {
+                        withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
+                            recordPulse = true
+                        }
                     }
                 }
             }
