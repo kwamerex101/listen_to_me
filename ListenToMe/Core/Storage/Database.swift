@@ -28,7 +28,13 @@ import SQLite3
 /// deallocated after the bind call returns.
 @MainActor
 final class Database {
-    static let shared = Database()
+    static let shared = Database(path: Database.url.path)
+
+    /// Path the next `connect()` will open. Set once at init; mutating
+    /// after open has no effect — close() then re-init to swap files.
+    /// Public-internal so tests can spin up isolated DBs in temp dirs
+    /// rather than poking the user's real `store.sqlite`.
+    let dbPath: String
 
     enum DBError: Error, CustomStringConvertible {
         case openFailed(String)
@@ -62,7 +68,12 @@ final class Database {
     /// is fine on MainActor; concurrent threads need their own handle.
     private var handle: OpaquePointer?
 
-    private init() {}
+    /// Production callers use `Database.shared`. Tests construct
+    /// instances at a temp path so they never touch the real on-disk
+    /// store. `internal` rather than `private` for that.
+    init(path: String) {
+        self.dbPath = path
+    }
 
     // MARK: - Lifecycle
 
@@ -72,7 +83,7 @@ final class Database {
         if handle != nil { return }
         var h: OpaquePointer?
         let rc = sqlite3_open_v2(
-            Self.url.path,
+            dbPath,
             &h,
             SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX,
             nil

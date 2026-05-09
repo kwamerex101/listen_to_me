@@ -4,6 +4,22 @@ All notable user-facing changes per release. Format inspired by [Keep a Changelo
 
 ## [Unreleased]
 
+### Added — SQLite storage foundation (M6, partial)
+
+- **`Core/Storage/Database.swift`** — thin Swift wrapper around the system SQLite3 C API. Single connection per process, opened lazily on first `connect()` and reused for the session. WAL journal mode + `synchronous=NORMAL` for durable atomic writes per row at the right cost for our write rate. `SQLValue` sum type (`null`/`integer`/`real`/`text`/`blob`) keeps the C boundary in one place. Public surface: `connect`, `close`, `exec`, `write`, `query`, `transaction`. Path is injectable at init for test isolation; `Database.shared` defaults to `~/Library/Application Support/ListenToMe/store.sqlite`.
+- **`Core/Storage/Migrations.swift`** — schema-versioned migrations driven by SQLite's `PRAGMA user_version`. Each step runs in its own `BEGIN IMMEDIATE` transaction so a crash mid-step rolls back cleanly; idempotent across launches. v1 schema lands three tables (`scratchpad`, `snippets`, `transforms`) for the first wave of stores migrated; future migrations append numbered steps so partially-rolled-out builds don't double-migrate.
+- **`ScratchpadStore`, `SnippetsStore`, `TransformsStore`** all migrated to SQLite. In-memory shapes and public APIs are unchanged — UI binds to the same `@Published` collections, calls the same `add`/`remove` methods. Per-store legacy migration is identical and idempotent: on first launch with this build, if the legacy `.json` (or `.txt` for scratchpad) exists, it's imported into the SQL table once and renamed `.bak`. DB error → fall back to the legacy file so a transient SQLite problem can never lose user data. SnippetsStore's UNIQUE(keyword) constraint is enforced at the DB level. AppDelegate warms all three at launch so migration runs immediately rather than at first tab visit.
+
+### Tests
+
+- **136 tests, 0 failures across 16 suites** (was 124 in the M5' release):
+  - `DatabaseTests` (12) — connect creates file + runs migrations; idempotent connect; close + reconnect preserves data; SQLValue round-trips for text (with unicode + quotes), int/real, null; transaction commits on success / rolls back on throw; UNIQUE(keyword) constraint enforced; scratchpad CHECK(id=1) blocks extra rows; running migrations twice is a no-op.
+
+### Deferred (planned for M6 follow-ups)
+
+- DictionaryStore, CandidateStore, StyleStore, StyleSamplesStore, PagesStore — the five remaining JSON-backed stores. Pattern is established; each is mechanical (~50–100 lines + a numbered migration step). Will land as small focused PRs.
+- `*.json` cleanup: once all stores are migrated, drop the `.bak` files via a one-time cleanup pass (after a multi-version cooling-off period so a downgrade can still recover).
+
 ### Added — Streaming partial transcripts (M5')
 
 - **Live partial transcripts during recording.** When the user holds the hotkey, a small floating preview above the pill shows what whisper has transcribed so far, updating ~every 1.5 s. Off by default; opt in via Settings → AI Cleanup → Whisper Model → "Live partial transcripts" (requires Linked engine).
