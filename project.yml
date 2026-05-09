@@ -78,6 +78,13 @@ targets:
         #   codesign -d --verbose=4 ListenToMe.app  (look for runtime)
         Release:
           OTHER_CODE_SIGN_FLAGS: "--options=runtime"
+          # Suppress Xcode's auto-injected debug-only entitlements
+          # (com.apple.security.get-task-allow). The explicit entitlements
+          # file is the only source of truth for Release; the debugger-
+          # attach permission has no place in shipped builds. Verify with:
+          #   codesign -d --entitlements - --xml ListenToMe.app
+          #   should NOT contain "get-task-allow".
+          CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
 
   ListenToMeTests:
     type: bundle.unit-test
