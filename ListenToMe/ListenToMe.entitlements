@@ -6,5 +6,22 @@
 	<true/>
 	<key>com.apple.security.automation.apple-events</key>
 	<true/>
+	<!--
+	  Disable library validation so the bundled adhoc-signed dylibs
+	  (libwhisper.1.dylib, libwhisper.coreml.dylib, libggml*.dylib)
+	  load under hardened runtime. With hardened runtime ON +
+	  library validation enforced, adhoc-signed dylibs are rejected
+	  for "Team ID mismatch" against the adhoc-signed main binary
+	  (every adhoc signature is technically anonymous → not "the
+	  same identity"). This entitlement lets us keep hardened runtime
+	  ON for everything else (which is the load-bearing security
+	  property) while still using bundled vendored dylibs.
+
+	  Verify: codesign -d --entitlements - --xml ListenToMe.app
+	  must list this key. With it set, Release launches cleanly
+	  from /Applications.
+	-->
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
 </dict>
 </plist>

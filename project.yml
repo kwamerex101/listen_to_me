@@ -60,6 +60,10 @@ targets:
       properties:
         com.apple.security.device.audio-input: true
         com.apple.security.automation.apple-events: true
+        # Required so the bundled adhoc-signed libwhisper/libggml*
+        # dylibs load under Release's hardened runtime. See the
+        # entitlements file for the full rationale.
+        com.apple.security.cs.disable-library-validation: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.rexdanquah.listentome
@@ -100,6 +104,14 @@ targets:
           #   codesign -d --entitlements - --xml ListenToMe.app
           #   should NOT contain "get-task-allow".
           CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
+          # arm64-only Release: the bundled libwhisper.1.dylib (and
+          # libggml*) ship arm64 only — they're built locally by
+          # scripts/setup.sh on Apple Silicon. CLAUDE.md targets Apple
+          # Silicon as the primary platform; Intel Macs run via Rosetta
+          # if needed. Building x86_64 here would fail to link against
+          # the arm64-only libwhisper.
+          ARCHS: arm64
+          ONLY_ACTIVE_ARCH: NO
 
   ListenToMeTests:
     type: bundle.unit-test
