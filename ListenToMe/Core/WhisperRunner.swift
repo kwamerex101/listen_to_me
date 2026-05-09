@@ -36,6 +36,30 @@ struct WhisperRunner {
             throw WhisperError.modelNotFound(path: model.path)
         }
 
+        // Warm path: try the persistent whisper-server first when its
+        // binary is bundled. Saves the per-call 300-800ms model-load
+        // cost. Any failure (server crashed, port collision, malformed
+        // response) falls back to the CLI subprocess so the user
+        // always gets a transcript.
+        let server = await MainActor.run { WhisperServer.shared }
+        let serverAvailable = await MainActor.run { server.isAvailable }
+        if serverAvailable {
+            do {
+                let text = try await server.transcribe(wav: wav, prompt: prompt)
+                // Server succeeded — clean up the on-disk WAV (server
+                // doesn't write a sidecar .txt the way whisper-cli does).
+                try? FileManager.default.removeItem(at: wav)
+                if text.isEmpty { throw WhisperError.noOutput }
+                return text
+            } catch {
+                NSLog("[ListenToMe] whisper-server failed (\(error)) — falling back to CLI")
+                // Tear down the broken server so we re-launch fresh
+                // next time rather than retrying a wedged process.
+                await MainActor.run { server.shutdown() }
+                // Fall through to the CLI path below.
+            }
+        }
+
         return try await withCheckedThrowingContinuation { cont in
             let proc = Process()
             proc.executableURL = bin
