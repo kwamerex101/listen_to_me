@@ -65,13 +65,19 @@ targets:
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_IDENTITY: "-"
         ENABLE_HARDENED_RUNTIME: YES
-        # Force the hardened-runtime flag (CS_RUNTIME = 0x10000) into
-        # the actual signature even under adhoc signing. Without this,
-        # Xcode emits flags=0x2(adhoc) only and ENABLE_HARDENED_RUNTIME
-        # is effectively a no-op. See SECURITY.md.
-        OTHER_CODE_SIGN_FLAGS: "--options=runtime"
         COMBINE_HIDPI_IMAGES: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      configs:
+        # Hardened runtime (CS_RUNTIME flag) is Release-only because
+        # Xcode's Debug build links a per-build ListenToMe.debug.dylib
+        # for SwiftUI previews that has a different signing identity
+        # than the main binary; library validation under adhoc signing
+        # rejects the load and the app won't launch. Skipping the
+        # runtime flag in Debug keeps the inner-loop fast; Release ships
+        # are still fully hardened — verify with:
+        #   codesign -d --verbose=4 ListenToMe.app  (look for runtime)
+        Release:
+          OTHER_CODE_SIGN_FLAGS: "--options=runtime"
 
   ListenToMeTests:
     type: bundle.unit-test

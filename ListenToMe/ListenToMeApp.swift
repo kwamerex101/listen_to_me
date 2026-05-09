@@ -79,9 +79,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             PillWindow.shared.setInteractive(true)
         }
 
-        // Wire state → waveform
+        // Wire state → waveform. removeTap is synchronous, but a buffer
+        // already in-flight on the audio render thread can deliver one
+        // last callback after stop()/cancel(). Gate on phase so a stale
+        // tail tick doesn't churn @Published subscribers (PillView
+        // onChange) for nothing during transcribe/cleanup/idle.
         AudioRecorder.shared.onLevel = { [weak self] level in
-            self?.state.level = level
+            guard let self else { return }
+            if case .recording = self.state.phase {
+                self.state.level = level
+            }
         }
         // QUAL-03: when the watchdog fires, treat as a normal release so
         // the pipeline finishes the dictation cleanly — better than just
@@ -174,6 +181,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         PillWindow.shared.setInteractive(false)
         HistoryStore.shared.add(rawText: "", finalText: "", durationMs: 0, dismissed: true)
         recordingStartedAt = nil
+        state.level = 0   // clear stale tail so a fast re-entry starts cold
         state.phase = .idle
     }
 
@@ -187,6 +195,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             autoReset()
             return
         }
+        state.level = 0   // mute waveform during transcribe/cleanup
         state.phase = .transcribing
 
         let whisperPrompt = DictionaryStore.shared.whisperPrompt
