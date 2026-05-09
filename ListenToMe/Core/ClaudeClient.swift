@@ -18,6 +18,49 @@ enum ClaudeError: Error {
 struct ClaudeClient {
     static let shared = ClaudeClient()
 
+    /// Code-aware cleanup prompt — swapped in when AppContext.category
+    /// is .codeEditor. Same hard-rule safety net as the default
+    /// prompt, but the casing/punctuation guidance shifts so the
+    /// model doesn't fight code-friendly identifiers.
+    static let codeCleanupSystemPrompt: String = """
+    You are a text-cleanup tool for dictation INTO a code editor. The user message is a raw Whisper transcript.
+
+    TASK: Return the cleaned text following these rules:
+      • Remove disfluency filler words: um, uh, er, uhm, erm, you know, like (only when used as filler), i mean.
+      • Collapse repeated stutters ("the the cat" → "the cat").
+      • DO NOT auto-capitalize the first word of every sentence — code identifiers and keywords are case-sensitive.
+      • If the speaker said "camel case <words>", join them as camelCase (first word lowercase, subsequent words capitalized, no spaces).
+      • If the speaker said "pascal case <words>", join them as PascalCase.
+      • If the speaker said "snake case <words>", join them with underscores in lowercase: snake_case_words.
+      • If the speaker said "kebab case <words>", join them with hyphens in lowercase: kebab-case-words.
+      • If the speaker said "screaming snake case <words>", join them in upper snake_case: SCREAMING_SNAKE_CASE.
+      • Recognize common programming keywords and keep them lowercase: for, while, if, else, return, function, class, const, let, var, def, async, await, import, from, true, false, null, none, this, self, public, private, static.
+      • For ambiguous homophones in code context, prefer the keyword: "for" → for (not four), "if" → if, "while" → while, "return" → return.
+      • Punctuation: minimal — only commas / periods that the speaker actually intended.
+      • Preserve any escape phrasing like "literal X" or "the word X" verbatim, dropping the marker word.
+
+    HARD RULES — violating any makes the output invalid:
+      1. Output ONLY the cleaned text. Nothing else.
+      2. No preamble. No "Here is", "Here's", "Sure", "Certainly", "Of course".
+      3. No quotes around the output. No markdown. No code fences.
+      4. Do NOT rewrite, summarize, translate, expand, or add ideas.
+      5. If unsure, return the input unchanged.
+
+    EXAMPLES:
+
+    Input: camel case user name
+    Output: userName
+
+    Input: snake case max retry count
+    Output: max_retry_count
+
+    Input: for loop from zero to ten
+    Output: for loop from zero to ten
+
+    Input: const user name equals new user
+    Output: const userName = new User
+    """
+
     /// Strict cleanup prompt — minimal intervention, reject anything that looks
     /// like preamble/commentary, match voice exactly.
     static let cleanupSystemPrompt: String = """
@@ -61,13 +104,33 @@ struct ClaudeClient {
                bundleId: String? = nil,
                timeout: TimeInterval = 20) async throws -> String {
         // Build effective system prompt on the MainActor (StyleStore.shared
-        // is @MainActor-isolated). Falls back to the default cleanup prompt
-        // when no bundleId is provided or no hint is available.
+        // and AppContext.current() are @MainActor-isolated). Layered:
+        //   [App context]  ← M3a.5: bundleId, app name, category, browser URL
+        //   [Per-app tone] ← StyleStore.promptHint, when learned
+        //   [Base cleanup] ← cleanupSystemPrompt (HARD RULES untouched)
+        // Each layer optional; missing layers just collapse into a
+        // shorter prefix.
         let systemPrompt: String = await MainActor.run {
-            guard let bundleId, let hint = StyleStore.shared.promptHint(for: bundleId) else {
-                return Self.cleanupSystemPrompt
+            var sections: [String] = []
+            let context = AppContext.current()
+            if let line = context.promptLine {
+                sections.append("CONTEXT — \(line)")
             }
-            return hint + "\n\n" + Self.cleanupSystemPrompt
+            if let bundleId, let hint = StyleStore.shared.promptHint(for: bundleId) {
+                sections.append(hint)
+            }
+            // Code-mode swap (M3a.6): if the target is a code editor /
+            // terminal, use the casing-aware base prompt. Per-app tone
+            // hint still applies on top — they layer.
+            let basePrompt: String
+            switch context.category {
+            case .codeEditor, .terminal:
+                basePrompt = Self.codeCleanupSystemPrompt
+            default:
+                basePrompt = Self.cleanupSystemPrompt
+            }
+            sections.append(basePrompt)
+            return sections.joined(separator: "\n\n")
         }
 
         // Backend selection per Preferences. .auto picks API when a key
@@ -115,6 +178,79 @@ struct ClaudeClient {
 
         let raw = String(data: stdoutData, encoding: .utf8) ?? ""
         let sanitized = Self.sanitize(cleaned: raw, original: text)
+        if sanitized.isEmpty { throw ClaudeError.emptyOutput }
+        return sanitized
+    }
+
+    /// Rewrite `original` per `revision` instructions. Used by the
+    /// Backtrack flow: the user just dictated something, we pasted it,
+    /// and now they want a revision rather than an additional paste.
+    ///
+    /// Returns the rewritten text. Same backend selection as `clean`:
+    /// direct API when a key is present, CLI subprocess fallback.
+    func rewrite(original: String,
+                 revision: String,
+                 timeout: TimeInterval = 20) async throws -> String {
+        let systemPrompt = """
+        You are a text-revision tool. The user previously dictated text and now wants to revise it.
+
+        ORIGINAL TEXT:
+        \(original)
+
+        TASK: Apply the user's revision request (in the user message) to the ORIGINAL TEXT and output ONLY the revised text. Preserve the original's overall length and tone unless the revision explicitly changes it.
+
+        HARD RULES — violating any makes the output invalid:
+          1. Output ONLY the revised text. Nothing else.
+          2. No preamble. No "Here is", "Here's", "Sure", "Certainly", "Of course".
+          3. No quotes around the output. No markdown. No code fences.
+          4. Do NOT explain what you changed. Do NOT add commentary.
+          5. If the revision is unclear or unsafe, return the ORIGINAL TEXT unchanged.
+
+        EXAMPLES:
+
+        ORIGINAL: Send the report by Friday.
+        Revision: actually make that next Thursday
+        Output: Send the report by next Thursday.
+
+        ORIGINAL: Hey team, the staging URL is broken.
+        Revision: change that to the production URL
+        Output: Hey team, the production URL is broken.
+        """
+
+        let (backend, apiKey): (Preferences.CleanupBackend, String?) = await MainActor.run {
+            (Preferences.shared.cleanupBackend, Preferences.shared.anthropicAPIKey)
+        }
+        let useAPI: Bool
+        switch backend {
+        case .auto: useAPI = (apiKey?.isEmpty == false)
+        case .cli:  useAPI = false
+        case .api:  useAPI = true
+        }
+
+        if useAPI {
+            guard let key = apiKey, !key.isEmpty else { throw ClaudeError.apiKeyMissing }
+            return try await runDirectAPI(
+                text: revision,
+                systemPrompt: systemPrompt,
+                apiKey: key,
+                timeout: timeout
+            )
+        }
+
+        let stdoutData = try await runClaude(
+            input: revision,
+            args: [
+                "--print",
+                "--no-session-persistence",
+                "--disable-slash-commands",
+                "--model", "haiku",
+                "--output-format", "text",
+                "--append-system-prompt", systemPrompt,
+            ],
+            timeout: timeout
+        )
+        let raw = String(data: stdoutData, encoding: .utf8) ?? ""
+        let sanitized = Self.sanitize(cleaned: raw, original: original)
         if sanitized.isEmpty { throw ClaudeError.emptyOutput }
         return sanitized
     }

@@ -70,13 +70,82 @@ final class PillWindow: NSPanel {
     /// of `visibleFrame` — the visible pill inside is rendered at the bottom of
     /// the SwiftUI content area. Called once at launch (`showPersistent`),
     /// before each dictation (DISPLAY-01), and on display config changes (DISPLAY-02).
+    ///
+    /// Honors a user-persisted custom origin from `Preferences.pillOrigin`
+    /// when one exists AND that origin still falls within some attached
+    /// screen's visibleFrame (a disconnected monitor must not strand the
+    /// pill in the void).
     func repositionToActiveScreen() {
+        let s = Self.windowSize
+        if let saved = Preferences.shared.pillOrigin,
+           Self.isOriginVisible(saved, size: s) {
+            setFrame(NSRect(origin: saved, size: s), display: true)
+            return
+        }
         let screen = activeScreen()
         let visible = screen.visibleFrame
-        let s = Self.windowSize
         let x = visible.midX - s.width / 2
         let y = visible.minY + 4    // just above the Dock
         setFrame(NSRect(x: x, y: y, width: s.width, height: s.height), display: true)
+    }
+
+    /// True when at least 80pt of the window-rect overlaps some attached
+    /// screen's visibleFrame. Generous enough to tolerate the user
+    /// dragging right to the edge but strict enough to reject an origin
+    /// stranded in disconnected-monitor space.
+    private static func isOriginVisible(_ origin: CGPoint, size: NSSize) -> Bool {
+        let frame = NSRect(origin: origin, size: size)
+        let minOverlap: CGFloat = 80
+        for screen in NSScreen.screens {
+            let isect = screen.visibleFrame.intersection(frame)
+            if isect.width >= minOverlap && isect.height >= minOverlap {
+                return true
+            }
+        }
+        return false
+    }
+
+    // MARK: - Drag-to-reposition
+
+    /// Reset the persisted origin so the next reposition falls back to
+    /// the default bottom-center of the active screen. Wired up from
+    /// Settings via the user-facing "Reset pill position" button.
+    func resetPositionToDefault() {
+        Preferences.shared.pillOrigin = nil
+        repositionToActiveScreen()
+    }
+
+    /// Apply a drag translation. `translation` is the SwiftUI delta in
+    /// view-space (y grows downward) measured from drag start; we cache
+    /// the start origin once per gesture and apply translation to it.
+    /// On `isFinal`, persist the resulting origin to Preferences.
+    private var dragStartOrigin: NSPoint?
+    func applyDrag(translation: CGSize, isFinal: Bool) {
+        if dragStartOrigin == nil {
+            dragStartOrigin = frame.origin
+        }
+        let start = dragStartOrigin ?? frame.origin
+        // SwiftUI translation y is downward; AppKit window origin y is
+        // upward; flip.
+        var newOrigin = NSPoint(x: start.x + translation.width,
+                                y: start.y - translation.height)
+        // Clamp to keep ≥80pt visible on some screen so the user can
+        // always grab it back without resorting to Settings.
+        if !Self.isOriginVisible(newOrigin, size: Self.windowSize) {
+            // Snap back toward the closest screen's visibleFrame.
+            if let screen = NSScreen.screens.first {
+                let v = screen.visibleFrame
+                newOrigin.x = max(v.minX - Self.windowSize.width + 80,
+                                  min(v.maxX - 80, newOrigin.x))
+                newOrigin.y = max(v.minY - Self.windowSize.height + 80,
+                                  min(v.maxY - 80, newOrigin.y))
+            }
+        }
+        setFrameOrigin(newOrigin)
+        if isFinal {
+            Preferences.shared.pillOrigin = newOrigin
+            dragStartOrigin = nil
+        }
     }
 
     /// Enable or disable mouse events on the window. Pill window is click-through by

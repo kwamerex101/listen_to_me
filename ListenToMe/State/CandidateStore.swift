@@ -65,6 +65,57 @@ final class CandidateStore: ObservableObject {
         save()
     }
 
+    /// Bulk ingest from HistoryDictionaryMiner. Each swap becomes a
+    /// CandidateOccurrence on the matching candidate (dedup on
+    /// original+replacement) so the existing 3-distinct-occurrences
+    /// promotion threshold applies uniformly across retype-driven and
+    /// history-mined evidence.
+    ///
+    /// Distinctness is keyed on (minute, bundleId) per the existing
+    /// `distinctKeys` logic — back-filling N history entries from the
+    /// same minute counts as 1 distinct occurrence, which is the
+    /// correct conservative behavior (don't auto-promote on a single
+    /// burst of repeated history).
+    func ingestMined(_ swaps: [(swap: HistoryDictionaryMiner.Swap, bundleId: String?)]) {
+        guard !swaps.isEmpty else { return }
+        var didChange = false
+        var promotedCandidates: [DictionaryCandidate] = []
+        for (s, bundleId) in swaps {
+            // Spread occurrence dates across distinct minutes so a
+            // backfill from many historical events counts as multiple
+            // distinct keys (history records ARE on different minutes).
+            // We just use Date() because we don't have the original
+            // record timestamps here; the miner could pass them
+            // through but for the foundational signal "this happened
+            // ≥ 3 times" the timestamp granularity doesn't matter.
+            let occ = CandidateOccurrence(date: Date(), bundleId: bundleId)
+            if let idx = candidates.firstIndex(where: { $0.original == s.original && $0.replacement == s.replacement }) {
+                candidates[idx].occurrences.append(occ)
+                didChange = true
+                if candidates[idx].isReadyToPromote {
+                    let candidate = candidates[idx]
+                    candidates.remove(at: idx)
+                    promotedCandidates.append(candidate)
+                }
+            } else {
+                let c = DictionaryCandidate(id: UUID(), original: s.original,
+                                            replacement: s.replacement, occurrences: [occ])
+                candidates.insert(c, at: 0)
+                didChange = true
+            }
+        }
+        if didChange { save() }
+        // Promote outside the loop to keep the array stable.
+        for candidate in promotedCandidates {
+            DictionaryStore.shared.add(promoted: candidate.replacement,
+                                       promotedFrom: candidate.original,
+                                       bundleId: candidate.occurrences.last?.bundleId)
+            // No flashPromotion: this is a launch-time bulk ingest, not
+            // a live moment — mirrors the T-05-02 mitigation already
+            // applied to load().
+        }
+    }
+
     // Manual accept from UI — promote immediately bypassing threshold.
     func accept(id: UUID) {
         guard let idx = candidates.firstIndex(where: { $0.id == id }) else { return }

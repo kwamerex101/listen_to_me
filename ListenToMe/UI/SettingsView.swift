@@ -209,6 +209,21 @@ struct SettingsView: View {
                                 Preferences.shared.diagnosticsEnabled = new
                             }
                     }
+                    row(label: "Pill position") {
+                        HStack(spacing: 10) {
+                            Text(Preferences.shared.pillOrigin == nil
+                                 ? "Default (bottom-center)"
+                                 : "Custom — drag the pill to move")
+                                .font(.system(size: 13))
+                                .foregroundStyle(.secondary)
+                            if Preferences.shared.pillOrigin != nil {
+                                Button("Reset") {
+                                    PillWindow.shared.resetPositionToDefault()
+                                }
+                                .buttonStyle(.pressable)
+                            }
+                        }
+                    }
                     row(label: "History retention") {
                         HStack(spacing: 10) {
                             Slider(value: $historyRetentionDays, in: 0...365, step: 30)

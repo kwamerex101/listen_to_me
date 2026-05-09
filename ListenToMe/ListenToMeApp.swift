@@ -46,6 +46,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// has no idle wake-ups outside of timers it actually needs.
     private var phaseChangeCancellable: AnyCancellable?
 
+    /// In-flight Task spawned by handleRelease that owns the
+    /// transcribe → command-route → expand → paste pipeline. Tracked
+    /// so the user can abort during `.transcribing` and we won't
+    /// silently push state forward when the result eventually arrives.
+    private var transcribeTask: Task<Void, Never>?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
 
@@ -123,6 +129,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // runs at launch (otherwise it'd defer until the first add()).
         _ = HistoryStore.shared
 
+        // M3b: mine the existing history for single-word swaps that
+        // claude cleanup consistently fixed (e.g. "danqua" → "Danquah").
+        // Feeds CandidateStore via the same promotion pipeline used by
+        // retype detection. Off-main, low-priority — never blocks
+        // launch or audio.
+        Task.detached(priority: .background) { [weak self] in
+            await self?.runHistoryDictionaryMining()
+        }
+
         // Emit phase-change notifications for menu bar — event-driven via
         // Combine instead of a 150ms polling loop so the app has zero idle
         // wake-ups beyond what it actually needs (#GSD Phase C-3).
@@ -138,6 +153,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// after the app exits.
     func applicationWillTerminate(_ notification: Notification) {
         WhisperServer.shared.shutdown()
+    }
+
+    /// M3b: read history snapshot on main, run pure mining off-main,
+    /// hand results back to CandidateStore on main.
+    private func runHistoryDictionaryMining() async {
+        let snapshot: [(rawText: String, finalText: String, bundleId: String?)] = await MainActor.run {
+            HistoryStore.shared.records.map {
+                (rawText: $0.rawText, finalText: $0.finalText, bundleId: $0.bundleId)
+            }
+        }
+        // Pure analysis off-main.
+        let swaps = HistoryDictionaryMiner.mine(records: snapshot)
+        guard !swaps.isEmpty else { return }
+        await MainActor.run {
+            CandidateStore.shared.ingestMined(swaps)
+        }
     }
 
     // MARK: - Hotkey handlers
@@ -177,15 +208,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Single entry point for "user wants out NOW", regardless of phase.
+    /// .recording → discard audio + history dismissed row.
+    /// .transcribing → cancel whisper task; the result (if it arrives)
+    ///                 short-circuits via Task.isCancelled.
+    /// .polishing → cancel cleanup; raw transcript already pasted, leave
+    ///              it standing (user can correct if they want).
+    /// Any other phase → no-op.
     private func handleCancel() {
-        guard case .recording = state.phase else { return }
-        AudioRecorder.shared.cancel()
-        Haptics.stop()
-        PillWindow.shared.setInteractive(false)
-        HistoryStore.shared.add(rawText: "", finalText: "", durationMs: 0, dismissed: true)
-        recordingStartedAt = nil
-        state.level = 0   // clear stale tail so a fast re-entry starts cold
-        state.phase = .idle
+        switch state.phase {
+        case .recording:
+            AudioRecorder.shared.cancel()
+            Haptics.stop()
+            PillWindow.shared.setInteractive(false)
+            HistoryStore.shared.add(rawText: "", finalText: "", durationMs: 0, dismissed: true)
+            recordingStartedAt = nil
+            state.level = 0   // clear stale tail so a fast re-entry starts cold
+            state.phase = .idle
+        case .transcribing:
+            transcribeTask?.cancel()
+            transcribeTask = nil
+            // Don't shut down WhisperServer — the model load is shared
+            // across dictations and the next press will reuse it.
+            recordingStartedAt = nil
+            PillWindow.shared.setInteractive(false)
+            state.phase = .idle
+        case .polishing:
+            // Raw transcript is already pasted into the target app;
+            // cleanup task may still be running. Cancel it; the
+            // catch-CancellationError branch in startCleanupTask
+            // finalizes the pasteboard cleanly.
+            cleanupTask?.cancel()
+            cleanupTask = nil
+            PillWindow.shared.setInteractive(false)
+            state.phase = .success(preview: String(state.lastTranscript.prefix(30)))
+            autoReset(after: 1.0)
+        default:
+            return
+        }
     }
 
     private func handleRelease() {
@@ -199,16 +259,65 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         state.level = 0   // mute waveform during transcribe/cleanup
+        // Keep the pill interactive so the cancel X added in .transcribing
+        // and .polishing actually receives clicks.
+        PillWindow.shared.setInteractive(true)
         state.phase = .transcribing
 
         let whisperPrompt = DictionaryStore.shared.whisperPrompt
-        Task { @MainActor in
+        transcribeTask?.cancel()
+        transcribeTask = Task { @MainActor in
             do {
                 let raw = try await WhisperRunner.shared.transcribe(wav: wav, prompt: whisperPrompt)
+                // User aborted via the cancel button while we were waiting
+                // on whisper — bail before mutating any pipeline state.
+                if Task.isCancelled { return }
                 if raw.isEmpty {
                     state.phase = .error(message: "Empty transcript")
                     autoReset()
                     return
+                }
+
+                // Backtrack interception — runs BEFORE other commands and
+                // before cleanup. If the user said "actually, …" / "scratch
+                // that, …" AND we have a still-valid lastPasteToken, ask
+                // Claude to revise the prior paste in place rather than
+                // pasting new text.
+                if let bt = Backtrack.parse(raw),
+                   let token = lastPasteToken,
+                   !token.pastedText.isEmpty {
+                    do {
+                        PillWindow.shared.setInteractive(true)
+                        state.phase = .polishing(rawPreview: "revising…")
+                        let revised = try await ClaudeClient.shared.rewrite(
+                            original: token.pastedText,
+                            revision: bt.revision,
+                            timeout: TimeInterval(Preferences.shared.cleanupTimeoutSec)
+                        )
+                        if let newToken = Paster.replace(with: revised, token: token) {
+                            lastPasteToken = newToken
+                            state.lastTranscript = revised
+                            HistoryStore.shared.updateLast(finalText: revised)
+                            let durMs = recordingStartedAt.map { Int(Date().timeIntervalSince($0) * 1000) } ?? 0
+                            recordingStartedAt = nil
+                            HistoryStore.shared.add(rawText: raw, finalText: "[backtrack]",
+                                                     durationMs: durMs, dismissed: true,
+                                                     bundleId: newToken.bundleId)
+                            Haptics.success()
+                            state.phase = .success(preview: String(revised.prefix(30)))
+                            autoReset(after: 1.5)
+                        } else {
+                            // Validation gate failed — pasteboard moved on,
+                            // user switched apps, etc. Fall through to
+                            // normal pipeline so the revision phrase still
+                            // reaches the user as a normal dictation.
+                            NSLog("[ListenToMe] backtrack: replace gate failed, falling back to normal pipeline")
+                        }
+                        return
+                    } catch {
+                        NSLog("[ListenToMe] backtrack rewrite failed: \(error) — falling back to normal pipeline")
+                        // Fall through and treat the utterance as a normal dictation.
+                    }
                 }
 
                 // Voice-command interception — runs BEFORE cleanup on the raw text

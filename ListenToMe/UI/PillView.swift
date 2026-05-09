@@ -14,6 +14,7 @@ private struct Shake: GeometryEffect {
 
 struct PillView: View {
     @ObservedObject var state: AppState = .shared
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var levelBuffer: [Float] = Array(repeating: 0, count: 16)
 
     // Idle motion — border opacity + body scale, both autoreversed.
@@ -56,6 +57,14 @@ struct PillView: View {
     // click-bearing phase.
     @State private var hovered: Bool = false
 
+    // Auto-shrink-to-dot (Wispr-style). When the pill sits in idle for
+    // sustained time (no hover, no dictation), collapse to a tiny 10pt
+    // dot so it disappears into the background. Wakes back to full
+    // idle size on hover or any phase change.
+    @State private var isShrunkToDot: Bool = false
+    @State private var shrinkTimer: Timer?
+    private let shrinkAfter: TimeInterval = 5.0
+
 
     var body: some View {
         VStack(spacing: 0) {
@@ -67,10 +76,36 @@ struct PillView: View {
                 .offset(y: exhaleY)
                 .modifier(Shake(animatableData: shakeTrigger))
                 .contentShape(Rectangle())
-                .onHover { hovered = $0 }
+                .onHover { isHovering in
+                    hovered = isHovering
+                    // Hover wakes the pill from dot-mode and restarts
+                    // the shrink countdown when the cursor leaves.
+                    if isHovering {
+                        wakeFromShrink()
+                    } else {
+                        scheduleShrinkIfIdle()
+                    }
+                }
                 .onTapGesture {
                     if isPillTappable { state.onPillTap?() }
                 }
+                // Drag to reposition the floating pill across screen edges.
+                // 6pt minimum keeps tap-on-button gestures intact; the
+                // simultaneousGesture composition lets the cancel/stop X
+                // still receive their clicks via the SwiftUI Button below.
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 6, coordinateSpace: .global)
+                        .onChanged { value in
+                            PillWindow.shared.applyDrag(translation: value.translation, isFinal: false)
+                        }
+                        .onEnded { value in
+                            PillWindow.shared.applyDrag(translation: value.translation, isFinal: true)
+                        }
+                )
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(accessibilityLabelForCurrentPhase)
+                .accessibilityHint(accessibilityHintForCurrentPhase)
+                .accessibilityAddTraits(isPillTappable ? .isButton : [])
                 .animation(Motion.phaseSize, value: pillWidth)
                 .animation(Motion.phaseSize, value: pillHeight)
                 .animation(Motion.phaseSwap, value: visualID)
@@ -93,6 +128,11 @@ struct PillView: View {
     // MARK: - Phase-driven motion triggers
 
     private func handlePhaseChange() {
+        // Any phase transition wakes the pill from shrunk-to-dot mode;
+        // re-arm the timer if we're settling back into idle.
+        wakeFromShrink()
+        scheduleShrinkIfIdle()
+
         // Always clear any silence-dim state when leaving recording —
         // mitigates T-05-03 (timer leak on phase exit).
         if state.phase != .recording {
@@ -118,6 +158,37 @@ struct PillView: View {
             triggerExhale()
         case .transcribing, .cleaning, .polishing, .correcting, .suggestion:
             cancelExhale()
+        }
+    }
+
+    // MARK: - Auto-shrink-to-dot
+
+    /// Cancel pending shrink and visually wake. Idempotent.
+    private func wakeFromShrink() {
+        shrinkTimer?.invalidate()
+        shrinkTimer = nil
+        if isShrunkToDot {
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+                isShrunkToDot = false
+            }
+        }
+    }
+
+    /// Arm the 5s shrink timer if and only if the pill is in calm idle
+    /// AND not currently hovered AND not showing the permission card.
+    /// Anything else (recording, transcribing, suggestion, error) is
+    /// active state where shrinking would be wrong.
+    private func scheduleShrinkIfIdle() {
+        shrinkTimer?.invalidate()
+        shrinkTimer = nil
+        guard isIdleAndCalm, !hovered else { return }
+        shrinkTimer = Timer.scheduledTimer(withTimeInterval: shrinkAfter, repeats: false) { _ in
+            Task { @MainActor in
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+                    isShrunkToDot = true
+                }
+                shrinkTimer = nil
+            }
         }
     }
 
@@ -266,9 +337,19 @@ struct PillView: View {
             .padding(.bottom, 4)
             .onAppear {
                 // Both breath axes share one timeline so they stay in phase.
-                withAnimation(Motion.idleBreath) {
-                    idleBreathOn = true
+                // Skip when reduce-motion is on — system honors the user's
+                // vestibular preference; an infinite gentle pulse still
+                // counts as motion.
+                if !reduceMotion {
+                    withAnimation(Motion.idleBreath) {
+                        idleBreathOn = true
+                    }
                 }
+                scheduleShrinkIfIdle()
+            }
+            .onDisappear {
+                shrinkTimer?.invalidate()
+                shrinkTimer = nil
             }
     }
 
@@ -282,6 +363,37 @@ struct PillView: View {
         switch state.phase {
         case .success, .polishing: return true
         default: return false
+        }
+    }
+
+    /// VoiceOver label per phase. The pill is the only fixed UI element
+    /// of the app for users navigating with VO; without this it reads as
+    /// an opaque container.
+    private var accessibilityLabelForCurrentPhase: String {
+        if state.showPermissionPrompt {
+            return "ListenToMe — accessibility permission required"
+        }
+        switch state.phase {
+        case .idle:         return "ListenToMe — idle"
+        case .recording:    return "ListenToMe — recording"
+        case .transcribing: return "ListenToMe — transcribing"
+        case .cleaning:     return "ListenToMe — cleaning up transcript"
+        case .polishing:    return "ListenToMe — polishing transcript"
+        case .success:      return "ListenToMe — success"
+        case .error(let m): return "ListenToMe — error: \(m)"
+        case .correcting:   return "ListenToMe — editing transcript"
+        case .suggestion:   return "ListenToMe — style suggestion available"
+        }
+    }
+
+    /// VoiceOver hint — what tapping the pill will do, when relevant.
+    private var accessibilityHintForCurrentPhase: String {
+        switch state.phase {
+        case .success, .polishing: return "Activate to edit the just-pasted transcript"
+        case .recording, .transcribing, .cleaning:
+            return "Use the cancel button to abort"
+        case .suggestion: return "Use Keep or Dismiss to respond"
+        default: return ""
         }
     }
 
@@ -301,6 +413,7 @@ struct PillView: View {
 
     private var pillWidth: CGFloat {
         if state.showPermissionPrompt { return 440 }
+        if isShrunkToDot, case .idle = state.phase { return 10 }
         switch state.phase {
         case .idle:         return 48
         case .recording:    return 176
@@ -316,6 +429,7 @@ struct PillView: View {
 
     private var pillHeight: CGFloat {
         if state.showPermissionPrompt { return 170 }
+        if isShrunkToDot, case .idle = state.phase { return 10 }
         if case .idle = state.phase { return 12 }
         if case .correcting = state.phase { return 12 }
         if case .suggestion = state.phase { return 56 }
@@ -324,6 +438,7 @@ struct PillView: View {
 
     private var cornerRadius: CGFloat {
         if state.showPermissionPrompt { return 22 }
+        if isShrunkToDot, case .idle = state.phase { return 5 }   // round dot
         if case .idle = state.phase { return 6 }
         if case .correcting = state.phase { return 6 }
         return 17
@@ -436,8 +551,10 @@ struct PillView: View {
                 .buttonStyle(PressableStyle())
                 .onAppear {
                     recordPulse = false
-                    withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
-                        recordPulse = true
+                    if !reduceMotion {
+                        withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
+                            recordPulse = true
+                        }
                     }
                 }
             }
@@ -449,6 +566,7 @@ struct PillView: View {
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.white)
                 Spacer(minLength: 0)
+                cancelInflightButton
             }
 
         case .cleaning:
@@ -461,6 +579,7 @@ struct PillView: View {
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.white)
                 Spacer(minLength: 0)
+                cancelInflightButton
             }
 
         case .polishing(let rawPreview):
@@ -475,6 +594,7 @@ struct PillView: View {
                     .truncationMode(.tail)
                 Spacer(minLength: 0)
                 PolishingDots()
+                cancelInflightButton
             }
 
         case .success:
@@ -553,6 +673,27 @@ struct PillView: View {
             .buttonStyle(PressableStyle())
         }
         .padding(.horizontal, 14)
+    }
+
+    /// Compact X button used in `.transcribing`, `.cleaning`, and
+    /// `.polishing` so the user can bail on a long-running cleanup or
+    /// stuck whisper without waiting for it to time out. Routes through
+    /// the same `onCancelTap` callback as the recording-X — AppDelegate
+    /// dispatches per-phase.
+    private var cancelInflightButton: some View {
+        Button(action: { AppState.shared.onCancelTap?() }) {
+            ZStack {
+                Circle()
+                    .fill(Color.white.opacity(0.10))
+                    .frame(width: 22, height: 22)
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.75))
+            }
+        }
+        .buttonStyle(PressableStyle())
+        .help("Cancel")
+        .accessibilityLabel("Cancel")
     }
 
     /// Smoothed audio level — average of the level buffer. The buffer is

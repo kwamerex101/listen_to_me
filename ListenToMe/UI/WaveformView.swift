@@ -14,6 +14,7 @@ private func perceptualLevel(_ v: Float) -> CGFloat {
 
 struct WaveformView: View {
     let levels: [Float]        // N samples, each 0…1
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: 3) {
@@ -21,10 +22,12 @@ struct WaveformView: View {
                 Capsule()
                     .fill(Color.white.opacity(0.9))
                     .frame(width: 3, height: barHeight(levels[i]))
-                    .animation(.easeOut(duration: 0.06), value: levels[i])
+                    .animation(reduceMotion ? nil : .easeOut(duration: 0.06),
+                               value: levels[i])
             }
         }
         .frame(height: 24)
+        .accessibilityHidden(true)   // decorative; the pill carries the label
     }
 
     private func barHeight(_ v: Float) -> CGFloat {
@@ -35,6 +38,7 @@ struct WaveformView: View {
 /// Small waveform used in the compact recording pill. Thinner bars, smaller max height.
 struct CompactWaveformView: View {
     let levels: [Float]
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: 2) {
@@ -42,10 +46,12 @@ struct CompactWaveformView: View {
                 Capsule()
                     .fill(Color.white.opacity(0.85))
                     .frame(width: 2, height: barHeight(levels[i]))
-                    .animation(.easeOut(duration: 0.06), value: levels[i])
+                    .animation(reduceMotion ? nil : .easeOut(duration: 0.06),
+                               value: levels[i])
             }
         }
         .frame(height: 16)
+        .accessibilityHidden(true)   // decorative; the pill carries the label
     }
 
     private func barHeight(_ v: Float) -> CGFloat {
