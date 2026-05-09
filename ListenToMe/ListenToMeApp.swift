@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import ApplicationServices
+import Combine
 
 @main
 struct ListenToMeApp: App {
@@ -38,6 +39,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Auto-dismiss timer for the .suggestion banner. Cleared on Keep/Dismiss
     /// to avoid clobbering a freshly-set phase.
     private var suggestionTimeoutTask: Task<Void, Never>?
+
+    /// Combine subscription that posts `.phaseChanged` whenever
+    /// `AppState.phase` actually changes. Replaces the previous 150ms
+    /// polling loop so the menu-bar update is event-driven and the app
+    /// has no idle wake-ups outside of timers it actually needs.
+    private var phaseChangeCancellable: AnyCancellable?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -106,18 +113,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         _ = StyleSamplesStore.shared
         _ = StyleStore.shared
 
-        // Emit phase-change notifications for menu bar
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            var last: Phase = .idle
-            while !Task.isCancelled {
-                if self.state.phase != last {
-                    last = self.state.phase
-                    NotificationCenter.default.post(name: .phaseChanged, object: nil)
-                }
-                try? await Task.sleep(nanoseconds: 150_000_000)
+        // Emit phase-change notifications for menu bar — event-driven via
+        // Combine instead of a 150ms polling loop so the app has zero idle
+        // wake-ups beyond what it actually needs (#GSD Phase C-3).
+        phaseChangeCancellable = state.$phase
+            .removeDuplicates()
+            .sink { _ in
+                NotificationCenter.default.post(name: .phaseChanged, object: nil)
             }
-        }
     }
 
     // MARK: - Hotkey handlers
