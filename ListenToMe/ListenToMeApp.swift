@@ -128,6 +128,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Also warm HistoryStore so the legacy-JSON → NDJSON migration
         // runs at launch (otherwise it'd defer until the first add()).
         _ = HistoryStore.shared
+        // M6: warm the SQLite-backed stores so their JSON → SQL
+        // migration runs at launch rather than at first tab visit.
+        // Each store is a thin façade that auto-imports its legacy
+        // .json once and renames it to .json.bak.
+        _ = ScratchpadStore.shared
+        _ = SnippetsStore.shared
+        _ = TransformsStore.shared
 
         // M3b: mine the existing history for single-word swaps that
         // claude cleanup consistently fixed (e.g. "danqua" → "Danquah").
@@ -164,6 +171,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         WhisperServer.shared.shutdown()
         WhisperLib.shared.shutdown()
+        Database.shared.close()
     }
 
     /// M3b: read history snapshot on main, run pure mining off-main,

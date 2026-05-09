@@ -76,10 +76,13 @@ enum Migrations {
 
         // snippets: keyword → expansion. keyword is unique (one
         // expansion per trigger). Created_at orders the snippets list
-        // newest-first in the UI without a separate sort field.
+        // newest-first in the UI without a separate sort field. id is
+        // a UUID string — matches the existing Snippet.id: UUID shape
+        // so SwiftUI ForEach diffing identity is stable across the
+        // JSON → SQL migration.
         try db.exec("""
             CREATE TABLE IF NOT EXISTS snippets (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                id          TEXT PRIMARY KEY,
                 keyword     TEXT NOT NULL UNIQUE,
                 expansion   TEXT NOT NULL,
                 created_at  REAL NOT NULL
