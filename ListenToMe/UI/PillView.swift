@@ -69,6 +69,7 @@ struct PillView: View {
     var body: some View {
         VStack(spacing: 0) {
             Spacer(minLength: 0)
+            partialPreviewIfNeeded
             pill
                 .frame(width: pillWidth, height: pillHeight)
                 .scaleEffect(rootScale)
@@ -673,6 +674,47 @@ struct PillView: View {
             .buttonStyle(PressableStyle())
         }
         .padding(.horizontal, 14)
+    }
+
+    /// M5' streaming-partial preview — sits above the pill during
+    /// `.recording` / `.transcribing` when the linked engine has
+    /// produced a non-empty partial. Empty otherwise (zero layout
+    /// impact). Subtle by design: the user is dictating, not reading;
+    /// the preview is a confidence cue, not the main UI.
+    @ViewBuilder
+    private var partialPreviewIfNeeded: some View {
+        let visible: Bool = {
+            if state.partialText.isEmpty { return false }
+            switch state.phase {
+            case .recording, .transcribing: return true
+            default: return false
+            }
+        }()
+        if visible {
+            Text(state.partialText)
+                .font(.system(size: 13, weight: .regular))
+                .foregroundStyle(.white.opacity(0.85))
+                .lineLimit(2)
+                .truncationMode(.head)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .frame(maxWidth: 360)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.black.opacity(0.78))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
+                )
+                .shadow(color: .black.opacity(0.35), radius: 6, x: 0, y: 3)
+                .padding(.bottom, 8)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                .animation(.easeOut(duration: 0.18), value: state.partialText)
+                .accessibilityLabel("Live partial transcript")
+                .accessibilityValue(state.partialText)
+        }
     }
 
     /// Compact X button used in `.transcribing`, `.cleaning`, and
