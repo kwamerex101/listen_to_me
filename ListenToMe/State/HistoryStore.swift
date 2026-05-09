@@ -54,12 +54,40 @@ final class HistoryStore: ObservableObject {
 
     @Published private(set) var records: [TranscriptRecord] = []
 
+    /// On-disk format is NDJSON (one JSON record per line, chronological
+    /// oldest→newest). Switched from a single pretty-printed JSON array
+    /// in 0.13: at 5000 records the array form rewrote multiple MB on
+    /// every dictation; NDJSON lets `add(...)` do a constant-time
+    /// single-line append. Legacy `history.json` is migrated on first
+    /// load and renamed `.json.bak` once.
     private let url: URL = {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let dir = base.appendingPathComponent("ListenToMe", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("history.ndjson")
+    }()
+
+    private let legacyURL: URL = {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let dir = base.appendingPathComponent("ListenToMe", isDirectory: true)
         return dir.appendingPathComponent("history.json")
     }()
+
+    /// JSONEncoder / JSONDecoder are not Sendable, so we can't share a
+    /// single instance across the off-main detached tasks under Swift
+    /// 5.9 strict-concurrency rules. Init cost is microseconds; the
+    /// per-call factory keeps the code straightforward.
+    nonisolated private static func makeEncoder() -> JSONEncoder {
+        let e = JSONEncoder()
+        e.dateEncodingStrategy = .iso8601
+        return e
+    }
+
+    nonisolated private static func makeDecoder() -> JSONDecoder {
+        let d = JSONDecoder()
+        d.dateDecodingStrategy = .iso8601
+        return d
+    }
 
     private init() { load() }
 
@@ -80,8 +108,19 @@ final class HistoryStore: ObservableObject {
             bundleId: bundleId
         )
         records.insert(r, at: 0)
+        let countBefore = records.count
         cap()
-        save()
+        // Fast path: no records were dropped by retention/cap, so we
+        // can just append a single line to the NDJSON file instead of
+        // rewriting the whole thing. This is the hot path during heavy
+        // dictation use.
+        if records.count == countBefore {
+            appendLine(r)
+        } else {
+            // Cap or retention dropped older records — disk needs a
+            // full rewrite to reflect the trim.
+            save()
+        }
     }
 
     // MARK: - QUAL-02: bounded history
@@ -256,33 +295,111 @@ final class HistoryStore: ObservableObject {
     // MARK: - Persistence
 
     private func load() {
-        guard let data = try? Data(contentsOf: url) else { return }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        records = (try? decoder.decode([TranscriptRecord].self, from: data)) ?? []
+        // Prefer NDJSON. Each line is one record, file order is
+        // chronological oldest→newest (we append at the end), so we
+        // reverse after read to match the in-memory newest-first
+        // convention used by the UI.
+        if let data = try? Data(contentsOf: url), !data.isEmpty {
+            records = Self.parseNDJSON(data).reversed()
+            return
+        }
+        // Legacy migration: read the old pretty-printed JSON array,
+        // rewrite as NDJSON, and rename the original .json.bak so
+        // future loads use the fast path. Idempotent — if a previous
+        // migration already moved the file aside, this branch just
+        // doesn't trigger.
+        guard let legacyData = try? Data(contentsOf: legacyURL) else { return }
+        let migrated = (try? Self.makeDecoder().decode([TranscriptRecord].self, from: legacyData)) ?? []
+        records = migrated
+        rewriteAll()
+        let backup = legacyURL.appendingPathExtension("bak")
+        try? FileManager.default.removeItem(at: backup)
+        try? FileManager.default.moveItem(at: legacyURL, to: backup)
+        NSLog("[ListenToMe] migrated \(migrated.count) history records to NDJSON; legacy at \(backup.lastPathComponent)")
+    }
+
+    /// Parse an NDJSON blob in chronological (file) order. Malformed
+    /// lines are skipped silently — preferring partial recovery over
+    /// losing the whole history if a single record was corrupted.
+    nonisolated private static func parseNDJSON(_ data: Data) -> [TranscriptRecord] {
+        var out: [TranscriptRecord] = []
+        let decoder = makeDecoder()
+        // Split on \n bytes; works regardless of UTF-8 boundary issues
+        // because \n (0x0A) cannot appear inside a multi-byte sequence.
+        for slice in data.split(separator: 0x0A, omittingEmptySubsequences: true) {
+            if let r = try? decoder.decode(TranscriptRecord.self, from: slice) {
+                out.append(r)
+            }
+        }
+        return out
     }
 
     // MARK: - QUAL-02: debounced background save
 
-    /// Pending save task — coalesces bursts of `add(...)` / `remove(...)` /
-    /// `updateLast(...)` calls into a single disk write so the audio
-    /// pipeline never blocks on JSON encoding.
+    /// Pending save task — coalesces bursts of `remove(...)` /
+    /// `updateLast(...)` / `enforceRetention()` calls into a single
+    /// disk rewrite. NOT used by `add(...)` anymore; that takes the
+    /// fast `appendLine(...)` path instead.
     private var saveTask: Task<Void, Never>?
 
     private func save() {
-        // Snapshot the current records on the main actor; encode + write
-        // off the main actor on a brief debounce.
+        // Snapshot on the main actor; encode + write off-main on a
+        // brief debounce so the UI never blocks on disk I/O.
         saveTask?.cancel()
         let snapshot = records
         let target = url
         saveTask = Task.detached(priority: .utility) {
             try? await Task.sleep(for: .milliseconds(180))
             if Task.isCancelled { return }
-            let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
-            encoder.outputFormatting = .prettyPrinted
-            if let data = try? encoder.encode(snapshot) {
-                try? data.write(to: target, options: .atomic)
+            Self.writeAll(snapshot, to: target)
+        }
+    }
+
+    /// Synchronous full-rewrite. Used by load()'s migration path and
+    /// any future caller that wants a guaranteed-flushed snapshot.
+    private func rewriteAll() {
+        Self.writeAll(records, to: url)
+    }
+
+    /// Encode `snapshot` newest-first → reversed chronological order on
+    /// disk (oldest line first, newest line last) → atomic write. The
+    /// reversal preserves the natural append semantics of NDJSON: when
+    /// a new record arrives we just append to the bottom, and on next
+    /// load we reverse again to restore newest-first in memory.
+    nonisolated private static func writeAll(_ snapshot: [TranscriptRecord], to target: URL) {
+        let encoder = makeEncoder()
+        var data = Data()
+        for r in snapshot.reversed() {
+            guard let line = try? encoder.encode(r) else { continue }
+            data.append(line)
+            data.append(0x0A)   // \n
+        }
+        try? data.write(to: target, options: .atomic)
+    }
+
+    /// Append a single record to the NDJSON file as one line. Constant
+    /// time regardless of history size — the original O(N) full-rewrite
+    /// on every add was the core motivation for switching formats.
+    private func appendLine(_ record: TranscriptRecord) {
+        // Hop off-main; SSD append of <1KB is microseconds but no
+        // reason to put it on the audio pipeline's critical path.
+        let target = url
+        Task.detached(priority: .utility) {
+            let encoder = Self.makeEncoder()
+            guard let lineData = try? encoder.encode(record) else { return }
+            // POSIX append on a regular file is atomic up to PIPE_BUF
+            // (4KB) — a single record encoded sits comfortably under
+            // that, so no lock needed even if a concurrent rewrite is
+            // about to fire. (Worst case: the rewrite supersedes the
+            // append; the in-memory model is the source of truth.)
+            if !FileManager.default.fileExists(atPath: target.path) {
+                try? Data().write(to: target)
+            }
+            if let h = try? FileHandle(forWritingTo: target) {
+                defer { try? h.close() }
+                _ = try? h.seekToEnd()
+                try? h.write(contentsOf: lineData)
+                try? h.write(contentsOf: Data([0x0A]))
             }
         }
     }

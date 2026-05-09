@@ -119,6 +119,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // dictation lands.
         _ = StyleSamplesStore.shared
         _ = StyleStore.shared
+        // Also warm HistoryStore so the legacy-JSON → NDJSON migration
+        // runs at launch (otherwise it'd defer until the first add()).
+        _ = HistoryStore.shared
 
         // Emit phase-change notifications for menu bar — event-driven via
         // Combine instead of a 150ms polling loop so the app has zero idle
