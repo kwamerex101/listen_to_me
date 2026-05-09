@@ -99,6 +99,9 @@ final class Preferences {
     private let kDiagnosticsEnabled = "wf.diagnosticsEnabled"
     private let kCleanupBackend = "wf.cleanupBackend"
     private let kHistoryRetentionDays = "wf.historyRetentionDays"
+    private let kPillOriginX = "wf.pillOriginX"
+    private let kPillOriginY = "wf.pillOriginY"
+    private let kPillHasCustomOrigin = "wf.pillHasCustomOrigin"
 
     /// Keychain account names (bundled here so call sites don't sprout
     /// stringly-typed names of their own).
@@ -221,6 +224,29 @@ final class Preferences {
     /// `Keychain.get(account:)` directly.
     var anthropicAPIKey: String? {
         (try? Keychain.get(account: Self.anthropicAPIKeyAccount)) ?? nil
+    }
+
+    /// Persisted pill origin (NSPanel frame.origin in screen coordinates).
+    /// nil means "no user preference yet — use default bottom-center".
+    /// We store the absolute origin and validate against current screen
+    /// geometry on read so a disconnected monitor doesn't strand the
+    /// pill off-screen.
+    var pillOrigin: CGPoint? {
+        get {
+            guard defaults.bool(forKey: kPillHasCustomOrigin) else { return nil }
+            let x = defaults.double(forKey: kPillOriginX)
+            let y = defaults.double(forKey: kPillOriginY)
+            return CGPoint(x: x, y: y)
+        }
+        set {
+            if let p = newValue {
+                defaults.set(Double(p.x), forKey: kPillOriginX)
+                defaults.set(Double(p.y), forKey: kPillOriginY)
+                defaults.set(true, forKey: kPillHasCustomOrigin)
+            } else {
+                defaults.set(false, forKey: kPillHasCustomOrigin)
+            }
+        }
     }
 
     /// History retention window in days. Records older than this are

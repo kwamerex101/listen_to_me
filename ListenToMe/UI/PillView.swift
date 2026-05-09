@@ -72,6 +72,19 @@ struct PillView: View {
                 .onTapGesture {
                     if isPillTappable { state.onPillTap?() }
                 }
+                // Drag to reposition the floating pill across screen edges.
+                // 6pt minimum keeps tap-on-button gestures intact; the
+                // simultaneousGesture composition lets the cancel/stop X
+                // still receive their clicks via the SwiftUI Button below.
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 6, coordinateSpace: .global)
+                        .onChanged { value in
+                            PillWindow.shared.applyDrag(translation: value.translation, isFinal: false)
+                        }
+                        .onEnded { value in
+                            PillWindow.shared.applyDrag(translation: value.translation, isFinal: true)
+                        }
+                )
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(accessibilityLabelForCurrentPhase)
                 .accessibilityHint(accessibilityHintForCurrentPhase)
