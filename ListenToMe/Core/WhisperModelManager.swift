@@ -47,6 +47,23 @@ final class WhisperModelManager: NSObject, ObservableObject {
     /// and the file is removed.
     private let expectedSHA256: String = "a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002"
 
+    /// Optional Core ML encoder package (ANE-accelerated encoder).
+    /// whisper.cpp linked builds auto-load this when the .mlmodelc
+    /// directory sits next to the .bin. Without it, the encoder runs
+    /// on Metal/CPU — same accuracy, slightly slower per-call. A
+    /// future PR will surface a download / progress UI; for now the
+    /// presence is just exposed as a Bool for Settings.
+    static var coreMLPackageURL: URL {
+        WhisperRunner.modelURL.deletingLastPathComponent()
+            .appendingPathComponent("ggml-base.en-encoder.mlmodelc", isDirectory: true)
+    }
+
+    var coreMLPackageInstalled: Bool {
+        var isDir: ObjCBool = false
+        let exists = FileManager.default.fileExists(atPath: Self.coreMLPackageURL.path, isDirectory: &isDir)
+        return exists && isDir.boolValue
+    }
+
     private var downloadTask: URLSessionDownloadTask?
     private lazy var session: URLSession = {
         let cfg = URLSessionConfiguration.default

@@ -1,0 +1,11 @@
+// CWhisper — Clang module exposing whisper.cpp's public C API to Swift.
+// We list headers explicitly (rather than `umbrella`) so the module
+// boundary is obvious and we don't accidentally drag in implementation
+// internals (ggml-cpu, ggml-metal) that should stay opaque.
+module CWhisper {
+    header "whisper.h"
+    header "ggml.h"
+    header "ggml-alloc.h"
+    header "ggml-backend.h"
+    export *
+}

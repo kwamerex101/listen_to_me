@@ -26,11 +26,19 @@ if [ ! -d "$VENDOR_DIR" ]; then
   git clone --depth 1 https://github.com/ggerganov/whisper.cpp "$VENDOR_DIR"
 fi
 
-echo "==> 3. Build whisper.cpp"
+echo "==> 3. Build whisper.cpp (with Core ML support)"
 pushd "$VENDOR_DIR" >/dev/null
-# Newer whisper.cpp uses cmake; try cmake first, fall back to legacy make
+# Newer whisper.cpp uses cmake; try cmake first, fall back to legacy make.
+# WHISPER_COREML=1 enables loading <model>-encoder.mlmodelc when present
+# (ANE acceleration on Apple Silicon); WHISPER_COREML_ALLOW_FALLBACK=1
+# means a missing .mlmodelc package falls back to Metal/CPU silently
+# rather than refusing to load the model.
 if [ -f CMakeLists.txt ] && command -v cmake >/dev/null 2>&1; then
-  cmake -B build -DCMAKE_BUILD_TYPE=Release >/dev/null
+  cmake -B build \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DWHISPER_COREML=1 \
+    -DWHISPER_COREML_ALLOW_FALLBACK=1 \
+    >/dev/null
   cmake --build build --config Release -j
   # binary ends up in build/bin/whisper-cli or build/bin/main
   if [ -f build/bin/whisper-cli ]; then
@@ -149,6 +157,29 @@ else
     curl -L --fail --progress-bar -o "$MODEL_FILE" "$MODEL_URL"
     verify_model_sha || { rm -f "$MODEL_FILE"; exit 1; }
     echo "    SHA-256 OK"
+  fi
+fi
+
+echo "==> 6. Optional Core ML encoder package (Apple Neural Engine accel)"
+COREML_DIR="$MODEL_DIR/ggml-base.en-encoder.mlmodelc"
+COREML_ZIP_URL="https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en-encoder.mlmodelc.zip"
+if [ -d "$COREML_DIR" ]; then
+  echo "    Core ML encoder already present: $COREML_DIR"
+else
+  TMP_ZIP="$(mktemp -t lm-coreml).zip"
+  echo "    downloading ggml-base.en-encoder.mlmodelc (~50 MB) …"
+  if curl -L --fail --progress-bar -o "$TMP_ZIP" "$COREML_ZIP_URL"; then
+    pushd "$MODEL_DIR" >/dev/null
+    if unzip -q "$TMP_ZIP"; then
+      echo "    Core ML encoder extracted to $COREML_DIR"
+    else
+      echo "    WARN: unzip failed; Core ML encoder unavailable (linked engine will use Metal/CPU encoder)" >&2
+    fi
+    popd >/dev/null
+    rm -f "$TMP_ZIP"
+  else
+    echo "    WARN: Core ML encoder download failed; linked engine will use Metal/CPU encoder" >&2
+    rm -f "$TMP_ZIP"
   fi
 fi
 

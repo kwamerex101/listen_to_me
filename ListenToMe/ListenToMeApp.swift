@@ -153,6 +153,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// after the app exits.
     func applicationWillTerminate(_ notification: Notification) {
         WhisperServer.shared.shutdown()
+        WhisperLib.shared.shutdown()
     }
 
     /// M3b: read history snapshot on main, run pure mining off-main,

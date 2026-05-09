@@ -36,27 +36,40 @@ struct WhisperRunner {
             throw WhisperError.modelNotFound(path: model.path)
         }
 
-        // Warm path: try the persistent whisper-server first when its
-        // binary is bundled. Saves the per-call 300-800ms model-load
-        // cost. Any failure (server crashed, port collision, malformed
-        // response) falls back to the CLI subprocess so the user
-        // always gets a transcript.
-        let server = await MainActor.run { WhisperServer.shared }
-        let serverAvailable = await MainActor.run { server.isAvailable }
-        if serverAvailable {
+        // Engine selection. Default .server (warm path that ships in
+        // 0.13.0); .linked is opt-in via Settings → AI Cleanup →
+        // Transcription engine. Any failure on the chosen engine
+        // falls back to the CLI subprocess so dictation never breaks.
+        let engine = await MainActor.run { Preferences.shared.transcriptionEngine }
+
+        if engine == .linked {
             do {
-                let text = try await server.transcribe(wav: wav, prompt: prompt)
-                // Server succeeded — clean up the on-disk WAV (server
-                // doesn't write a sidecar .txt the way whisper-cli does).
+                let samples = try WhisperWAVReader.samples(at: wav)
+                let text = try await WhisperLib.shared.transcribe(samples: samples, prompt: prompt)
                 try? FileManager.default.removeItem(at: wav)
                 if text.isEmpty { throw WhisperError.noOutput }
                 return text
             } catch {
-                NSLog("[ListenToMe] whisper-server failed (\(error)) — falling back to CLI")
-                // Tear down the broken server so we re-launch fresh
-                // next time rather than retrying a wedged process.
-                await MainActor.run { server.shutdown() }
-                // Fall through to the CLI path below.
+                NSLog("[ListenToMe] WhisperLib failed (\(error)) — falling back to CLI")
+                // Don't tear down the linked context — the model load
+                // cost is shared across calls; one bad call shouldn't
+                // re-pay it. CLI fallback below.
+            }
+        } else {
+            // Warm path: try the persistent whisper-server first when
+            // its binary is bundled. Same fallback semantics as above.
+            let server = await MainActor.run { WhisperServer.shared }
+            let serverAvailable = await MainActor.run { server.isAvailable }
+            if serverAvailable {
+                do {
+                    let text = try await server.transcribe(wav: wav, prompt: prompt)
+                    try? FileManager.default.removeItem(at: wav)
+                    if text.isEmpty { throw WhisperError.noOutput }
+                    return text
+                } catch {
+                    NSLog("[ListenToMe] whisper-server failed (\(error)) — falling back to CLI")
+                    await MainActor.run { server.shutdown() }
+                }
             }
         }
 
