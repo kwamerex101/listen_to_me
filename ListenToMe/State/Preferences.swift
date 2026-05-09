@@ -97,6 +97,11 @@ final class Preferences {
     private let kMaxRecordingSec = "wf.maxRecordingSec"
     private let kCleanupTimeoutSec = "wf.cleanupTimeoutSec"
     private let kDiagnosticsEnabled = "wf.diagnosticsEnabled"
+    private let kCleanupBackend = "wf.cleanupBackend"
+
+    /// Keychain account names (bundled here so call sites don't sprout
+    /// stringly-typed names of their own).
+    static let anthropicAPIKeyAccount = "anthropic_api_key"
 
     private init() {
         if defaults.object(forKey: kCleanupMode) == nil {
@@ -181,6 +186,54 @@ final class Preferences {
     var diagnosticsEnabled: Bool {
         get { defaults.bool(forKey: kDiagnosticsEnabled) }
         set { defaults.set(newValue, forKey: kDiagnosticsEnabled) }
+    }
+
+    /// Cleanup backend selection. `.auto` (default) prefers the direct
+    /// Anthropic API when an API key is configured, otherwise falls back
+    /// to the `claude` CLI subprocess (preserving the original
+    /// "reuse-Claude-Code-subscription" path). `.cli` forces subprocess;
+    /// `.api` forces direct API and surfaces a config error if no key
+    /// is set.
+    enum CleanupBackend: String, CaseIterable {
+        case auto, cli, api
+
+        var label: String {
+            switch self {
+            case .auto: return "Auto (API if key set, else CLI)"
+            case .cli:  return "claude CLI subprocess"
+            case .api:  return "Direct Anthropic API"
+            }
+        }
+    }
+
+    var cleanupBackend: CleanupBackend {
+        get {
+            let raw = defaults.string(forKey: kCleanupBackend) ?? CleanupBackend.auto.rawValue
+            return CleanupBackend(rawValue: raw) ?? .auto
+        }
+        set { defaults.set(newValue.rawValue, forKey: kCleanupBackend) }
+    }
+
+    /// Convenience: read the Anthropic API key from the Keychain.
+    /// Returns `nil` if absent or unreadable. Callers that need to
+    /// distinguish "absent" from "Keychain error" should call
+    /// `Keychain.get(account:)` directly.
+    var anthropicAPIKey: String? {
+        (try? Keychain.get(account: Self.anthropicAPIKeyAccount)) ?? nil
+    }
+
+    /// Persist (or clear, when `nil`) the Anthropic API key. Returns
+    /// false when the Keychain rejects the operation; UI can surface
+    /// that to the user.
+    @discardableResult
+    func setAnthropicAPIKey(_ key: String?) -> Bool {
+        do {
+            try Keychain.set(key, account: Self.anthropicAPIKeyAccount)
+            return true
+        } catch {
+            NSLog("[ListenToMe] failed to persist API key: \(error)")
+            return false
+        }
     }
 }
 
