@@ -20,6 +20,15 @@ struct WhisperRunner {
         Bundle.main.url(forResource: "whisper-cli", withExtension: nil)
     }
 
+    /// Hard ceiling on prompt length passed to whisper-cli. The prompt
+    /// is user-controlled (Dictionary entries), so even though
+    /// `Process.arguments` is array-form (no shell, no injection
+    /// surface) we cap the length defensively. Whisper itself only
+    /// honors ~224 tokens (~800-1000 chars in English) — anything
+    /// beyond is wasted, and a runaway length is the most plausible
+    /// way a misbehaving Dictionary entry could cause trouble.
+    private static let maxPromptChars = 1024
+
     func transcribe(wav: URL, prompt: String? = nil) async throws -> String {
         guard let bin = binaryURL else { throw WhisperError.binaryNotFound }
         let model = Self.modelURL
@@ -38,7 +47,10 @@ struct WhisperRunner {
                 "--no-prints",
             ]
             if let prompt, !prompt.isEmpty {
-                args.append(contentsOf: ["--prompt", prompt])
+                let trimmed = prompt.count > Self.maxPromptChars
+                    ? String(prompt.prefix(Self.maxPromptChars))
+                    : prompt
+                args.append(contentsOf: ["--prompt", trimmed])
             }
             proc.arguments = args
             let errPipe = Pipe()
