@@ -13,6 +13,7 @@ struct SettingsView: View {
     @State private var apiKeyDraft: String = Preferences.shared.anthropicAPIKey ?? ""
     @State private var apiKeySaved: Bool = (Preferences.shared.anthropicAPIKey?.isEmpty == false)
     @State private var diagnosticsEnabled: Bool = Preferences.shared.diagnosticsEnabled
+    @State private var historyRetentionDays: Double = Double(Preferences.shared.historyRetentionDays)
     @ObservedObject private var modelManager = WhisperModelManager.shared
 
     /// Reads the version straight from the bundle so future bumps don't
@@ -208,6 +209,23 @@ struct SettingsView: View {
                                 Preferences.shared.diagnosticsEnabled = new
                             }
                     }
+                    row(label: "History retention") {
+                        HStack(spacing: 10) {
+                            Slider(value: $historyRetentionDays, in: 0...365, step: 30)
+                                .frame(width: 180)
+                                .onChange(of: historyRetentionDays) { _, new in
+                                    Preferences.shared.historyRetentionDays = Int(new)
+                                }
+                            Text(historyRetentionDays == 0 ? "Forever" : "\(Int(historyRetentionDays))d")
+                                .font(DT.monoCaption)
+                                .foregroundStyle(.secondary)
+                                .frame(width: 60, alignment: .trailing)
+                            Button("Apply") {
+                                HistoryStore.shared.enforceRetention()
+                            }
+                            .buttonStyle(.pressable)
+                        }
+                    }
                 }
 
                 section(title: "About") {
@@ -233,6 +251,7 @@ struct SettingsView: View {
             apiKeyDraft = Preferences.shared.anthropicAPIKey ?? ""
             apiKeySaved = !apiKeyDraft.isEmpty
             diagnosticsEnabled = Preferences.shared.diagnosticsEnabled
+            historyRetentionDays = Double(Preferences.shared.historyRetentionDays)
             modelManager.refreshStatus()
         }
     }

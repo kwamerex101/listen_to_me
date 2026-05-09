@@ -93,9 +93,24 @@ final class HistoryStore: ObservableObject {
     private static let maxRecords = 5000
 
     private func cap() {
+        // Time-based retention runs first: drop anything older than the
+        // user's preference window (default 90d). 0 means "never purge".
+        let days = Preferences.shared.historyRetentionDays
+        if days > 0,
+           let cutoff = Calendar.current.date(byAdding: .day, value: -days, to: Date()) {
+            records.removeAll { $0.timestamp < cutoff }
+        }
+        // Then the count cap as a backstop for ultra-prolific days.
         if records.count > Self.maxRecords {
             records = Array(records.prefix(Self.maxRecords))
         }
+    }
+
+    /// Force a retention sweep + save. Wired up so a Settings change can
+    /// take effect immediately rather than waiting for the next dictation.
+    func enforceRetention() {
+        cap()
+        save()
     }
 
     /// Mutate the most-recent record's `finalText` in place. Used by the

@@ -98,6 +98,7 @@ final class Preferences {
     private let kCleanupTimeoutSec = "wf.cleanupTimeoutSec"
     private let kDiagnosticsEnabled = "wf.diagnosticsEnabled"
     private let kCleanupBackend = "wf.cleanupBackend"
+    private let kHistoryRetentionDays = "wf.historyRetentionDays"
 
     /// Keychain account names (bundled here so call sites don't sprout
     /// stringly-typed names of their own).
@@ -220,6 +221,24 @@ final class Preferences {
     /// `Keychain.get(account:)` directly.
     var anthropicAPIKey: String? {
         (try? Keychain.get(account: Self.anthropicAPIKeyAccount)) ?? nil
+    }
+
+    /// History retention window in days. Records older than this are
+    /// auto-purged on save. `0` means "never purge" (legacy behavior).
+    /// Default 90 — long enough to scroll back through a season of
+    /// dictation without piling up forever.
+    var historyRetentionDays: Int {
+        get {
+            let v = defaults.integer(forKey: kHistoryRetentionDays)
+            // Distinguish "unset" from "explicitly 0": if the key was
+            // never written we want the 90-day default; once the user
+            // sets 0 (never purge) we honor it.
+            if defaults.object(forKey: kHistoryRetentionDays) == nil { return 90 }
+            return max(0, min(3650, v))
+        }
+        set {
+            defaults.set(max(0, min(3650, newValue)), forKey: kHistoryRetentionDays)
+        }
     }
 
     /// Persist (or clear, when `nil`) the Anthropic API key. Returns
