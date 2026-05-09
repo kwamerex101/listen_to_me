@@ -182,6 +182,79 @@ struct ClaudeClient {
         return sanitized
     }
 
+    /// Rewrite `original` per `revision` instructions. Used by the
+    /// Backtrack flow: the user just dictated something, we pasted it,
+    /// and now they want a revision rather than an additional paste.
+    ///
+    /// Returns the rewritten text. Same backend selection as `clean`:
+    /// direct API when a key is present, CLI subprocess fallback.
+    func rewrite(original: String,
+                 revision: String,
+                 timeout: TimeInterval = 20) async throws -> String {
+        let systemPrompt = """
+        You are a text-revision tool. The user previously dictated text and now wants to revise it.
+
+        ORIGINAL TEXT:
+        \(original)
+
+        TASK: Apply the user's revision request (in the user message) to the ORIGINAL TEXT and output ONLY the revised text. Preserve the original's overall length and tone unless the revision explicitly changes it.
+
+        HARD RULES — violating any makes the output invalid:
+          1. Output ONLY the revised text. Nothing else.
+          2. No preamble. No "Here is", "Here's", "Sure", "Certainly", "Of course".
+          3. No quotes around the output. No markdown. No code fences.
+          4. Do NOT explain what you changed. Do NOT add commentary.
+          5. If the revision is unclear or unsafe, return the ORIGINAL TEXT unchanged.
+
+        EXAMPLES:
+
+        ORIGINAL: Send the report by Friday.
+        Revision: actually make that next Thursday
+        Output: Send the report by next Thursday.
+
+        ORIGINAL: Hey team, the staging URL is broken.
+        Revision: change that to the production URL
+        Output: Hey team, the production URL is broken.
+        """
+
+        let (backend, apiKey): (Preferences.CleanupBackend, String?) = await MainActor.run {
+            (Preferences.shared.cleanupBackend, Preferences.shared.anthropicAPIKey)
+        }
+        let useAPI: Bool
+        switch backend {
+        case .auto: useAPI = (apiKey?.isEmpty == false)
+        case .cli:  useAPI = false
+        case .api:  useAPI = true
+        }
+
+        if useAPI {
+            guard let key = apiKey, !key.isEmpty else { throw ClaudeError.apiKeyMissing }
+            return try await runDirectAPI(
+                text: revision,
+                systemPrompt: systemPrompt,
+                apiKey: key,
+                timeout: timeout
+            )
+        }
+
+        let stdoutData = try await runClaude(
+            input: revision,
+            args: [
+                "--print",
+                "--no-session-persistence",
+                "--disable-slash-commands",
+                "--model", "haiku",
+                "--output-format", "text",
+                "--append-system-prompt", systemPrompt,
+            ],
+            timeout: timeout
+        )
+        let raw = String(data: stdoutData, encoding: .utf8) ?? ""
+        let sanitized = Self.sanitize(cleaned: raw, original: original)
+        if sanitized.isEmpty { throw ClaudeError.emptyOutput }
+        return sanitized
+    }
+
     /// Quick check that cleanup is viable. Returns true when EITHER the
     /// `claude` binary resolves on PATH (CLI path) OR an Anthropic API
     /// key is configured (direct path) — matches what `clean(...)` will

@@ -253,6 +253,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     return
                 }
 
+                // Backtrack interception — runs BEFORE other commands and
+                // before cleanup. If the user said "actually, …" / "scratch
+                // that, …" AND we have a still-valid lastPasteToken, ask
+                // Claude to revise the prior paste in place rather than
+                // pasting new text.
+                if let bt = Backtrack.parse(raw),
+                   let token = lastPasteToken,
+                   !token.pastedText.isEmpty {
+                    do {
+                        PillWindow.shared.setInteractive(true)
+                        state.phase = .polishing(rawPreview: "revising…")
+                        let revised = try await ClaudeClient.shared.rewrite(
+                            original: token.pastedText,
+                            revision: bt.revision,
+                            timeout: TimeInterval(Preferences.shared.cleanupTimeoutSec)
+                        )
+                        if let newToken = Paster.replace(with: revised, token: token) {
+                            lastPasteToken = newToken
+                            state.lastTranscript = revised
+                            HistoryStore.shared.updateLast(finalText: revised)
+                            let durMs = recordingStartedAt.map { Int(Date().timeIntervalSince($0) * 1000) } ?? 0
+                            recordingStartedAt = nil
+                            HistoryStore.shared.add(rawText: raw, finalText: "[backtrack]",
+                                                     durationMs: durMs, dismissed: true,
+                                                     bundleId: newToken.bundleId)
+                            Haptics.success()
+                            state.phase = .success(preview: String(revised.prefix(30)))
+                            autoReset(after: 1.5)
+                        } else {
+                            // Validation gate failed — pasteboard moved on,
+                            // user switched apps, etc. Fall through to
+                            // normal pipeline so the revision phrase still
+                            // reaches the user as a normal dictation.
+                            NSLog("[ListenToMe] backtrack: replace gate failed, falling back to normal pipeline")
+                        }
+                        return
+                    } catch {
+                        NSLog("[ListenToMe] backtrack rewrite failed: \(error) — falling back to normal pipeline")
+                        // Fall through and treat the utterance as a normal dictation.
+                    }
+                }
+
                 // Voice-command interception — runs BEFORE cleanup on the raw text
                 if let cmd = CommandRouter.parse(raw) {
                     do {
