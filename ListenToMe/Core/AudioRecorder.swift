@@ -27,6 +27,21 @@ final class AudioRecorder {
     /// requests a larger output capacity than we've previously seen.
     private var reusableOutBuffer: AVAudioPCMBuffer?
 
+    /// Rolling Float32 sample accumulator (16 kHz mono). Populated by
+    /// the audio render thread alongside the WAV write so the streaming
+    /// partial-transcripts feature (M5') can read the in-progress
+    /// audio without re-reading a growing WAV file. Capped at
+    /// `maxAccumulatedSamples` so a long forgotten hotkey-hold can't
+    /// blow memory; whisper-base only sees the last ~30s anyway.
+    /// nil when streaming isn't requested for this session — saves the
+    /// ~2 MB / 30 s allocation when the user hasn't opted in.
+    private var sampleAccumulator: [Float]?
+
+    /// 30 seconds at 16 kHz = 480k Float32 = 1.92 MB. Whisper-base's
+    /// receptive window caps at 30 s so anything older isn't usable as
+    /// streaming context anyway — drop it.
+    private static let maxAccumulatedSamples: Int = 480_000
+
     /// Touched only from the main thread.
     private var currentURL: URL?
 
@@ -52,7 +67,7 @@ final class AudioRecorder {
     }
 
     @MainActor
-    func start() throws -> URL {
+    func start(accumulateSamples: Bool = false) throws -> URL {
         // Fresh file each session
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("listentome-\(UUID().uuidString).wav")
@@ -96,10 +111,19 @@ final class AudioRecorder {
         // Publish the new audio-thread state under the lock so a tap
         // callback that may already be queued sees a fully-initialized
         // pair (or the previous nil) — never a half-installed state.
+        // Sample accumulator is reserved up front to avoid append-time
+        // reallocations in the hot path.
         stateLock.lock()
         file = newFile
         converter = newConverter
         reusableOutBuffer = nil
+        if accumulateSamples {
+            var buf: [Float] = []
+            buf.reserveCapacity(Self.maxAccumulatedSamples)
+            sampleAccumulator = buf
+        } else {
+            sampleAccumulator = nil
+        }
         stateLock.unlock()
 
         let bufferSize: AVAudioFrameCount = 1024
@@ -137,6 +161,7 @@ final class AudioRecorder {
         file = nil
         converter = nil
         reusableOutBuffer = nil
+        sampleAccumulator = nil
         stateLock.unlock()
         return url
     }
@@ -156,7 +181,18 @@ final class AudioRecorder {
         file = nil
         converter = nil
         reusableOutBuffer = nil
+        sampleAccumulator = nil
         stateLock.unlock()
+    }
+
+    /// Return a snapshot of the accumulator (M5' streaming partials).
+    /// Empty array when streaming wasn't requested for this session or
+    /// no audio has arrived yet. Safe to call from any thread —
+    /// stateLock guards the read.
+    func currentSamples() -> [Float] {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return sampleAccumulator ?? []
     }
 
     /// Runs on the AVAudioEngine render thread. All shared-state access
@@ -217,6 +253,21 @@ final class AudioRecorder {
             var rms: Float = 0
             if n > 0 { vDSP_rmsqv(floatData, 1, &rms, n) }
             normalized = min(1, max(0, rms * 6))   // crude gain
+
+            // M5': feed the streaming-partials accumulator with the same
+            // 16 kHz mono Float32 samples we just wrote to disk. Trim
+            // the head when we exceed the cap (whisper-base only sees
+            // the last 30 s anyway). nil accumulator is the common
+            // path when streaming isn't requested — zero overhead.
+            if sampleAccumulator != nil {
+                let count = Int(outBuffer.frameLength)
+                let buf = UnsafeBufferPointer(start: floatData, count: count)
+                sampleAccumulator!.append(contentsOf: buf)
+                let overflow = sampleAccumulator!.count - Self.maxAccumulatedSamples
+                if overflow > 0 {
+                    sampleAccumulator!.removeFirst(overflow)
+                }
+            }
         }
         stateLock.unlock()
 

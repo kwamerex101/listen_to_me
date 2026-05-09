@@ -141,10 +141,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Emit phase-change notifications for menu bar — event-driven via
         // Combine instead of a 150ms polling loop so the app has zero idle
         // wake-ups beyond what it actually needs (#GSD Phase C-3).
+        // Also clear AppState.partialText when leaving .recording so the
+        // streaming preview doesn't bleed into the final paste's pill UI.
         phaseChangeCancellable = state.$phase
             .removeDuplicates()
-            .sink { _ in
+            .sink { [weak self] phase in
                 NotificationCenter.default.post(name: .phaseChanged, object: nil)
+                if case .recording = phase {
+                    // entering or staying in recording — preserve the partial
+                } else if case .transcribing = phase {
+                    // keep partial visible briefly through transcribing as a
+                    // "finalizing what you saw" cue; cleared on next phase
+                } else {
+                    self?.state.partialText = ""
+                }
             }
     }
 
@@ -195,13 +205,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         do {
-            _ = try AudioRecorder.shared.start()
+            // Streaming partials need an in-memory sample accumulator
+            // alongside the WAV write. Gate on the user pref so the
+            // common case (off) pays zero allocation.
+            let streamPartials = Preferences.shared.streamingPartialsEnabled
+                && Preferences.shared.transcriptionEngine == .linked
+            _ = try AudioRecorder.shared.start(accumulateSamples: streamPartials)
             recordingStartedAt = Date()
             PillWindow.shared.repositionToActiveScreen()
             state.phase = .recording
             Haptics.start()
             SoundCue.recordingStart()
             PillWindow.shared.setInteractive(true)
+            // Begin polling after the recording state is published so
+            // PillView is already showing the recording UI when the
+            // first partial lands.
+            if streamPartials {
+                PartialTranscriber.shared.start()
+            }
         } catch {
             state.phase = .error(message: "Record failed")
             // pill animates via SwiftUI phase change
@@ -219,6 +240,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func handleCancel() {
         switch state.phase {
         case .recording:
+            PartialTranscriber.shared.stop()
+            state.partialText = ""
             AudioRecorder.shared.cancel()
             Haptics.stop()
             PillWindow.shared.setInteractive(false)
@@ -254,6 +277,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Haptics.stop()
         SoundCue.recordingStop()
         PillWindow.shared.setInteractive(false)
+        // Stop the streaming-partial loop BEFORE the final transcribe
+        // so the WhisperLib busy-gate is clear. Don't wipe partialText
+        // immediately — let it linger through .transcribing as a
+        // "we're finalizing what you saw" signal; the success-paste
+        // branch below clears it.
+        PartialTranscriber.shared.stop()
         guard let wav = AudioRecorder.shared.stop() else {
             state.phase = .error(message: "No audio")
             autoReset()

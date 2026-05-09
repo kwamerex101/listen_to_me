@@ -16,6 +16,7 @@ struct SettingsView: View {
     @State private var historyRetentionDays: Double = Double(Preferences.shared.historyRetentionDays)
     @State private var historyEncryptionEnabled: Bool = Preferences.shared.historyEncryptionEnabled
     @State private var transcriptionEngine: Preferences.TranscriptionEngine = Preferences.shared.transcriptionEngine
+    @State private var streamingPartialsEnabled: Bool = Preferences.shared.streamingPartialsEnabled
     @ObservedObject private var modelManager = WhisperModelManager.shared
 
     /// Reads the version straight from the bundle so future bumps don't
@@ -147,6 +148,21 @@ struct SettingsView: View {
                         .labelsHidden()
                         .onChange(of: transcriptionEngine) { _, new in
                             Preferences.shared.transcriptionEngine = new
+                        }
+                    }
+                    row(label: "Live partial transcripts") {
+                        HStack(spacing: 10) {
+                            Toggle("", isOn: $streamingPartialsEnabled)
+                                .labelsHidden()
+                                .disabled(transcriptionEngine != .linked)
+                                .onChange(of: streamingPartialsEnabled) { _, new in
+                                    Preferences.shared.streamingPartialsEnabled = new
+                                }
+                            if transcriptionEngine != .linked {
+                                Text("Requires Linked engine")
+                                    .font(DT.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
                 }
@@ -296,6 +312,7 @@ struct SettingsView: View {
             historyRetentionDays = Double(Preferences.shared.historyRetentionDays)
             historyEncryptionEnabled = Preferences.shared.historyEncryptionEnabled
             transcriptionEngine = Preferences.shared.transcriptionEngine
+            streamingPartialsEnabled = Preferences.shared.streamingPartialsEnabled
             modelManager.refreshStatus()
         }
     }

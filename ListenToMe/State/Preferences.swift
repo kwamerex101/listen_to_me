@@ -104,6 +104,7 @@ final class Preferences {
     private let kPillOriginY = "wf.pillOriginY"
     private let kPillHasCustomOrigin = "wf.pillHasCustomOrigin"
     private let kTranscriptionEngine = "wf.transcriptionEngine"
+    private let kStreamingPartialsEnabled = "wf.streamingPartialsEnabled"
 
     /// Keychain account names (bundled here so call sites don't sprout
     /// stringly-typed names of their own).
@@ -218,6 +219,18 @@ final class Preferences {
             return TranscriptionEngine(rawValue: raw) ?? .server
         }
         set { defaults.set(newValue.rawValue, forKey: kTranscriptionEngine) }
+    }
+
+    /// When true AND the transcription engine is `.linked`, run a
+    /// partial whisper pass every ~1.5 s during recording so the user
+    /// sees a live preview of what's being transcribed. Off by default
+    /// — partial passes on sub-second audio chunks have hallucination
+    /// failure modes (whisper renders silence as "[BLANK_AUDIO]" or
+    /// generic phrases) and add CPU/battery cost during the entire
+    /// hotkey hold.
+    var streamingPartialsEnabled: Bool {
+        get { defaults.bool(forKey: kStreamingPartialsEnabled) }
+        set { defaults.set(newValue, forKey: kStreamingPartialsEnabled) }
     }
 
     /// Cleanup backend selection. `.auto` (default) prefers the direct

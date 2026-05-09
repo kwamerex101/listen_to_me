@@ -28,6 +28,11 @@ final class AppState: ObservableObject {
     @Published var phase: Phase = .idle
     @Published var level: Float = 0          // 0…1, updated ~30Hz during recording
     @Published var lastTranscript: String = ""
+    /// Live partial transcript (M5'). Populated during `.recording`
+    /// when `Preferences.streamingPartialsEnabled` is on AND the
+    /// linked engine is selected. Always empty otherwise. PillView
+    /// renders a subtle preview below the waveform when non-empty.
+    @Published var partialText: String = ""
     @Published var hotkeyGranted: Bool = false
     @Published var micGranted: Bool = false
     @Published var showPermissionPrompt: Bool = false
