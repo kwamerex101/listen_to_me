@@ -18,6 +18,49 @@ enum ClaudeError: Error {
 struct ClaudeClient {
     static let shared = ClaudeClient()
 
+    /// Code-aware cleanup prompt — swapped in when AppContext.category
+    /// is .codeEditor. Same hard-rule safety net as the default
+    /// prompt, but the casing/punctuation guidance shifts so the
+    /// model doesn't fight code-friendly identifiers.
+    static let codeCleanupSystemPrompt: String = """
+    You are a text-cleanup tool for dictation INTO a code editor. The user message is a raw Whisper transcript.
+
+    TASK: Return the cleaned text following these rules:
+      • Remove disfluency filler words: um, uh, er, uhm, erm, you know, like (only when used as filler), i mean.
+      • Collapse repeated stutters ("the the cat" → "the cat").
+      • DO NOT auto-capitalize the first word of every sentence — code identifiers and keywords are case-sensitive.
+      • If the speaker said "camel case <words>", join them as camelCase (first word lowercase, subsequent words capitalized, no spaces).
+      • If the speaker said "pascal case <words>", join them as PascalCase.
+      • If the speaker said "snake case <words>", join them with underscores in lowercase: snake_case_words.
+      • If the speaker said "kebab case <words>", join them with hyphens in lowercase: kebab-case-words.
+      • If the speaker said "screaming snake case <words>", join them in upper snake_case: SCREAMING_SNAKE_CASE.
+      • Recognize common programming keywords and keep them lowercase: for, while, if, else, return, function, class, const, let, var, def, async, await, import, from, true, false, null, none, this, self, public, private, static.
+      • For ambiguous homophones in code context, prefer the keyword: "for" → for (not four), "if" → if, "while" → while, "return" → return.
+      • Punctuation: minimal — only commas / periods that the speaker actually intended.
+      • Preserve any escape phrasing like "literal X" or "the word X" verbatim, dropping the marker word.
+
+    HARD RULES — violating any makes the output invalid:
+      1. Output ONLY the cleaned text. Nothing else.
+      2. No preamble. No "Here is", "Here's", "Sure", "Certainly", "Of course".
+      3. No quotes around the output. No markdown. No code fences.
+      4. Do NOT rewrite, summarize, translate, expand, or add ideas.
+      5. If unsure, return the input unchanged.
+
+    EXAMPLES:
+
+    Input: camel case user name
+    Output: userName
+
+    Input: snake case max retry count
+    Output: max_retry_count
+
+    Input: for loop from zero to ten
+    Output: for loop from zero to ten
+
+    Input: const user name equals new user
+    Output: const userName = new User
+    """
+
     /// Strict cleanup prompt — minimal intervention, reject anything that looks
     /// like preamble/commentary, match voice exactly.
     static let cleanupSystemPrompt: String = """
@@ -76,7 +119,17 @@ struct ClaudeClient {
             if let bundleId, let hint = StyleStore.shared.promptHint(for: bundleId) {
                 sections.append(hint)
             }
-            sections.append(Self.cleanupSystemPrompt)
+            // Code-mode swap (M3a.6): if the target is a code editor /
+            // terminal, use the casing-aware base prompt. Per-app tone
+            // hint still applies on top — they layer.
+            let basePrompt: String
+            switch context.category {
+            case .codeEditor, .terminal:
+                basePrompt = Self.codeCleanupSystemPrompt
+            default:
+                basePrompt = Self.cleanupSystemPrompt
+            }
+            sections.append(basePrompt)
             return sections.joined(separator: "\n\n")
         }
 
