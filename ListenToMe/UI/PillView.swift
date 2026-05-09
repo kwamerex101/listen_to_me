@@ -449,6 +449,7 @@ struct PillView: View {
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.white)
                 Spacer(minLength: 0)
+                cancelInflightButton
             }
 
         case .cleaning:
@@ -461,6 +462,7 @@ struct PillView: View {
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.white)
                 Spacer(minLength: 0)
+                cancelInflightButton
             }
 
         case .polishing(let rawPreview):
@@ -475,6 +477,7 @@ struct PillView: View {
                     .truncationMode(.tail)
                 Spacer(minLength: 0)
                 PolishingDots()
+                cancelInflightButton
             }
 
         case .success:
@@ -553,6 +556,27 @@ struct PillView: View {
             .buttonStyle(PressableStyle())
         }
         .padding(.horizontal, 14)
+    }
+
+    /// Compact X button used in `.transcribing`, `.cleaning`, and
+    /// `.polishing` so the user can bail on a long-running cleanup or
+    /// stuck whisper without waiting for it to time out. Routes through
+    /// the same `onCancelTap` callback as the recording-X — AppDelegate
+    /// dispatches per-phase.
+    private var cancelInflightButton: some View {
+        Button(action: { AppState.shared.onCancelTap?() }) {
+            ZStack {
+                Circle()
+                    .fill(Color.white.opacity(0.10))
+                    .frame(width: 22, height: 22)
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.75))
+            }
+        }
+        .buttonStyle(PressableStyle())
+        .help("Cancel")
+        .accessibilityLabel("Cancel")
     }
 
     /// Smoothed audio level — average of the level buffer. The buffer is

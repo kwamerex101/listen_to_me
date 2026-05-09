@@ -46,6 +46,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// has no idle wake-ups outside of timers it actually needs.
     private var phaseChangeCancellable: AnyCancellable?
 
+    /// In-flight Task spawned by handleRelease that owns the
+    /// transcribe → command-route → expand → paste pipeline. Tracked
+    /// so the user can abort during `.transcribing` and we won't
+    /// silently push state forward when the result eventually arrives.
+    private var transcribeTask: Task<Void, Never>?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
 
@@ -177,15 +183,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Single entry point for "user wants out NOW", regardless of phase.
+    /// .recording → discard audio + history dismissed row.
+    /// .transcribing → cancel whisper task; the result (if it arrives)
+    ///                 short-circuits via Task.isCancelled.
+    /// .polishing → cancel cleanup; raw transcript already pasted, leave
+    ///              it standing (user can correct if they want).
+    /// Any other phase → no-op.
     private func handleCancel() {
-        guard case .recording = state.phase else { return }
-        AudioRecorder.shared.cancel()
-        Haptics.stop()
-        PillWindow.shared.setInteractive(false)
-        HistoryStore.shared.add(rawText: "", finalText: "", durationMs: 0, dismissed: true)
-        recordingStartedAt = nil
-        state.level = 0   // clear stale tail so a fast re-entry starts cold
-        state.phase = .idle
+        switch state.phase {
+        case .recording:
+            AudioRecorder.shared.cancel()
+            Haptics.stop()
+            PillWindow.shared.setInteractive(false)
+            HistoryStore.shared.add(rawText: "", finalText: "", durationMs: 0, dismissed: true)
+            recordingStartedAt = nil
+            state.level = 0   // clear stale tail so a fast re-entry starts cold
+            state.phase = .idle
+        case .transcribing:
+            transcribeTask?.cancel()
+            transcribeTask = nil
+            // Don't shut down WhisperServer — the model load is shared
+            // across dictations and the next press will reuse it.
+            recordingStartedAt = nil
+            PillWindow.shared.setInteractive(false)
+            state.phase = .idle
+        case .polishing:
+            // Raw transcript is already pasted into the target app;
+            // cleanup task may still be running. Cancel it; the
+            // catch-CancellationError branch in startCleanupTask
+            // finalizes the pasteboard cleanly.
+            cleanupTask?.cancel()
+            cleanupTask = nil
+            PillWindow.shared.setInteractive(false)
+            state.phase = .success(preview: String(state.lastTranscript.prefix(30)))
+            autoReset(after: 1.0)
+        default:
+            return
+        }
     }
 
     private func handleRelease() {
@@ -199,12 +234,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         state.level = 0   // mute waveform during transcribe/cleanup
+        // Keep the pill interactive so the cancel X added in .transcribing
+        // and .polishing actually receives clicks.
+        PillWindow.shared.setInteractive(true)
         state.phase = .transcribing
 
         let whisperPrompt = DictionaryStore.shared.whisperPrompt
-        Task { @MainActor in
+        transcribeTask?.cancel()
+        transcribeTask = Task { @MainActor in
             do {
                 let raw = try await WhisperRunner.shared.transcribe(wav: wav, prompt: whisperPrompt)
+                // User aborted via the cancel button while we were waiting
+                // on whisper — bail before mutating any pipeline state.
+                if Task.isCancelled { return }
                 if raw.isEmpty {
                     state.phase = .error(message: "Empty transcript")
                     autoReset()
