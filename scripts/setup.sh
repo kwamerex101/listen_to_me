@@ -48,12 +48,24 @@ else
 fi
 popd >/dev/null
 
-echo "==> 4. Copy whisper binary + dylibs into Resources (portable rpath)"
+echo "==> 4. Copy whisper binaries + dylibs into Resources (portable rpath)"
 mkdir -p "$RES_DIR"
 # Wipe previously bundled dylibs so stale ones don't linger between runs
 rm -f "$RES_DIR"/*.dylib
 cp "$WHISPER_BIN" "$RES_DIR/whisper-cli"
 chmod +x "$RES_DIR/whisper-cli"
+
+# whisper-server lives next to whisper-cli in the same build/bin dir.
+# Optional: only ship it if present; the app degrades gracefully to the
+# subprocess CLI path when whisper-server is absent.
+WHISPER_SERVER_BIN="$(dirname "$WHISPER_BIN")/whisper-server"
+if [ -f "$WHISPER_SERVER_BIN" ]; then
+  cp "$WHISPER_SERVER_BIN" "$RES_DIR/whisper-server"
+  chmod +x "$RES_DIR/whisper-server"
+  echo "    bundled whisper-server (warm-path) alongside whisper-cli"
+else
+  echo "    note: whisper-server not found; warm path will be unavailable" >&2
+fi
 
 # Bundle every dylib whisper-cli depends on (libwhisper + libggml*)
 # so the app keeps working regardless of where the project folder lives.
@@ -90,7 +102,7 @@ done
 # Point every binary/dylib at @loader_path (their own directory inside the app
 # bundle's Resources folder). Existing absolute rpaths will fail silently and
 # @loader_path will resolve correctly.
-for f in "$RES_DIR/whisper-cli" "$RES_DIR"/*.dylib; do
+for f in "$RES_DIR/whisper-cli" "$RES_DIR/whisper-server" "$RES_DIR"/*.dylib; do
   [ -e "$f" ] || continue
   # Drop any build-tree absolute rpaths
   otool -l "$f" | awk '/LC_RPATH/{c=3} c-->0{if (/path /){sub(/.*path /, ""); sub(/ \(offset.*/, ""); print}}' | \

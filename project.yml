@@ -16,7 +16,7 @@ targets:
           - "ListenToMe.entitlements"
           - "Resources/**"
     postBuildScripts:
-      - name: Copy whisper-cli + dylibs into bundle
+      - name: Copy whisper binaries + dylibs into bundle
         script: |
           set -e
           SRC="${SRCROOT}/ListenToMe/Resources"
@@ -24,6 +24,10 @@ targets:
           mkdir -p "$DEST"
           cp "$SRC/whisper-cli" "$DEST/whisper-cli"
           chmod +x "$DEST/whisper-cli"
+          if [ -f "$SRC/whisper-server" ]; then
+            cp "$SRC/whisper-server" "$DEST/whisper-server"
+            chmod +x "$DEST/whisper-server"
+          fi
           # Bundle every prebuilt dylib alongside the binary
           shopt -s nullglob
           for dylib in "$SRC"/*.dylib; do
@@ -31,8 +35,10 @@ targets:
           done
         inputFiles:
           - $(SRCROOT)/ListenToMe/Resources/whisper-cli
+          - $(SRCROOT)/ListenToMe/Resources/whisper-server
         outputFiles:
           - $(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/whisper-cli
+          - $(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/whisper-server
     info:
       path: ListenToMe/Info.plist
       properties:
