@@ -321,7 +321,9 @@ final class HistoryStore: ObservableObject {
     /// Parse an NDJSON blob in chronological (file) order. Malformed
     /// lines are skipped silently — preferring partial recovery over
     /// losing the whole history if a single record was corrupted.
-    nonisolated private static func parseNDJSON(_ data: Data) -> [TranscriptRecord] {
+    /// Internal (not private) so HistoryStoreTests can verify the
+    /// round-trip semantics directly without standing up the singleton.
+    nonisolated internal static func parseNDJSON(_ data: Data) -> [TranscriptRecord] {
         var out: [TranscriptRecord] = []
         let decoder = makeDecoder()
         // Split on \n bytes; works regardless of UTF-8 boundary issues
@@ -366,7 +368,10 @@ final class HistoryStore: ObservableObject {
     /// reversal preserves the natural append semantics of NDJSON: when
     /// a new record arrives we just append to the bottom, and on next
     /// load we reverse again to restore newest-first in memory.
-    nonisolated private static func writeAll(_ snapshot: [TranscriptRecord], to target: URL) {
+    /// Serialize `snapshot` (newest-first in memory) as NDJSON
+    /// (chronological oldest→newest on disk). Internal so tests can
+    /// verify the round-trip without spinning up the singleton.
+    nonisolated internal static func writeAll(_ snapshot: [TranscriptRecord], to target: URL) {
         let encoder = makeEncoder()
         var data = Data()
         for r in snapshot.reversed() {
