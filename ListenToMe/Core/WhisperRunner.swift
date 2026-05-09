@@ -42,12 +42,41 @@ struct WhisperRunner {
             }
             proc.arguments = args
             let errPipe = Pipe()
+            let outPipe = Pipe()
             proc.standardError = errPipe
-            proc.standardOutput = Pipe()
+            proc.standardOutput = outPipe
+
+            // Drain stderr/stdout asynchronously. readDataToEndOfFile() inside
+            // the terminationHandler can deadlock if the child fills the
+            // 64KB pipe buffer before exit (rare with --no-prints, but the
+            // safer pattern matches ClaudeClient.runEnv).
+            let errLock = NSLock()
+            var errBytes = Data()
+            errPipe.fileHandleForReading.readabilityHandler = { handle in
+                let chunk = handle.availableData
+                if chunk.isEmpty {
+                    handle.readabilityHandler = nil
+                } else {
+                    errLock.lock()
+                    errBytes.append(chunk)
+                    errLock.unlock()
+                }
+            }
+            outPipe.fileHandleForReading.readabilityHandler = { handle in
+                let chunk = handle.availableData
+                if chunk.isEmpty {
+                    handle.readabilityHandler = nil
+                }
+            }
 
             proc.terminationHandler = { p in
-                let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
-                let errStr = String(data: errData, encoding: .utf8) ?? ""
+                // Flush any data still buffered after the child exits.
+                let tailErr = errPipe.fileHandleForReading.readDataToEndOfFile()
+                _ = outPipe.fileHandleForReading.readDataToEndOfFile()
+                errLock.lock()
+                errBytes.append(tailErr)
+                let errStr = String(data: errBytes, encoding: .utf8) ?? ""
+                errLock.unlock()
 
                 if p.terminationStatus != 0 {
                     cont.resume(throwing: WhisperError.processFailed(code: p.terminationStatus, stderr: errStr))
