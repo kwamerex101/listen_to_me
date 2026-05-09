@@ -123,6 +123,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
     }
 
+    /// Tear down long-lived subprocesses cleanly on quit so we don't
+    /// leave whisper-server (or anything else with a port bound) running
+    /// after the app exits.
+    func applicationWillTerminate(_ notification: Notification) {
+        WhisperServer.shared.shutdown()
+    }
+
     // MARK: - Hotkey handlers
 
     private func handlePress() {

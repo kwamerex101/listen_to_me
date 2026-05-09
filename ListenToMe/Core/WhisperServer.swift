@@ -144,12 +144,14 @@ final class WhisperServer {
         stdoutPipe = outPipe
         stderrPipe = errPipe
 
-        // Poll the inference endpoint until the server answers (~load
-        // time of the model, typically 200-800ms with the page cache
-        // warm). Hard cap at 8s so a stuck launch surfaces as an error
-        // instead of hanging the dictation pipeline.
+        // Poll the inference endpoint until the server answers. With
+        // the model file in page cache, readiness lands in 200-800ms;
+        // after a true cold reboot the model load can take ~8s. Cap at
+        // 20s so a wedged launch surfaces as an error instead of
+        // hanging the dictation pipeline forever — but it's roomy
+        // enough that a normal cold-cache start always wins the race.
         let started = Date()
-        while Date().timeIntervalSince(started) < 8.0 {
+        while Date().timeIntervalSince(started) < 20.0 {
             if !proc.isRunning {
                 throw ServerError.launchFailed("whisper-server exited during startup")
             }
