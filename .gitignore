@@ -33,6 +33,12 @@ ListenToMe/Resources/AppIcon.icns
 .cursor/
 .aider*
 
+# Per-developer Claude Code project memory — kept local, never committed
+CLAUDE.md
+CLAUDE.local.md
+GEMINI.md
+AGENTS.md
+
 # Editor / IDE
 .idea/
 .vscode/
