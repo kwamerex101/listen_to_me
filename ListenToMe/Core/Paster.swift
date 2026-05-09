@@ -45,16 +45,23 @@ struct PasteToken {
 enum Paster {
     /// One-shot paste with auto-restore of the prior pasteboard contents
     /// after a short delay. Use when you do NOT plan to replace the text.
+    ///
+    /// The restore is gated by changeCount: if anything (the user's own
+    /// Cmd+C, another app, anything) wrote to the pasteboard between our
+    /// paste and the 600ms restore tick, we leave it alone. Without the
+    /// gate we'd clobber whatever the user just copied.
     static func paste(_ text: String) {
         let pb = NSPasteboard.general
         let prior = pb.string(forType: .string)
 
         pb.clearContents()
         pb.setString(text, forType: .string)
+        let changeCountAtPaste = pb.changeCount
 
         simulatePasteKeystroke()
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            guard pb.changeCount == changeCountAtPaste else { return }
             if let p = prior {
                 pb.clearContents()
                 pb.setString(p, forType: .string)
@@ -176,8 +183,12 @@ enum Paster {
 
         // Restore the user's original pasteboard a beat after our paste
         // settles. 0.6s matches the existing fire-and-forget paste path.
+        // changeCount-gated: if the user (or another app) wrote to the
+        // pasteboard during this window, leave it alone — clobbering a
+        // fresh copy would be a worse bug than not restoring.
         let prior = token.priorPasteboardString
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            guard pb.changeCount == newChangeCount else { return }
             if let p = prior {
                 pb.clearContents()
                 pb.setString(p, forType: .string)
