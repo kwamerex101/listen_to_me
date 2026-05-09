@@ -16,7 +16,7 @@ targets:
           - "ListenToMe.entitlements"
           - "Resources/**"
     postBuildScripts:
-      - name: Copy whisper-cli + dylibs into bundle
+      - name: Copy whisper binaries + dylibs into bundle
         script: |
           set -e
           SRC="${SRCROOT}/ListenToMe/Resources"
@@ -24,6 +24,10 @@ targets:
           mkdir -p "$DEST"
           cp "$SRC/whisper-cli" "$DEST/whisper-cli"
           chmod +x "$DEST/whisper-cli"
+          if [ -f "$SRC/whisper-server" ]; then
+            cp "$SRC/whisper-server" "$DEST/whisper-server"
+            chmod +x "$DEST/whisper-server"
+          fi
           # Bundle every prebuilt dylib alongside the binary
           shopt -s nullglob
           for dylib in "$SRC"/*.dylib; do
@@ -31,8 +35,10 @@ targets:
           done
         inputFiles:
           - $(SRCROOT)/ListenToMe/Resources/whisper-cli
+          - $(SRCROOT)/ListenToMe/Resources/whisper-server
         outputFiles:
           - $(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/whisper-cli
+          - $(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/whisper-server
     info:
       path: ListenToMe/Info.plist
       properties:
@@ -50,6 +56,7 @@ targets:
       path: ListenToMe/ListenToMe.entitlements
       properties:
         com.apple.security.device.audio-input: true
+        com.apple.security.automation.apple-events: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.rexdanquah.listentome
@@ -60,6 +67,17 @@ targets:
         ENABLE_HARDENED_RUNTIME: YES
         COMBINE_HIDPI_IMAGES: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      configs:
+        # Hardened runtime (CS_RUNTIME flag) is Release-only because
+        # Xcode's Debug build links a per-build ListenToMe.debug.dylib
+        # for SwiftUI previews that has a different signing identity
+        # than the main binary; library validation under adhoc signing
+        # rejects the load and the app won't launch. Skipping the
+        # runtime flag in Debug keeps the inner-loop fast; Release ships
+        # are still fully hardened — verify with:
+        #   codesign -d --verbose=4 ListenToMe.app  (look for runtime)
+        Release:
+          OTHER_CODE_SIGN_FLAGS: "--options=runtime"
 
   ListenToMeTests:
     type: bundle.unit-test

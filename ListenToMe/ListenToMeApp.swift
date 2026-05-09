@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import ApplicationServices
+import Combine
 
 @main
 struct ListenToMeApp: App {
@@ -39,6 +40,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// to avoid clobbering a freshly-set phase.
     private var suggestionTimeoutTask: Task<Void, Never>?
 
+    /// Combine subscription that posts `.phaseChanged` whenever
+    /// `AppState.phase` actually changes. Replaces the previous 150ms
+    /// polling loop so the menu-bar update is event-driven and the app
+    /// has no idle wake-ups outside of timers it actually needs.
+    private var phaseChangeCancellable: AnyCancellable?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
 
@@ -72,9 +79,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             PillWindow.shared.setInteractive(true)
         }
 
-        // Wire state → waveform
+        // Wire state → waveform. removeTap is synchronous, but a buffer
+        // already in-flight on the audio render thread can deliver one
+        // last callback after stop()/cancel(). Gate on phase so a stale
+        // tail tick doesn't churn @Published subscribers (PillView
+        // onChange) for nothing during transcribe/cleanup/idle.
         AudioRecorder.shared.onLevel = { [weak self] level in
-            self?.state.level = level
+            guard let self else { return }
+            if case .recording = self.state.phase {
+                self.state.level = level
+            }
         }
         // QUAL-03: when the watchdog fires, treat as a normal release so
         // the pipeline finishes the dictation cleanly — better than just
@@ -105,19 +119,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // dictation lands.
         _ = StyleSamplesStore.shared
         _ = StyleStore.shared
+        // Also warm HistoryStore so the legacy-JSON → NDJSON migration
+        // runs at launch (otherwise it'd defer until the first add()).
+        _ = HistoryStore.shared
 
-        // Emit phase-change notifications for menu bar
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            var last: Phase = .idle
-            while !Task.isCancelled {
-                if self.state.phase != last {
-                    last = self.state.phase
-                    NotificationCenter.default.post(name: .phaseChanged, object: nil)
-                }
-                try? await Task.sleep(nanoseconds: 150_000_000)
+        // Emit phase-change notifications for menu bar — event-driven via
+        // Combine instead of a 150ms polling loop so the app has zero idle
+        // wake-ups beyond what it actually needs (#GSD Phase C-3).
+        phaseChangeCancellable = state.$phase
+            .removeDuplicates()
+            .sink { _ in
+                NotificationCenter.default.post(name: .phaseChanged, object: nil)
             }
-        }
+    }
+
+    /// Tear down long-lived subprocesses cleanly on quit so we don't
+    /// leave whisper-server (or anything else with a port bound) running
+    /// after the app exits.
+    func applicationWillTerminate(_ notification: Notification) {
+        WhisperServer.shared.shutdown()
     }
 
     // MARK: - Hotkey handlers
@@ -164,6 +184,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         PillWindow.shared.setInteractive(false)
         HistoryStore.shared.add(rawText: "", finalText: "", durationMs: 0, dismissed: true)
         recordingStartedAt = nil
+        state.level = 0   // clear stale tail so a fast re-entry starts cold
         state.phase = .idle
     }
 
@@ -177,6 +198,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             autoReset()
             return
         }
+        state.level = 0   // mute waveform during transcribe/cleanup
         state.phase = .transcribing
 
         let whisperPrompt = DictionaryStore.shared.whisperPrompt
@@ -359,15 +381,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Reused across calls — ISO8601DateFormatter is expensive to instantiate.
+    private static let retypeLogTimestampFormatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        return f
+    }()
+
+    /// Hard cap on retype-debug.log size before rotation. When the file
+    /// crosses this threshold the current contents move to `.log.1` (single
+    /// generation kept) and a fresh log starts. Bounds long-term disk use
+    /// for a strictly diagnostic file.
+    private static let retypeLogMaxBytes: Int = 1_048_576
+
     /// Append a line to ~/Library/Application Support/ListenToMe/retype-debug.log.
     /// Used for diagnostics because macOS unified logging redacts Swift NSLog
-    /// string interpolations as `<private>` by default.
+    /// string interpolations as `<private>` by default. Gated behind
+    /// `Preferences.diagnosticsEnabled` (default false) — no-op when off, so
+    /// shipping users get no disk writes from retype detection.
     private func retypeDebug(_ line: String) {
+        guard Preferences.shared.diagnosticsEnabled else { return }
+
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let dir = base.appendingPathComponent("ListenToMe", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let url = dir.appendingPathComponent("retype-debug.log")
-        let stamp = ISO8601DateFormatter().string(from: Date())
+
+        // Rotate: if the existing log is at/over the cap, move it aside
+        // (single generation) before appending. Cheap stat check.
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+           let size = attrs[.size] as? NSNumber,
+           size.intValue >= Self.retypeLogMaxBytes {
+            let rotated = dir.appendingPathComponent("retype-debug.log.1")
+            try? FileManager.default.removeItem(at: rotated)
+            try? FileManager.default.moveItem(at: url, to: rotated)
+        }
+
+        let stamp = Self.retypeLogTimestampFormatter.string(from: Date())
         let entry = "\(stamp)  \(line)\n"
         if let data = entry.data(using: .utf8) {
             if let handle = try? FileHandle(forWritingTo: url) {

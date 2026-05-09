@@ -96,6 +96,13 @@ final class Preferences {
     private let kAppearance = "wf.appearance"
     private let kMaxRecordingSec = "wf.maxRecordingSec"
     private let kCleanupTimeoutSec = "wf.cleanupTimeoutSec"
+    private let kDiagnosticsEnabled = "wf.diagnosticsEnabled"
+    private let kCleanupBackend = "wf.cleanupBackend"
+    private let kHistoryRetentionDays = "wf.historyRetentionDays"
+
+    /// Keychain account names (bundled here so call sites don't sprout
+    /// stringly-typed names of their own).
+    static let anthropicAPIKeyAccount = "anthropic_api_key"
 
     private init() {
         if defaults.object(forKey: kCleanupMode) == nil {
@@ -172,6 +179,80 @@ final class Preferences {
             return v == 0 ? 20 : min(60, max(5, v))
         }
         set { defaults.set(min(60, max(5, newValue)), forKey: kCleanupTimeoutSec) }
+    }
+
+    /// When true, write retype-detection events to
+    /// ~/Library/Application Support/ListenToMe/retype-debug.log (with
+    /// 1MB rotation). Off by default — diagnostic-only.
+    var diagnosticsEnabled: Bool {
+        get { defaults.bool(forKey: kDiagnosticsEnabled) }
+        set { defaults.set(newValue, forKey: kDiagnosticsEnabled) }
+    }
+
+    /// Cleanup backend selection. `.auto` (default) prefers the direct
+    /// Anthropic API when an API key is configured, otherwise falls back
+    /// to the `claude` CLI subprocess (preserving the original
+    /// "reuse-Claude-Code-subscription" path). `.cli` forces subprocess;
+    /// `.api` forces direct API and surfaces a config error if no key
+    /// is set.
+    enum CleanupBackend: String, CaseIterable {
+        case auto, cli, api
+
+        var label: String {
+            switch self {
+            case .auto: return "Auto (API if key set, else CLI)"
+            case .cli:  return "claude CLI subprocess"
+            case .api:  return "Direct Anthropic API"
+            }
+        }
+    }
+
+    var cleanupBackend: CleanupBackend {
+        get {
+            let raw = defaults.string(forKey: kCleanupBackend) ?? CleanupBackend.auto.rawValue
+            return CleanupBackend(rawValue: raw) ?? .auto
+        }
+        set { defaults.set(newValue.rawValue, forKey: kCleanupBackend) }
+    }
+
+    /// Convenience: read the Anthropic API key from the Keychain.
+    /// Returns `nil` if absent or unreadable. Callers that need to
+    /// distinguish "absent" from "Keychain error" should call
+    /// `Keychain.get(account:)` directly.
+    var anthropicAPIKey: String? {
+        (try? Keychain.get(account: Self.anthropicAPIKeyAccount)) ?? nil
+    }
+
+    /// History retention window in days. Records older than this are
+    /// auto-purged on save. `0` means "never purge" (legacy behavior).
+    /// Default 90 — long enough to scroll back through a season of
+    /// dictation without piling up forever.
+    var historyRetentionDays: Int {
+        get {
+            let v = defaults.integer(forKey: kHistoryRetentionDays)
+            // Distinguish "unset" from "explicitly 0": if the key was
+            // never written we want the 90-day default; once the user
+            // sets 0 (never purge) we honor it.
+            if defaults.object(forKey: kHistoryRetentionDays) == nil { return 90 }
+            return max(0, min(3650, v))
+        }
+        set {
+            defaults.set(max(0, min(3650, newValue)), forKey: kHistoryRetentionDays)
+        }
+    }
+
+    /// Persist (or clear, when `nil`) the Anthropic API key. Returns
+    /// false when the Keychain rejects the operation; UI can surface
+    /// that to the user.
+    @discardableResult
+    func setAnthropicAPIKey(_ key: String?) -> Bool {
+        do {
+            try Keychain.set(key, account: Self.anthropicAPIKeyAccount)
+            return true
+        } catch {
+            NSLog("[ListenToMe] failed to persist API key: \(error)")
+            return false
+        }
     }
 }
 

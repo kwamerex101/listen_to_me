@@ -7,6 +7,12 @@ enum ClaudeError: Error {
     case processFailed(code: Int32, stderr: String)
     case timedOut
     case emptyOutput
+    /// User picked the .api backend but no key is in the Keychain.
+    case apiKeyMissing
+    /// Anthropic API returned a non-2xx status.
+    case apiHTTPError(status: Int, body: String)
+    /// Anthropic API returned 2xx but the body wasn't shaped how we expected.
+    case apiResponseMalformed(String)
 }
 
 struct ClaudeClient {
@@ -64,10 +70,36 @@ struct ClaudeClient {
             return hint + "\n\n" + Self.cleanupSystemPrompt
         }
 
-        // NOTE: deliberately NOT passing `--bare` — bare mode requires
-        // ANTHROPIC_API_KEY (it ignores OAuth/keychain). The whole point of
-        // shelling out to `claude` is to reuse the user's Claude Code
-        // subscription auth, so we accept the slower default startup.
+        // Backend selection per Preferences. .auto picks API when a key
+        // is configured (it's ~3-5× faster than CLI cold-start), falls
+        // back to CLI otherwise — preserving the original
+        // "reuse-Claude-Code-subscription" behavior for users without
+        // their own API key.
+        let (backend, apiKey): (Preferences.CleanupBackend, String?) = await MainActor.run {
+            (Preferences.shared.cleanupBackend, Preferences.shared.anthropicAPIKey)
+        }
+
+        let useAPI: Bool
+        switch backend {
+        case .auto: useAPI = (apiKey?.isEmpty == false)
+        case .cli:  useAPI = false
+        case .api:  useAPI = true
+        }
+
+        if useAPI {
+            guard let key = apiKey, !key.isEmpty else { throw ClaudeError.apiKeyMissing }
+            return try await runDirectAPI(
+                text: text,
+                systemPrompt: systemPrompt,
+                apiKey: key,
+                timeout: timeout
+            )
+        }
+
+        // CLI path. NOTE: deliberately NOT passing `--bare` — bare mode
+        // requires ANTHROPIC_API_KEY (it ignores OAuth/keychain). The whole
+        // point of shelling out to `claude` is to reuse the user's Claude
+        // Code subscription auth, so we accept the slower default startup.
         let stdoutData = try await runClaude(
             input: text,
             args: [
@@ -87,15 +119,91 @@ struct ClaudeClient {
         return sanitized
     }
 
-    /// Quick check that the `claude` binary resolves on PATH. Used at launch
-    /// to decide whether cleanup is viable.
+    /// Quick check that cleanup is viable. Returns true when EITHER the
+    /// `claude` binary resolves on PATH (CLI path) OR an Anthropic API
+    /// key is configured (direct path) — matches what `clean(...)` will
+    /// actually do.
     func isAvailable(timeout: TimeInterval = 2) async -> Bool {
+        // API path is "available" the moment a key exists. Cheap sync
+        // check — no network round-trip — because verifying the key
+        // would cost a real API call.
+        let hasKey = await MainActor.run {
+            (Preferences.shared.anthropicAPIKey?.isEmpty == false)
+        }
+        if hasKey { return true }
         do {
             _ = try await runEnv(args: ["which", "claude"], input: nil, timeout: timeout)
             return true
         } catch {
             return false
         }
+    }
+
+    // MARK: - Direct Anthropic API path
+
+    /// POST to `https://api.anthropic.com/v1/messages` with Haiku 4.5.
+    /// The system prompt is wrapped in a content block with
+    /// `cache_control: ephemeral` so subsequent calls within the cache
+    /// window get prompt-caching pricing/latency benefits.
+    ///
+    /// Target: ~250-500ms vs the CLI subprocess's ~1.5-3s cold start.
+    private func runDirectAPI(text: String,
+                              systemPrompt: String,
+                              apiKey: String,
+                              timeout: TimeInterval) async throws -> String {
+        var req = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
+        req.httpMethod = "POST"
+        req.timeoutInterval = timeout
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        req.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        // Caching prompt blocks is on by default for the messages API
+        // when cache_control is present; no separate beta header required
+        // as of the 2025+ messages API.
+
+        // Conservative cap — cleaned transcript should never exceed input
+        // length, but allow 2× headroom for punctuation expansion etc.
+        let inputTokenEstimate = max(64, text.count / 3)
+        let maxOutputTokens = min(2048, max(128, inputTokenEstimate * 2))
+
+        let body: [String: Any] = [
+            "model": "claude-haiku-4-5",
+            "max_tokens": maxOutputTokens,
+            "system": [[
+                "type": "text",
+                "text": systemPrompt,
+                "cache_control": ["type": "ephemeral"],
+            ]],
+            "messages": [[
+                "role": "user",
+                "content": text,
+            ]],
+        ]
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse else {
+            throw ClaudeError.apiResponseMalformed("non-HTTP response")
+        }
+        if !(200..<300).contains(http.statusCode) {
+            let body = String(data: data, encoding: .utf8) ?? ""
+            throw ClaudeError.apiHTTPError(status: http.statusCode, body: body)
+        }
+
+        // Response shape: { content: [{ type: "text", text: "..." }, ...], ... }
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let content = json["content"] as? [[String: Any]] else {
+            let preview = String(data: data, encoding: .utf8)?.prefix(200) ?? ""
+            throw ClaudeError.apiResponseMalformed("missing content array; got: \(preview)")
+        }
+        let cleaned = content.compactMap { block -> String? in
+            guard let type = block["type"] as? String, type == "text" else { return nil }
+            return block["text"] as? String
+        }.joined()
+
+        let sanitized = Self.sanitize(cleaned: cleaned, original: text)
+        if sanitized.isEmpty { throw ClaudeError.emptyOutput }
+        return sanitized
     }
 
     // MARK: - Subprocess plumbing
@@ -183,7 +291,11 @@ struct ClaudeClient {
 
     /// PATH extension so `/usr/bin/env claude` resolves when launched from
     /// /Applications (where Finder hands us a minimal PATH).
-    private static func augmentedEnvironment() -> [String: String] {
+    ///
+    /// Computed once and cached — the inputs (HOME, ProcessInfo env) do not
+    /// change at runtime, and we previously rebuilt this on every cleanup
+    /// call. Even small allocations matter on a hot path the user feels.
+    private static let cachedAugmentedEnvironment: [String: String] = {
         var env = ProcessInfo.processInfo.environment
         let home = NSHomeDirectory()
         let extras = [
@@ -198,6 +310,10 @@ struct ClaudeClient {
             .joined(separator: ":")
         env["PATH"] = merged
         return env
+    }()
+
+    private static func augmentedEnvironment() -> [String: String] {
+        cachedAugmentedEnvironment
     }
 
     /// Defensive filter on the model's response. Rejects common failure modes

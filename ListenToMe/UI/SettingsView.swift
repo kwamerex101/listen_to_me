@@ -9,6 +9,11 @@ struct SettingsView: View {
     @State private var appearance: AppearanceMode = Preferences.shared.appearance
     @State private var maxRecordingSec: Double = Double(Preferences.shared.maxRecordingSec)
     @State private var cleanupTimeoutSec: Double = Double(Preferences.shared.cleanupTimeoutSec)
+    @State private var cleanupBackend: Preferences.CleanupBackend = Preferences.shared.cleanupBackend
+    @State private var apiKeyDraft: String = Preferences.shared.anthropicAPIKey ?? ""
+    @State private var apiKeySaved: Bool = (Preferences.shared.anthropicAPIKey?.isEmpty == false)
+    @State private var diagnosticsEnabled: Bool = Preferences.shared.diagnosticsEnabled
+    @State private var historyRetentionDays: Double = Double(Preferences.shared.historyRetentionDays)
     @ObservedObject private var modelManager = WhisperModelManager.shared
 
     /// Reads the version straight from the bundle so future bumps don't
@@ -57,6 +62,45 @@ struct SettingsView: View {
                         .labelsHidden()
                         .onChange(of: cleanupMode) { _, new in
                             Preferences.shared.cleanupMode = new
+                        }
+                    }
+                    row(label: "Backend") {
+                        Picker("", selection: $cleanupBackend) {
+                            ForEach(Preferences.CleanupBackend.allCases, id: \.self) { mode in
+                                Text(mode.label).tag(mode)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                        .onChange(of: cleanupBackend) { _, new in
+                            Preferences.shared.cleanupBackend = new
+                        }
+                    }
+                    row(label: "Anthropic API key") {
+                        HStack(spacing: 10) {
+                            SecureField("sk-ant-…", text: $apiKeyDraft)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 220)
+                                .disableAutocorrection(true)
+                            Button(apiKeySaved && apiKeyDraft == (Preferences.shared.anthropicAPIKey ?? "")
+                                   ? "Saved ✓" : "Save") {
+                                let trimmed = apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                                let ok = Preferences.shared.setAnthropicAPIKey(trimmed.isEmpty ? nil : trimmed)
+                                if ok {
+                                    apiKeyDraft = trimmed
+                                    apiKeySaved = !trimmed.isEmpty
+                                }
+                            }
+                            .buttonStyle(.pressable)
+                            .disabled(apiKeyDraft == (Preferences.shared.anthropicAPIKey ?? ""))
+                            if apiKeySaved {
+                                Button("Clear") {
+                                    _ = Preferences.shared.setAnthropicAPIKey(nil)
+                                    apiKeyDraft = ""
+                                    apiKeySaved = false
+                                }
+                                .buttonStyle(.pressable)
+                            }
                         }
                     }
                 }
@@ -158,6 +202,30 @@ struct SettingsView: View {
                                 .frame(width: 44, alignment: .trailing)
                         }
                     }
+                    row(label: "Diagnostics log") {
+                        Toggle("", isOn: $diagnosticsEnabled)
+                            .labelsHidden()
+                            .onChange(of: diagnosticsEnabled) { _, new in
+                                Preferences.shared.diagnosticsEnabled = new
+                            }
+                    }
+                    row(label: "History retention") {
+                        HStack(spacing: 10) {
+                            Slider(value: $historyRetentionDays, in: 0...365, step: 30)
+                                .frame(width: 180)
+                                .onChange(of: historyRetentionDays) { _, new in
+                                    Preferences.shared.historyRetentionDays = Int(new)
+                                }
+                            Text(historyRetentionDays == 0 ? "Forever" : "\(Int(historyRetentionDays))d")
+                                .font(DT.monoCaption)
+                                .foregroundStyle(.secondary)
+                                .frame(width: 60, alignment: .trailing)
+                            Button("Apply") {
+                                HistoryStore.shared.enforceRetention()
+                            }
+                            .buttonStyle(.pressable)
+                        }
+                    }
                 }
 
                 section(title: "About") {
@@ -179,6 +247,11 @@ struct SettingsView: View {
             hotkey = Preferences.shared.hotkeyBinding
             soundEnabled = Preferences.shared.soundEnabled
             appearance = Preferences.shared.appearance
+            cleanupBackend = Preferences.shared.cleanupBackend
+            apiKeyDraft = Preferences.shared.anthropicAPIKey ?? ""
+            apiKeySaved = !apiKeyDraft.isEmpty
+            diagnosticsEnabled = Preferences.shared.diagnosticsEnabled
+            historyRetentionDays = Double(Preferences.shared.historyRetentionDays)
             modelManager.refreshStatus()
         }
     }
