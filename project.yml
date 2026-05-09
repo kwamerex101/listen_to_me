@@ -114,6 +114,13 @@ targets:
         MACOSX_DEPLOYMENT_TARGET: "14.0"
         SWIFT_VERSION: "5.9"
         GENERATE_INFOPLIST_FILE: YES
+        # @testable import ListenToMe pulls WhisperLib's CWhisper
+        # imports transitively, so the test target needs the same
+        # module-search path as the app target. (Linking against
+        # libwhisper isn't required — the app target carries the dep
+        # already; this is just for module resolution.)
+        SWIFT_INCLUDE_PATHS: $(SRCROOT)/ListenToMe/CWhisper/include
+        HEADER_SEARCH_PATHS: $(SRCROOT)/ListenToMe/CWhisper/include
 
 schemes:
   ListenToMe:

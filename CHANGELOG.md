@@ -4,7 +4,28 @@ All notable user-facing changes per release. Format inspired by [Keep a Changelo
 
 ## [Unreleased]
 
-_Nothing yet — next merge after v0.13.0 lands here._
+### Added — Linked whisper engine + Core ML acceleration (M5)
+
+- **In-process libwhisper engine.** New opt-in transcription path that calls `whisper_full` directly via a Clang module (`CWhisper`) wrapping the bundled `libwhisper.1.dylib`. Eliminates the HTTP round-trip / multipart encoding the warm-server path uses; required infrastructure for streaming partial transcripts (whisper-server is request/response only). One `whisper_context` per app session, lazy-initialized on first transcribe and reused. Settings → AI Cleanup → Whisper Model → **Transcription engine** → "Linked (in-process, supports streaming)". Default stays `.server` so existing users see no behaviour change until they opt in.
+- **Core ML encoder support.** `setup.sh` now builds `libwhisper` with `-DWHISPER_COREML=1 -DWHISPER_COREML_ALLOW_FALLBACK=1` and downloads `ggml-base.en-encoder.mlmodelc.zip` (~50 MB) into `~/Library/Application Support/ListenToMe/models/`. When present, the encoder runs on the Apple Neural Engine for ~2× speedup; missing package falls back silently to Metal/CPU encoder. `WhisperModelManager.coreMLPackageInstalled` exposes the status.
+- **Bundled `libwhisper.coreml.dylib`** alongside `libwhisper.1.dylib`. Both rpath-rewritten to `@loader_path` and adhoc-signed to match the existing dylib bundle pattern.
+
+### Changed
+
+- `WhisperRunner.transcribe` routes per `Preferences.transcriptionEngine` (`.server` default / `.linked` opt-in). Both engines fall back to the CLI subprocess on any error so the user always gets a transcript. The linked engine doesn't tear down its context on failure — model load is shared across calls; one bad call shouldn't re-pay it.
+- `applicationWillTerminate` now also calls `WhisperLib.shared.shutdown()` to free the `whisper_context` cleanly on quit.
+
+### Tests
+
+- **111 tests, 0 failures** (was 102 in v0.13.0):
+  - `TranscriptionEngineTests` (7) — default `.server`, persistence round-trip, all-cases distinct raw values, label sanity, default-marker in label, streaming-capability mention in linked label, fallback to `.server` on unknown raw value
+  - `WhisperModelManagerCoreMLTests` (2) — `coreMLPackageURL` path semantics, `coreMLPackageInstalled` returns a Bool without crashing
+
+### Deferred
+
+- **Streaming partial transcripts** — the linked engine makes them possible, but the UX (avoiding hallucinations on sub-second chunks, reading a growing WAV, busy-gate coordination with the final transcribe) wants its own focused PR. Tracked as a follow-up.
+
+## [v0.13.0] — 2026-05-09
 
 ## [v0.13.0] — 2026-05-09
 
