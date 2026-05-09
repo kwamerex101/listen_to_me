@@ -4,6 +4,13 @@ All notable user-facing changes per release. Format inspired by [Keep a Changelo
 
 ## [Unreleased]
 
+### Added — Streaming partial transcripts (M5')
+
+- **Live partial transcripts during recording.** When the user holds the hotkey, a small floating preview above the pill shows what whisper has transcribed so far, updating ~every 1.5 s. Off by default; opt in via Settings → AI Cleanup → Whisper Model → "Live partial transcripts" (requires Linked engine).
+- New `Core/PartialTranscriber.swift` drives the polling loop with sane safety rails: 1.5 s cadence (sub-second whisper passes hallucinate), 2.0 s warmup before the first pass, `WhisperLib.isBusy` skip-if-busy gate (no queueing), and a hallucination filter that drops well-known whisper-on-silence outputs (`[BLANK_AUDIO]`, `[SILENCE]`, `Thank you.`, `you`, etc.) before they hit the UI.
+- New `AudioRecorder.start(accumulateSamples:)` and `currentSamples()` API — in-memory rolling Float32 sample accumulator capped at 30 s (whisper-base's receptive window). nil when not requested → zero allocation in the common case.
+- `AppState.partialText` is auto-cleared by the existing phase-change Combine sink when phase leaves `.recording` / `.transcribing`, so the partial doesn't bleed into the `.success` UI.
+
 ### Added — Linked whisper engine + Core ML acceleration (M5)
 
 - **In-process libwhisper engine.** New opt-in transcription path that calls `whisper_full` directly via a Clang module (`CWhisper`) wrapping the bundled `libwhisper.1.dylib`. Eliminates the HTTP round-trip / multipart encoding the warm-server path uses; required infrastructure for streaming partial transcripts (whisper-server is request/response only). One `whisper_context` per app session, lazy-initialized on first transcribe and reused. Settings → AI Cleanup → Whisper Model → **Transcription engine** → "Linked (in-process, supports streaming)". Default stays `.server` so existing users see no behaviour change until they opt in.

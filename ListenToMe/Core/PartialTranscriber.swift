@@ -36,7 +36,9 @@ final class PartialTranscriber {
 
     /// Common whisper outputs on silence / blank audio. Lowercased
     /// match. Dropped before posting to AppState.partialText.
-    private static let hallucinations: Set<String> = [
+    /// Nonisolated so the pure `filterHallucination` can access it
+    /// without crossing the MainActor.
+    nonisolated private static let hallucinations: Set<String> = [
         "[blank_audio]",
         "[silence]",
         "(silence)",
@@ -132,8 +134,9 @@ final class PartialTranscriber {
     /// Drop common whisper-on-silence hallucinations. Returns "" when
     /// the input matches a known empty-audio pattern; the caller skips
     /// the AppState update so the previous (real) partial stays
-    /// visible.
-    static func filterHallucination(_ text: String) -> String {
+    /// visible. `nonisolated` because it's pure — tests call directly
+    /// without spinning up the singleton.
+    nonisolated static func filterHallucination(_ text: String) -> String {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return "" }
         if hallucinations.contains(trimmed.lowercased()) { return "" }
