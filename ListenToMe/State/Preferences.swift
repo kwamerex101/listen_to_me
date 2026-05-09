@@ -96,6 +96,7 @@ final class Preferences {
     private let kAppearance = "wf.appearance"
     private let kMaxRecordingSec = "wf.maxRecordingSec"
     private let kCleanupTimeoutSec = "wf.cleanupTimeoutSec"
+    private let kDiagnosticsEnabled = "wf.diagnosticsEnabled"
 
     private init() {
         if defaults.object(forKey: kCleanupMode) == nil {
@@ -172,6 +173,14 @@ final class Preferences {
             return v == 0 ? 20 : min(60, max(5, v))
         }
         set { defaults.set(min(60, max(5, newValue)), forKey: kCleanupTimeoutSec) }
+    }
+
+    /// When true, write retype-detection events to
+    /// ~/Library/Application Support/ListenToMe/retype-debug.log (with
+    /// 1MB rotation). Off by default — diagnostic-only.
+    var diagnosticsEnabled: Bool {
+        get { defaults.bool(forKey: kDiagnosticsEnabled) }
+        set { defaults.set(newValue, forKey: kDiagnosticsEnabled) }
     }
 }
 

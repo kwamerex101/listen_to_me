@@ -362,15 +362,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Reused across calls — ISO8601DateFormatter is expensive to instantiate.
+    private static let retypeLogTimestampFormatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        return f
+    }()
+
+    /// Hard cap on retype-debug.log size before rotation. When the file
+    /// crosses this threshold the current contents move to `.log.1` (single
+    /// generation kept) and a fresh log starts. Bounds long-term disk use
+    /// for a strictly diagnostic file.
+    private static let retypeLogMaxBytes: Int = 1_048_576
+
     /// Append a line to ~/Library/Application Support/ListenToMe/retype-debug.log.
     /// Used for diagnostics because macOS unified logging redacts Swift NSLog
-    /// string interpolations as `<private>` by default.
+    /// string interpolations as `<private>` by default. Gated behind
+    /// `Preferences.diagnosticsEnabled` (default false) — no-op when off, so
+    /// shipping users get no disk writes from retype detection.
     private func retypeDebug(_ line: String) {
+        guard Preferences.shared.diagnosticsEnabled else { return }
+
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let dir = base.appendingPathComponent("ListenToMe", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let url = dir.appendingPathComponent("retype-debug.log")
-        let stamp = ISO8601DateFormatter().string(from: Date())
+
+        // Rotate: if the existing log is at/over the cap, move it aside
+        // (single generation) before appending. Cheap stat check.
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+           let size = attrs[.size] as? NSNumber,
+           size.intValue >= Self.retypeLogMaxBytes {
+            let rotated = dir.appendingPathComponent("retype-debug.log.1")
+            try? FileManager.default.removeItem(at: rotated)
+            try? FileManager.default.moveItem(at: url, to: rotated)
+        }
+
+        let stamp = Self.retypeLogTimestampFormatter.string(from: Date())
         let entry = "\(stamp)  \(line)\n"
         if let data = entry.data(using: .utf8) {
             if let handle = try? FileHandle(forWritingTo: url) {
