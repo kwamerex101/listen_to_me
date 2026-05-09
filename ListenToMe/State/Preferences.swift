@@ -103,6 +103,7 @@ final class Preferences {
     private let kPillOriginX = "wf.pillOriginX"
     private let kPillOriginY = "wf.pillOriginY"
     private let kPillHasCustomOrigin = "wf.pillHasCustomOrigin"
+    private let kTranscriptionEngine = "wf.transcriptionEngine"
 
     /// Keychain account names (bundled here so call sites don't sprout
     /// stringly-typed names of their own).
@@ -191,6 +192,32 @@ final class Preferences {
     var diagnosticsEnabled: Bool {
         get { defaults.bool(forKey: kDiagnosticsEnabled) }
         set { defaults.set(newValue, forKey: kDiagnosticsEnabled) }
+    }
+
+    /// Transcription engine selection. `.server` (default) keeps the
+    /// well-tested whisper-server warm path that ships in v0.13.0.
+    /// `.linked` switches to the in-process libwhisper path for
+    /// streaming partial transcripts and lower per-call overhead.
+    /// We default to .server so an upgrade can't break the dictation
+    /// pipeline if the linked path has a model-load issue on a given
+    /// machine; opt in via Settings → AI Cleanup → Transcription engine.
+    enum TranscriptionEngine: String, CaseIterable {
+        case server, linked
+
+        var label: String {
+            switch self {
+            case .server: return "Server (warm subprocess, default)"
+            case .linked: return "Linked (in-process, supports streaming)"
+            }
+        }
+    }
+
+    var transcriptionEngine: TranscriptionEngine {
+        get {
+            let raw = defaults.string(forKey: kTranscriptionEngine) ?? TranscriptionEngine.server.rawValue
+            return TranscriptionEngine(rawValue: raw) ?? .server
+        }
+        set { defaults.set(newValue.rawValue, forKey: kTranscriptionEngine) }
     }
 
     /// Cleanup backend selection. `.auto` (default) prefers the direct

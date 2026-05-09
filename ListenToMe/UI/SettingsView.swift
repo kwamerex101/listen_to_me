@@ -15,6 +15,7 @@ struct SettingsView: View {
     @State private var diagnosticsEnabled: Bool = Preferences.shared.diagnosticsEnabled
     @State private var historyRetentionDays: Double = Double(Preferences.shared.historyRetentionDays)
     @State private var historyEncryptionEnabled: Bool = Preferences.shared.historyEncryptionEnabled
+    @State private var transcriptionEngine: Preferences.TranscriptionEngine = Preferences.shared.transcriptionEngine
     @ObservedObject private var modelManager = WhisperModelManager.shared
 
     /// Reads the version straight from the bundle so future bumps don't
@@ -136,6 +137,18 @@ struct SettingsView: View {
                         modelStatusView
                     }
                     .hoverableRow()
+                    row(label: "Transcription engine") {
+                        Picker("", selection: $transcriptionEngine) {
+                            ForEach(Preferences.TranscriptionEngine.allCases, id: \.self) { eng in
+                                Text(eng.label).tag(eng)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                        .onChange(of: transcriptionEngine) { _, new in
+                            Preferences.shared.transcriptionEngine = new
+                        }
+                    }
                 }
 
                 section(title: "System") {
@@ -282,6 +295,7 @@ struct SettingsView: View {
             diagnosticsEnabled = Preferences.shared.diagnosticsEnabled
             historyRetentionDays = Double(Preferences.shared.historyRetentionDays)
             historyEncryptionEnabled = Preferences.shared.historyEncryptionEnabled
+            transcriptionEngine = Preferences.shared.transcriptionEngine
             modelManager.refreshStatus()
         }
     }
