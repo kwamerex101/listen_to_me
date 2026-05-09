@@ -15,6 +15,9 @@ targets:
           - "Info.plist"
           - "ListenToMe.entitlements"
           - "Resources/**"
+          # CWhisper headers are picked up via SWIFT_INCLUDE_PATHS /
+          # HEADER_SEARCH_PATHS below, not as sources to compile.
+          - "CWhisper/**"
     postBuildScripts:
       - name: Copy whisper binaries + dylibs into bundle
         script: |
@@ -67,6 +70,18 @@ targets:
         ENABLE_HARDENED_RUNTIME: YES
         COMBINE_HIDPI_IMAGES: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # CWhisper module — links the bundled libwhisper.dylib so the
+        # opt-in linked-engine path (Settings → AI Cleanup → Engine →
+        # Linked) can call whisper.cpp's C API directly without the
+        # subprocess hop. The dylib lives in Resources/ at runtime
+        # (copied by post-build script) and at link-time in the same
+        # source location. @loader_path/../Resources is the runtime
+        # rpath that lets the bundled dylib resolve once installed.
+        SWIFT_INCLUDE_PATHS: $(SRCROOT)/ListenToMe/CWhisper/include
+        HEADER_SEARCH_PATHS: $(SRCROOT)/ListenToMe/CWhisper/include
+        LIBRARY_SEARCH_PATHS: $(SRCROOT)/ListenToMe/Resources
+        LD_RUNPATH_SEARCH_PATHS: $(inherited) @loader_path/../Resources
+        OTHER_LDFLAGS: -lwhisper.1
       configs:
         # Hardened runtime (CS_RUNTIME flag) is Release-only because
         # Xcode's Debug build links a per-build ListenToMe.debug.dylib
