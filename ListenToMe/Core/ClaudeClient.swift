@@ -183,7 +183,11 @@ struct ClaudeClient {
 
     /// PATH extension so `/usr/bin/env claude` resolves when launched from
     /// /Applications (where Finder hands us a minimal PATH).
-    private static func augmentedEnvironment() -> [String: String] {
+    ///
+    /// Computed once and cached — the inputs (HOME, ProcessInfo env) do not
+    /// change at runtime, and we previously rebuilt this on every cleanup
+    /// call. Even small allocations matter on a hot path the user feels.
+    private static let cachedAugmentedEnvironment: [String: String] = {
         var env = ProcessInfo.processInfo.environment
         let home = NSHomeDirectory()
         let extras = [
@@ -198,6 +202,10 @@ struct ClaudeClient {
             .joined(separator: ":")
         env["PATH"] = merged
         return env
+    }()
+
+    private static func augmentedEnvironment() -> [String: String] {
+        cachedAugmentedEnvironment
     }
 
     /// Defensive filter on the model's response. Rejects common failure modes
