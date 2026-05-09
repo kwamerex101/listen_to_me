@@ -14,6 +14,7 @@ struct SettingsView: View {
     @State private var apiKeySaved: Bool = (Preferences.shared.anthropicAPIKey?.isEmpty == false)
     @State private var diagnosticsEnabled: Bool = Preferences.shared.diagnosticsEnabled
     @State private var historyRetentionDays: Double = Double(Preferences.shared.historyRetentionDays)
+    @State private var historyEncryptionEnabled: Bool = Preferences.shared.historyEncryptionEnabled
     @ObservedObject private var modelManager = WhisperModelManager.shared
 
     /// Reads the version straight from the bundle so future bumps don't
@@ -241,6 +242,19 @@ struct SettingsView: View {
                             .buttonStyle(.pressable)
                         }
                     }
+                    row(label: "Encrypt history at rest") {
+                        Toggle("", isOn: $historyEncryptionEnabled)
+                            .labelsHidden()
+                            .onChange(of: historyEncryptionEnabled) { _, new in
+                                Preferences.shared.historyEncryptionEnabled = new
+                                // Triggers a one-time rewrite of
+                                // history.ndjson (encrypt on enable,
+                                // decrypt on disable). Cheap on small
+                                // histories; debounced via the existing
+                                // saveTask path otherwise.
+                                HistoryStore.shared.applyEncryptionPreference()
+                            }
+                    }
                 }
 
                 section(title: "About") {
@@ -267,6 +281,7 @@ struct SettingsView: View {
             apiKeySaved = !apiKeyDraft.isEmpty
             diagnosticsEnabled = Preferences.shared.diagnosticsEnabled
             historyRetentionDays = Double(Preferences.shared.historyRetentionDays)
+            historyEncryptionEnabled = Preferences.shared.historyEncryptionEnabled
             modelManager.refreshStatus()
         }
     }

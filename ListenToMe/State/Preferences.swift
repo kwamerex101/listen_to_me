@@ -99,6 +99,7 @@ final class Preferences {
     private let kDiagnosticsEnabled = "wf.diagnosticsEnabled"
     private let kCleanupBackend = "wf.cleanupBackend"
     private let kHistoryRetentionDays = "wf.historyRetentionDays"
+    private let kHistoryEncryptionEnabled = "wf.historyEncryptionEnabled"
     private let kPillOriginX = "wf.pillOriginX"
     private let kPillOriginY = "wf.pillOriginY"
     private let kPillHasCustomOrigin = "wf.pillHasCustomOrigin"
@@ -265,6 +266,16 @@ final class Preferences {
         set {
             defaults.set(max(0, min(3650, newValue)), forKey: kHistoryRetentionDays)
         }
+    }
+
+    /// When true, every NDJSON line in `history.ndjson` is AES-GCM-
+    /// encrypted with a Keychain-stored 256-bit key. Default false to
+    /// avoid forcing existing users through a one-shot migration on
+    /// upgrade. Toggling triggers an in-place migration via
+    /// HistoryStore.migrateForEncryptionToggle().
+    var historyEncryptionEnabled: Bool {
+        get { defaults.bool(forKey: kHistoryEncryptionEnabled) }
+        set { defaults.set(newValue, forKey: kHistoryEncryptionEnabled) }
     }
 
     /// Persist (or clear, when `nil`) the Anthropic API key. Returns

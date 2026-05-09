@@ -1,5 +1,6 @@
-import Foundation
 import Combine
+import CryptoKit
+import Foundation
 
 struct TranscriptRecord: Codable, Identifiable, Equatable {
     let id: UUID
@@ -152,6 +153,23 @@ final class HistoryStore: ObservableObject {
         save()
     }
 
+    /// Re-write the entire on-disk history per the current
+    /// `Preferences.historyEncryptionEnabled` value. Wired to the
+    /// Settings toggle so a flip takes effect immediately:
+    ///   off → on : every line is re-encoded, encrypted, base64'd
+    ///   on → off : every line is decrypted then re-emitted as plaintext
+    /// In-memory `records` is the source of truth for the snapshot;
+    /// load() already decrypted whatever was on disk at launch, so we
+    /// just rewrite. After a flip from on → off we drop the Keychain
+    /// key so it doesn't linger; before that the file is already
+    /// plaintext on disk (no risk of locking the user out).
+    func applyEncryptionPreference() {
+        rewriteAll()
+        if !Preferences.shared.historyEncryptionEnabled {
+            try? HistoryCipher.dropKey()
+        }
+    }
+
     /// Mutate the most-recent record's `finalText` in place. Used by the
     /// inline correction popover so a fix doesn't create a duplicate row.
     func updateLast(finalText: String) {
@@ -300,7 +318,11 @@ final class HistoryStore: ObservableObject {
         // reverse after read to match the in-memory newest-first
         // convention used by the UI.
         if let data = try? Data(contentsOf: url), !data.isEmpty {
-            records = Self.parseNDJSON(data).reversed()
+            // Auto-detect encrypted vs plaintext lines per-line so a
+            // partial migration from a previous launch survives a crash
+            // mid-rewrite without losing data.
+            let key = (try? HistoryCipher.keyOrCreate())
+            records = Self.parseNDJSON(data, key: key).reversed()
             return
         }
         // Legacy migration: read the old pretty-printed JSON array,
@@ -323,13 +345,29 @@ final class HistoryStore: ObservableObject {
     /// losing the whole history if a single record was corrupted.
     /// Internal (not private) so HistoryStoreTests can verify the
     /// round-trip semantics directly without standing up the singleton.
-    nonisolated internal static func parseNDJSON(_ data: Data) -> [TranscriptRecord] {
+    ///
+    /// Auto-detects per-line whether the line is encrypted (base64
+    /// AES-GCM payload) or plaintext JSON. Lines marked encrypted are
+    /// decrypted with `key` first; if `key` is nil and the line looks
+    /// encrypted, that line is skipped.
+    nonisolated internal static func parseNDJSON(_ data: Data, key: SymmetricKey? = nil) -> [TranscriptRecord] {
         var out: [TranscriptRecord] = []
         let decoder = makeDecoder()
-        // Split on \n bytes; works regardless of UTF-8 boundary issues
-        // because \n (0x0A) cannot appear inside a multi-byte sequence.
         for slice in data.split(separator: 0x0A, omittingEmptySubsequences: true) {
-            if let r = try? decoder.decode(TranscriptRecord.self, from: slice) {
+            // Split off the line as a String once for both detection
+            // and base64 decoding. UTF-8 split on 0x0A is safe.
+            guard let line = String(data: slice, encoding: .utf8) else { continue }
+            let payload: Data
+            if HistoryCipher.looksEncrypted(Substring(line)) {
+                guard let key,
+                      let decrypted = try? HistoryCipher.decryptLine(line, key: key) else {
+                    continue   // partial recovery: skip undecryptable line
+                }
+                payload = decrypted
+            } else {
+                payload = Data(slice)
+            }
+            if let r = try? decoder.decode(TranscriptRecord.self, from: payload) {
                 out.append(r)
             }
         }
@@ -350,17 +388,28 @@ final class HistoryStore: ObservableObject {
         saveTask?.cancel()
         let snapshot = records
         let target = url
+        // Resolve the encryption key on the main actor (Preferences
+        // access). Key is nil when encryption is disabled — writeAll
+        // emits plaintext lines in that case.
+        let key: SymmetricKey? = Preferences.shared.historyEncryptionEnabled
+            ? (try? HistoryCipher.keyOrCreate())
+            : nil
         saveTask = Task.detached(priority: .utility) {
             try? await Task.sleep(for: .milliseconds(180))
             if Task.isCancelled { return }
-            Self.writeAll(snapshot, to: target)
+            Self.writeAll(snapshot, to: target, key: key)
         }
     }
 
     /// Synchronous full-rewrite. Used by load()'s migration path and
     /// any future caller that wants a guaranteed-flushed snapshot.
+    /// Caller is responsible for resolving the encryption key from
+    /// Preferences first (we're on the main actor here).
     private func rewriteAll() {
-        Self.writeAll(records, to: url)
+        let key: SymmetricKey? = Preferences.shared.historyEncryptionEnabled
+            ? (try? HistoryCipher.keyOrCreate())
+            : nil
+        Self.writeAll(records, to: url, key: key)
     }
 
     /// Encode `snapshot` newest-first → reversed chronological order on
@@ -371,12 +420,21 @@ final class HistoryStore: ObservableObject {
     /// Serialize `snapshot` (newest-first in memory) as NDJSON
     /// (chronological oldest→newest on disk). Internal so tests can
     /// verify the round-trip without spinning up the singleton.
-    nonisolated internal static func writeAll(_ snapshot: [TranscriptRecord], to target: URL) {
+    ///
+    /// When `key` is non-nil, each line is AES-GCM encrypted then
+    /// base64-encoded; load() auto-detects and decrypts per-line.
+    nonisolated internal static func writeAll(_ snapshot: [TranscriptRecord],
+                                              to target: URL,
+                                              key: SymmetricKey? = nil) {
         let encoder = makeEncoder()
         var data = Data()
         for r in snapshot.reversed() {
             guard let line = try? encoder.encode(r) else { continue }
-            data.append(line)
+            if let key, let sealed = try? HistoryCipher.encryptLine(line, key: key) {
+                data.append(sealed.data(using: .utf8) ?? Data())
+            } else {
+                data.append(line)
+            }
             data.append(0x0A)   // \n
         }
         try? data.write(to: target, options: .atomic)
@@ -386,24 +444,34 @@ final class HistoryStore: ObservableObject {
     /// time regardless of history size — the original O(N) full-rewrite
     /// on every add was the core motivation for switching formats.
     private func appendLine(_ record: TranscriptRecord) {
-        // Hop off-main; SSD append of <1KB is microseconds but no
-        // reason to put it on the audio pipeline's critical path.
+        // Resolve key on the main actor before hopping off — Preferences
+        // and Keychain access are MainActor-only.
+        let key: SymmetricKey? = Preferences.shared.historyEncryptionEnabled
+            ? (try? HistoryCipher.keyOrCreate())
+            : nil
         let target = url
         Task.detached(priority: .utility) {
             let encoder = Self.makeEncoder()
             guard let lineData = try? encoder.encode(record) else { return }
-            // POSIX append on a regular file is atomic up to PIPE_BUF
-            // (4KB) — a single record encoded sits comfortably under
-            // that, so no lock needed even if a concurrent rewrite is
-            // about to fire. (Worst case: the rewrite supersedes the
-            // append; the in-memory model is the source of truth.)
+            // Encrypt the line if encryption is on; otherwise write the
+            // raw JSON bytes. POSIX append on a regular file is atomic
+            // up to PIPE_BUF (4KB) — a sealed-then-base64-encoded
+            // record (~1.4× plaintext) still fits comfortably under
+            // that for any realistic transcript length, so no lock
+            // needed even alongside a concurrent rewrite.
+            let payload: Data
+            if let key, let sealed = try? HistoryCipher.encryptLine(lineData, key: key) {
+                payload = sealed.data(using: .utf8) ?? Data()
+            } else {
+                payload = lineData
+            }
             if !FileManager.default.fileExists(atPath: target.path) {
                 try? Data().write(to: target)
             }
             if let h = try? FileHandle(forWritingTo: target) {
                 defer { try? h.close() }
                 _ = try? h.seekToEnd()
-                try? h.write(contentsOf: lineData)
+                try? h.write(contentsOf: payload)
                 try? h.write(contentsOf: Data([0x0A]))
             }
         }
