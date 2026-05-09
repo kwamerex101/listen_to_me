@@ -182,6 +182,82 @@ struct ClaudeClient {
         return sanitized
     }
 
+    /// Apply a freeform transformation to `text` (Wispr's "Polish /
+    /// Transform on selection" equivalent). Used by the history-row
+    /// context menu so the user can re-run a built-in or user-defined
+    /// transform on a previous transcript without re-dictating.
+    ///
+    /// `transformInstruction` is the natural-language description of
+    /// what to do: "Make this more formal." / "Translate to French." /
+    /// "Bulletize." Returns the transformed text. Same backend
+    /// selection as `clean` (.auto/.cli/.api).
+    func transform(text: String,
+                   transformInstruction: String,
+                   timeout: TimeInterval = 20) async throws -> String {
+        let systemPrompt = """
+        You are a text-transformation tool. The user message contains text to be transformed.
+
+        TRANSFORMATION TO APPLY:
+        \(transformInstruction)
+
+        HARD RULES — violating any makes the output invalid:
+          1. Output ONLY the transformed text. Nothing else.
+          2. No preamble. No "Here is", "Here's", "Sure", "Certainly", "Of course".
+          3. No quotes around the output. No markdown. No code fences.
+          4. Do NOT explain what you changed. Do NOT add commentary.
+          5. If the transformation is unclear or impossible, return the input unchanged.
+
+        EXAMPLES:
+
+        TRANSFORMATION TO APPLY: Make this more formal.
+        Input: hey can you send me that doc when you get a sec
+        Output: Could you please send me that document when you have a moment?
+
+        TRANSFORMATION TO APPLY: Bulletize.
+        Input: We need to fix the login bug, update the docs, and ship the release.
+        Output: - Fix the login bug
+        - Update the docs
+        - Ship the release
+        """
+
+        let (backend, apiKey): (Preferences.CleanupBackend, String?) = await MainActor.run {
+            (Preferences.shared.cleanupBackend, Preferences.shared.anthropicAPIKey)
+        }
+        let useAPI: Bool
+        switch backend {
+        case .auto: useAPI = (apiKey?.isEmpty == false)
+        case .cli:  useAPI = false
+        case .api:  useAPI = true
+        }
+
+        if useAPI {
+            guard let key = apiKey, !key.isEmpty else { throw ClaudeError.apiKeyMissing }
+            return try await runDirectAPI(
+                text: text,
+                systemPrompt: systemPrompt,
+                apiKey: key,
+                timeout: timeout
+            )
+        }
+
+        let stdoutData = try await runClaude(
+            input: text,
+            args: [
+                "--print",
+                "--no-session-persistence",
+                "--disable-slash-commands",
+                "--model", "haiku",
+                "--output-format", "text",
+                "--append-system-prompt", systemPrompt,
+            ],
+            timeout: timeout
+        )
+        let raw = String(data: stdoutData, encoding: .utf8) ?? ""
+        let sanitized = Self.sanitize(cleaned: raw, original: text)
+        if sanitized.isEmpty { throw ClaudeError.emptyOutput }
+        return sanitized
+    }
+
     /// Rewrite `original` per `revision` instructions. Used by the
     /// Backtrack flow: the user just dictated something, we pasted it,
     /// and now they want a revision rather than an additional paste.
