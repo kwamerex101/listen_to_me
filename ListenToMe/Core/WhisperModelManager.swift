@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Reactive façade over the on-disk Whisper model file.
@@ -33,9 +34,18 @@ final class WhisperModelManager: NSObject, ObservableObject {
         "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin"
     )!
 
-    /// Approximate expected size — used as a sanity check after download.
-    /// (147,964,211 bytes at the time of this writing.)
+    /// Approximate expected size — used as a quick sanity check after
+    /// download to catch obviously-truncated files. Authoritative
+    /// integrity comes from the SHA-256 below.
     private let expectedMinBytes: Int64 = 100_000_000
+
+    /// SHA-256 of the canonical Hugging Face ggml-base.en.bin
+    /// (147,964,211 bytes). Verified by `shasum -a 256` against a clean
+    /// download. If we ever swap to a different model file (small.en,
+    /// quantized variant, Core ML encoder package, etc.) update this in
+    /// lockstep with `downloadURL` — a mismatch is treated as tampering
+    /// and the file is removed.
+    private let expectedSHA256: String = "a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002"
 
     private var downloadTask: URLSessionDownloadTask?
     private lazy var session: URLSession = {
@@ -50,7 +60,10 @@ final class WhisperModelManager: NSObject, ObservableObject {
         refreshStatus()
     }
 
-    /// Recompute `status` from disk. Cheap; safe to call from `.onAppear`.
+    /// Recompute `status` from disk. Cheap when the file is already in
+    /// page cache — at ~150 MB the SHA pass takes ~50-100 ms on M-series
+    /// silicon. Called once on launch (init) and after a download
+    /// completes, so the user-felt cost is invisible.
     func refreshStatus() {
         let url = WhisperRunner.modelURL
         guard FileManager.default.fileExists(atPath: url.path) else {
@@ -64,7 +77,31 @@ final class WhisperModelManager: NSObject, ObservableObject {
             status = .missing
             return
         }
+        // SHA-256 verification. Mismatch means tampering, partial
+        // download corruption, or a different model dropped at the same
+        // path — in every case the safe action is to remove and re-fetch.
+        if let actual = Self.sha256(of: url), actual != expectedSHA256 {
+            NSLog("[ListenToMe] model SHA mismatch (got \(actual.prefix(12))…, expected \(expectedSHA256.prefix(12))…) — removing")
+            try? FileManager.default.removeItem(at: url)
+            status = .failed(message: "Model integrity check failed — re-download required")
+            return
+        }
         status = .ready(sizeBytes: size)
+    }
+
+    /// Stream the file through SHA256 in 1 MB chunks so we never load the
+    /// 150 MB blob into memory all at once.
+    private static func sha256(of url: URL) -> String? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        while true {
+            let chunk = handle.readData(ofLength: 1 << 20)
+            if chunk.isEmpty { break }
+            hasher.update(data: chunk)
+        }
+        let digest = hasher.finalize()
+        return digest.map { String(format: "%02x", $0) }.joined()
     }
 
     /// Begin a download if we don't already have one in flight.

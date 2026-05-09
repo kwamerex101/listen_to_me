@@ -105,11 +105,39 @@ echo "    bundled $(ls "$RES_DIR"/*.dylib 2>/dev/null | wc -l | tr -d ' ') dylib
 
 echo "==> 5. Download Whisper model (if needed)"
 mkdir -p "$MODEL_DIR"
+
+# SHA-256 of the canonical Hugging Face ggml-base.en.bin. Keep in
+# lockstep with WhisperModelManager.swift expectedSHA256.
+EXPECTED_SHA256="a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002"
+
+verify_model_sha() {
+  local actual
+  actual=$(shasum -a 256 "$MODEL_FILE" | awk '{print $1}')
+  if [ "$actual" != "$EXPECTED_SHA256" ]; then
+    echo "    ERROR: SHA-256 mismatch for $MODEL_FILE" >&2
+    echo "      expected: $EXPECTED_SHA256" >&2
+    echo "      actual:   $actual" >&2
+    return 1
+  fi
+}
+
 if [ ! -f "$MODEL_FILE" ]; then
   echo "    downloading ggml-base.en.bin (~148 MB) …"
   curl -L --fail --progress-bar -o "$MODEL_FILE" "$MODEL_URL"
+  if ! verify_model_sha; then
+    rm -f "$MODEL_FILE"
+    exit 1
+  fi
+  echo "    SHA-256 OK"
 else
   echo "    model already present: $MODEL_FILE"
+  if ! verify_model_sha; then
+    echo "    removing tampered/corrupt copy and re-downloading …" >&2
+    rm -f "$MODEL_FILE"
+    curl -L --fail --progress-bar -o "$MODEL_FILE" "$MODEL_URL"
+    verify_model_sha || { rm -f "$MODEL_FILE"; exit 1; }
+    echo "    SHA-256 OK"
+  fi
 fi
 
 echo ""
