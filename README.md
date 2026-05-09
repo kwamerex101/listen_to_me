@@ -1,215 +1,270 @@
 # ListenToMe
 
 **Free, local-first alternative to Wispr Flow for macOS.** Hold a hotkey
-anywhere, speak, release — the cleaned transcript pastes into whatever app
-you were using. No subscription, no cloud, no data leaving your machine.
+anywhere, speak, release — the cleaned transcript pastes into whatever app you
+were using. No subscription, no cloud-mandatory dependency, no audio leaving
+your machine.
 
 Audio is transcribed offline by [whisper.cpp](https://github.com/ggerganov/whisper.cpp).
-Optional cleanup is handled by Claude — the app shells out to your installed
-[Claude Code CLI](https://claude.ai/code) (`claude --print`), reusing your
-existing Claude Code subscription so no separate Anthropic API key is required. Cleanup only fires above a configurable word threshold, so short
-utterances stay raw and fast.
+Optional cleanup runs through Claude — by default the app shells out to your
+installed [Claude Code CLI](https://claude.ai/code) (`claude --print`),
+reusing your existing subscription so no separate API key is required. Set an
+Anthropic API key in Settings to opt into the direct-API path with prompt
+caching for ~5× faster cleanup.
 
-Built native in SwiftUI + AppKit so the menu-bar pill, dynamic notch UI,
-and global hotkey behave like first-class macOS citizens.
+Built native in SwiftUI + AppKit so the menu-bar pill, dynamic notch UI, and
+global hotkey behave like first-class macOS citizens.
 
-## Features
+## Highlights vs Wispr Flow
 
-The first milestone (v0.7 → v0.11) shipped five capability phases on top of
-the core dictation pipeline:
-
-1. **Multi-display anchoring** *(v0.7)* — the pill follows whichever screen
-   your cursor is on, re-anchors when you plug or unplug a display
-2. **Selection-aware paste** *(v0.8)* — selecting text and dictating replaces
-   it; voice `new line` in indented code preserves the indent through cleanup
-3. **Auto-learning dictionary** *(v0.9)* — retype a misread the same way 3
-   times and the correction promotes itself into your dictionary; no manual
-   curation needed for proper nouns / jargon / product terms you actually use
-4. **Per-app style tuning** *(v0.10)* — after 20 dictations into the same app,
-   ListenToMe infers a tone (`casual` / `formal` / `code` / `markdown`) and
-   offers it once via a Keep / Dismiss banner; on Keep, that tone applies to
-   all future dictations into that app until you Revert it
-5. **UX/UI polish + micro-animations** *(v0.11)* — hover and press feedback on
-   every interactive surface, cross-fade tab transitions, silence-dim
-   waveform after 5s quiet, tuned pill morph spring, gold flash on dictionary
-   auto-promotion
-
-Day-to-day capabilities:
-
-- **Push-to-talk hotkey** anywhere on macOS — Fn + ⌘ default; switchable to
-  Fn + ⌥, ⌃ + ⌘, or ⌃ + ⌥ in Settings
-- **Floating dynamic-island-style pill** at the bottom of the screen — tiny
-  when idle, expands to a recording bar with X (cancel) and ⏹ (stop) controls
-- **Smart AI cleanup** — never / only > 20 words / only > 50 words / always.
-  Filler words removed (um, uh, like, you know), punctuation + capitalization
-  fixed, voice preserved (no rewriting). Falls back to raw on any cleanup
-  failure so dictation never breaks
-- **Custom dictionary** — proper nouns, jargon, product terms get fed to
-  whisper.cpp's `--prompt` so transcription matches your spelling. Includes
-  the auto-learning candidate flow described above
-- **Snippets** — keyword → expansion replacement before cleanup
-  (`my email` → your address)
-- **Transforms** — named cleanup prompts you can run on the latest transcript
-  (e.g. *Bulletize*, *Translate to Spanish*, *Tighten*)
-- **Pages + Scratchpad** — long-form dictation workspaces inside the app
-  for when you don't want to dictate into a target editor
-- **Voice commands** — say `log to today: …`, `open Chrome`, or `shell: git status`
-  to bypass paste and run an action
-- **Inline voice editing** — say `comma`, `period`, `question mark`, `exclamation
-  point`, `new paragraph`, or `new line` mid-dictation to insert punctuation /
-  structure. Say `scratch that` to drop the previous sentence — verbal undo
-- **Tap-to-fix correction** — after a paste, click the floating pill within 3
-  seconds to open an inline edit field over the pill. Fix a word, hit Return,
-  the corrected text replaces what was just pasted in your target app
-- **Permission card** that animates out of the pill when Accessibility is missing,
-  springs back in when granted
-- **Audible + haptic feedback** — Pop on press, Tink on release, Bottle on cancel,
-  configurable in Settings; haptics fire on Force Touch trackpads
-- **Home dashboard** — total words, average WPM, day streak, today's transcripts
-- **Auto-start** — launch at login so the hotkey pipeline is up after every reboot
-- **Light + dark mode** — semantic colors throughout
+| Capability | Wispr Flow | ListenToMe |
+|---|---|---|
+| **STT** | Cloud-only ensemble | **Local whisper.cpp** (offline) |
+| **Cleanup** | Cloud LLM | Local CLI subprocess OR direct Anthropic API (Haiku 4.5, prompt-cached) |
+| **Backtrack** ("actually, …" rewrites the prior paste) | ✅ | ✅ |
+| **Context awareness** (per-app tone + browser URL) | ✅ | ✅ |
+| **Code-aware tokenization** (camelCase/snake_case in editors) | ✅ | ✅ |
+| **Auto-personal-dictionary** | ✅ | ✅ (mined from history + retype probes) |
+| **Edge-dockable Flow Bar** (drag the pill anywhere, persist) | ✅ | ✅ |
+| **Auto-shrink to a dot** after sustained idle | ✅ | ✅ (5 s) |
+| **Cancel mid-transcribe / mid-cleanup** | ✅ | ✅ |
+| **VoiceOver labels + reduce-motion gating** | partial | ✅ |
+| **Hands-free voice activation** (always-listening) | ✅ | ❌ — would defeat 0 % idle CPU |
+| **Idle resource footprint** | ~800 MB RAM, ~8 % CPU | **~25 MB RSS, 0.0 % CPU** |
+| **Audio leaves the device** | every clip | **never** |
+| **Works offline** | no | yes |
 
 ## Setup
 
-Requirements: macOS 14+, Xcode 15+, Homebrew, an Apple Silicon Mac
-(model performance is fine on Intel but Metal backend is built for arm64).
+Requirements: macOS 14+, Xcode 15+, Homebrew, an Apple Silicon Mac (Metal
+backend; Intel works with degraded transcription speed).
 
 ```bash
 git clone https://github.com/kwamerex101/listen_to_me.git ListenToMe
 cd ListenToMe
-./scripts/setup.sh        # installs xcodegen, builds whisper.cpp, downloads model, bundles dylibs
+./scripts/setup.sh        # installs xcodegen, builds whisper.cpp, downloads + SHA-verifies model, bundles binaries + dylibs
 ./scripts/build.sh        # generates xcodeproj and builds Debug
-./scripts/install.sh      # copies build/Build/Products/Debug/ListenToMe.app to /Applications
+./scripts/release.sh      # builds Release + DMG (hardened runtime, universal binary)
 ```
 
-`setup.sh` is idempotent — re-run it whenever you want to refresh whisper.cpp.
+To install the Release build:
+
+```bash
+cp -R build-release/Build/Products/Release/ListenToMe.app /Applications/
+xattr -dr com.apple.quarantine /Applications/ListenToMe.app   # skip Gatekeeper warning
+open -a ListenToMe
+```
+
+`setup.sh` is idempotent and SHA-256-verifies the bundled model on every run —
+a tampered or corrupt local copy gets auto-replaced.
 
 AI cleanup is **optional**. Without it the app works perfectly — transcription
-is fully offline via whisper.cpp; only the grammar/filler-word polish step is
-skipped. To enable cleanup, install the [Claude Code CLI](https://claude.ai/code)
-so the `claude` binary is on your PATH (the app probes `~/.local/bin`,
-`~/.npm-global/bin`, `/opt/homebrew/bin`, and `/usr/local/bin`). If you don't
-install it, set Cleanup Mode to "Never" in Settings to avoid cleanup errors.
+is fully offline; only the grammar / filler-word / casing polish step is
+skipped.
+
+Two cleanup backends are supported via Settings → AI Cleanup → Backend:
+
+- **Auto** (default) — direct Anthropic API when an `sk-ant-…` key is saved in
+  the Keychain, otherwise the `claude` CLI subprocess
+- **CLI** — always the `claude` CLI (preserves the "reuse Claude Code
+  subscription" path; latency dominated by Node startup, ~1.5–3 s)
+- **API** — always the direct path, ~250–500 ms with prompt caching
+
+If you don't install the Claude Code CLI and don't paste an API key, set
+Cleanup Mode to "Never" in Settings to disable cleanup attempts entirely.
 
 ## First run
 
-1. Launch from `/Applications/ListenToMe.app` (or build output). Because the
-   app is ad-hoc signed (not notarized), macOS Gatekeeper will block it on
-   first launch — right-click the app and choose **Open**, or run:
-   ```bash
-   xattr -dr com.apple.quarantine /Applications/ListenToMe.app
-   ```
+1. Launch from `/Applications/ListenToMe.app`. The app is ad-hoc-signed (not
+   notarized); on first launch macOS may show a Gatekeeper warning unless you
+   ran the `xattr -dr com.apple.quarantine` step above.
 2. Permission card pops up — click **Open Settings**, toggle ListenToMe on
-   under Privacy & Security → Accessibility, then return to the app
-3. macOS will prompt for Microphone access on first hotkey press
-4. Click into any text field; **hold Fn + ⌘**; speak; release
-5. Open the menu-bar icon → "Open ListenToMe…" (⌘,) for the main window
-
-## Scripts
-
-| Script | What it does |
-|---|---|
-| `./scripts/setup.sh` | Installs xcodegen, clones + builds whisper.cpp, downloads `ggml-base.en` model (~148 MB), bundles whisper-cli + dylibs into Resources with `install_name_tool` rewriting rpath to `@loader_path` |
-| `./scripts/build.sh` | `xcodegen generate` → `xcodebuild -configuration Debug` |
-| `./scripts/install.sh` | Quits any running copy, then `ditto`s the freshly built `.app` into `/Applications/ListenToMe.app` |
+   under Privacy & Security → Accessibility, then return to the app.
+3. macOS prompts for Microphone access on first hotkey press.
+4. Click into any text field; **hold Fn + ⌘**; speak; release.
+5. Open the menu-bar icon → "Open ListenToMe…" (⌘,) for the main window.
 
 ## How it works
 
 ```
 Press Fn + ⌘
    ↓
-AVAudioEngine captures mic to /tmp/listentome-<uuid>.wav at 16 kHz mono
+AVAudioEngine captures mic to ${TMPDIR}/listentome-<uuid>.wav at 16 kHz mono
    ↓
 Release Fn + ⌘
    ↓
-whisper.cpp transcribe (LOCAL, with --prompt = your dictionary words)
+whisper-server (HTTP, persistent — model resident across dictations)
+   └─→ falls back to whisper-cli subprocess on any error
+   ↓
+Backtrack check ("actually, …" / "scratch that, …") → if matched and a
+recent paste token is still valid, rewrite the prior paste in place
+   ↓
+Voice-command interception (`open Chrome`, `shell: …`)
+   ↓
+Voice-edit transforms (comma, period, scratch that, new paragraph)
    ↓
 Snippet expansion (regex word-boundary replace)
    ↓
-[if word count > threshold] → spawn `claude --print` subprocess → cleanup
-   ↓
-[if voice command prefix matches] → CommandRouter execute → skip paste
+[if word count > threshold] → Claude cleanup (direct API or CLI subprocess)
+        with system prompt: CONTEXT (app, category, browser URL) +
+        per-app STYLE (tone hint) + base prompt (default OR code-mode
+        for editors/terminals)
    ↓
 NSPasteboard.setString + simulated ⌘V into the frontmost app
    ↓
-HistoryStore records timestamp / raw / final / duration / app bundle id
+Three-gate paste-replace if cleanup arrives later: staleness ≤ 30 s,
+frontmost-bundle match, pasteboard changeCount unchanged
+   ↓
+HistoryStore appends one NDJSON line (constant-time)
 ```
 
-Audio never leaves the machine. Only text — and only when above the
-configured cleanup threshold — flows out via the `claude` CLI to Anthropic.
+Audio never leaves the machine. Text only leaves the device when cleanup is
+enabled and runs above the configured threshold; the destination is whichever
+backend is selected.
+
+## Pill states
+
+| State | Visual | What you can do |
+|---|---|---|
+| Idle (calm) | Small 48×12 dot | Hover to expand; drag to move |
+| Idle (shrunk) | 10×10 dot after 5 s of true idle | Hover to wake |
+| Recording | Red waveform + Cancel/Stop buttons | Cancel (X) or release hotkey |
+| Transcribing | Spinner + "Transcribing…" + Cancel | Cancel (X) |
+| Cleaning / Polishing | Sparkle + status + Cancel | Cancel (X) or click pill to edit |
+| Success | Green checkmark | Click to open the inline correction popover |
+| Correcting | Pill goes neutral; popover takes focus | ⌘↵ Apply, Esc Cancel, mic to voice-replace |
+| Suggestion | App-tone banner | Keep / Dismiss / 8 s timeout |
+| Error | Orange warning | Auto-clears |
+
+The pill is **draggable** — grab and reposition anywhere on screen; position
+persists per launch. Reset to default from Settings → Advanced → Pill position.
+
+VoiceOver reads each phase aloud; reduce-motion suppresses the idle breath,
+recording heartbeat, and 30 Hz waveform animations.
+
+## Voice gestures
+
+- **Punctuation**: `comma`, `period`, `question mark`, `exclamation point`,
+  `new line`, `new paragraph`
+- **Verbal undo**: `scratch that` drops the previous sentence; `scratch that`
+  alone aborts the dictation
+- **Backtrack** (Wispr-style): start your next dictation with
+  `actually, …` / `scratch that, …` / `wait, change that to …` / `i meant …`
+  to rewrite the previous paste in place via Claude
+- **Voice commands**: `open Chrome`, `open Safari`, `open <App>`,
+  `shell: <command>`, `log to today: <text>`
+- **Code mode** (auto): when the target app is a code editor or terminal
+  (Cursor, Xcode, VS Code, iTerm, Warp, Zed, Hyper, IntelliJ, …), the
+  cleanup prompt skips sentence-case and recognizes
+  `camel case <words>` / `pascal case <words>` / `snake case <words>` /
+  `kebab case <words>` / `screaming snake case <words>`
+
+## Settings
+
+| Tab | Setting | Values / behavior |
+|---|---|---|
+| **Shortcuts** | Dictation hotkey | Fn + ⌘ (default) / Fn + ⌥ / ⌃ + ⌘ / ⌃ + ⌥ |
+| **AI Cleanup** | Mode | Never / Smart > 20 words (default) / Smart > 50 / Always |
+| | Backend | Auto / CLI subprocess / Direct Anthropic API |
+| | Anthropic API key | Stored in macOS Keychain |
+| **Audio** | Sound cues | toggle |
+| **Appearance** | Theme | System / Light / Dark |
+| **Whisper Model** | Local model | Status + download (148 MB), SHA-256 verified |
+| **System** | Launch at login | macOS-managed via `SMAppService.mainApp` |
+| | Accessibility | Status + Open System Settings shortcut |
+| **Advanced** | Max recording duration | 30–600 s (default 120) |
+| | Cleanup timeout | 5–60 s (default 20) |
+| | Diagnostics log | Off by default; rotated at 1 MB |
+| | Pill position | Custom (drag) or default; Reset button |
+| | History retention | 0–365 days (default 90; 0 = forever); Apply purges immediately |
+
+## Persistent data
+
+Lives at `~/Library/Application Support/ListenToMe/`:
+
+| File | Contents |
+|---|---|
+| `models/ggml-base.en.bin` | Whisper model, SHA-256-verified on every launch |
+| `history.ndjson` | Append-only line-delimited transcripts; auto-migrated from legacy `history.json.bak` once on first launch |
+| `dictionary.json` | Custom + auto-promoted vocabulary |
+| `dictionary-candidates.json` | Pending retype + history-mined candidates (3 distinct occurrences → auto-promote) |
+| `snippets.json` | Keyword → expansion pairs |
+| `transforms.json` | Named cleanup prompts |
+| `style.json`, `style-samples.json` | Per-app inferred / accepted tones, rolling sample window |
+| `pages.json`, `scratchpad.json` | In-app dictation workspaces |
+| `retype-debug.log` | Diagnostic-only; off by default |
+
+The Anthropic API key (when set) lives in the macOS Keychain under service
+`com.rexdanquah.listentome`, account `anthropic_api_key`.
 
 ## Project layout
 
 ```
 ListenToMe/
-├── project.yml                          # xcodegen config
-├── scripts/{setup,build,install}.sh
+├── project.yml                     # xcodegen config
+├── scripts/{setup,build,release}.sh
 ├── ListenToMe/
-│   ├── ListenToMeApp.swift              # @main + AppDelegate orchestration
+│   ├── ListenToMeApp.swift         # @main + AppDelegate orchestration
 │   ├── Info.plist
-│   ├── ListenToMe.entitlements          # mic input + (no sandbox in v1)
+│   ├── ListenToMe.entitlements     # mic input + AppleEvents
 │   ├── Core/
-│   │   ├── HotkeyMonitor.swift          # CGEventTap on the chosen modifier combo
-│   │   ├── AudioRecorder.swift          # AVAudioEngine → 16kHz WAV + RMS levels
-│   │   ├── WhisperRunner.swift          # Process invocation of bundled whisper-cli
-│   │   ├── ClaudeClient.swift           # spawns `claude` CLI subprocess + sanitizer
-│   │   ├── CommandRouter.swift          # voice-command parsing + execution
-│   │   ├── Paster.swift                 # NSPasteboard + simulated ⌘V
+│   │   ├── HotkeyMonitor.swift     # CGEventTap on the chosen modifier combo
+│   │   ├── AudioRecorder.swift     # AVAudioEngine → 16 kHz WAV + RMS levels
+│   │   ├── WhisperRunner.swift     # routes via WhisperServer, falls back to whisper-cli
+│   │   ├── WhisperServer.swift     # persistent whisper-server subprocess + multipart HTTP
+│   │   ├── WhisperModelManager.swift  # SHA-256 verify + download
+│   │   ├── ClaudeClient.swift      # direct Anthropic API + claude CLI fallback
+│   │   ├── AppContext.swift        # bundleId, category, browser URL via AppleScript
+│   │   ├── Backtrack.swift         # "actually, …" trigger parser
+│   │   ├── HistoryDictionaryMiner.swift  # mine candidates from history
+│   │   ├── CommandRouter.swift, VoiceEditor.swift
+│   │   ├── Paster.swift            # NSPasteboard + simulated ⌘V + 3-gate replace
+│   │   ├── Keychain.swift          # tiny SecItem wrapper
 │   │   ├── Haptics.swift, SoundCue.swift, LaunchAtLogin.swift
+│   │   ├── ToneInferencer.swift, RetypeDiffer.swift
 │   ├── State/
-│   │   ├── AppState.swift               # phase / level / interaction callbacks
-│   │   ├── Preferences.swift            # cleanup mode, hotkey binding, sound toggle
-│   │   ├── HistoryStore.swift           # JSON-persisted transcripts + stats
-│   │   ├── DictionaryStore.swift, SnippetsStore.swift
+│   │   ├── AppState.swift          # phase / level / interaction callbacks
+│   │   ├── Preferences.swift       # cleanup mode, backend, hotkey, retention, …
+│   │   ├── HistoryStore.swift      # NDJSON append-only + days-based retention
+│   │   ├── DictionaryStore.swift, SnippetsStore.swift, CandidateStore.swift
+│   │   ├── StyleStore.swift, StyleSamplesStore.swift
+│   │   ├── TransformsStore.swift, PagesStore.swift, ScratchpadStore.swift
 │   ├── UI/
 │   │   ├── PillWindow.swift, PillView.swift, WaveformView.swift
+│   │   ├── CorrectionWindow.swift  # inline edit popover
 │   │   ├── MenuBarController.swift, MainWindowController.swift, MainView.swift
-│   │   ├── SidebarView.swift, HomeView.swift, DashboardView.swift
-│   │   ├── DictionaryView.swift, SnippetsView.swift, SettingsView.swift
-│   │   ├── EmptyStateView.swift, PressableStyle.swift
-│   └── Resources/                       # whisper-cli + dylibs (bundled by setup.sh, gitignored)
-└── vendor/whisper.cpp                   # cloned by setup.sh, gitignored
+│   │   ├── SidebarView.swift, HomeView.swift
+│   │   ├── DictionaryView.swift, SnippetsView.swift, StyleView.swift
+│   │   ├── SettingsView.swift, TransformsView.swift, PagesView.swift, ScratchpadView.swift
+│   │   ├── DesignTokens.swift, Motion.swift, PressableStyle.swift, HoverableRow.swift
+│   └── Resources/                  # whisper-cli, whisper-server, dylibs (bundled by setup.sh, gitignored)
+├── ListenToMeTests/                # XCTest target
+└── vendor/whisper.cpp              # cloned by setup.sh, gitignored
 ```
 
-## Configuration
+## Tests
 
-User preferences live in UserDefaults under the `wf.*` namespace and are
-adjustable from the in-app Settings tab:
+Pure-logic tests live in `ListenToMeTests/`:
 
-| Setting | Values |
-|---|---|
-| `cleanupMode` | Never / Smart > 20 words (default) / Smart > 50 / Always |
-| `hotkeyBinding` | `fnCmd` (default) / `fnOpt` / `ctrlCmd` / `ctrlOpt` |
-| `soundEnabled` | Bool, default `true` |
-| Launch at Login | macOS-managed via `SMAppService.mainApp` |
+```bash
+xcodebuild test -project ListenToMe.xcodeproj -scheme ListenToMe -destination 'platform=macOS'
+```
 
-Persistent data lives at `~/Library/Application Support/ListenToMe/`:
+Or in Xcode: ⌘U.
 
-- `models/ggml-base.en.bin` — the Whisper model
-- `history.json` — every transcript (timestamp, raw, final, duration, app bundle id)
-- `dictionary.json` — custom + promoted vocabulary
-- `dictionary-candidates.json` — pending retype-correction candidates
-- `snippets.json` — keyword → expansion pairs
-- `transforms.json` — named cleanup prompts
-- `styles.json` + `style-samples.json` — per-app inferred + accepted tones,
-  rolling 50-sample window per app
-- `pages.json`, `scratchpad.json` — in-app dictation workspaces
+Coverage is focused on the deterministic, side-effect-free helpers: voice
+editing transforms, snippet expansion, tone inference, retype diffing,
+backtrack parsing, history mining, app context classification, history NDJSON
+round-trip, and ClaudeClient prompt sanitization. UI behavior (pill states,
+drag-to-reposition, cancel-mid-pipeline) is validated manually per the
+project's "no UI snapshot tests" stance.
 
-## Roadmap
+## Security & privacy
 
-The first milestone (v0.7 → v0.11) is shipped — multi-display, selection-aware
-paste, auto-learning dictionary, per-app style tuning, UX/UI polish.
-
-Likely up next (v0.12+):
-
-- Reduced-motion accessibility fallback
-- Cancelled-clip preservation in History (recover the last cancelled
-  transcript)
-- Live transcription preview overlay on the pill
-- First-run onboarding tour
-- Full hotkey recorder (today: 4 presets only)
-- Language picker + extra Whisper model downloads
-- App icon, Developer-ID signing, notarization, DMG packaging, Sparkle auto-update
+See [SECURITY.md](SECURITY.md) for the full posture: hardened runtime,
+adhoc-signed bundle, library validation, entitlements, subprocess safety,
+pasteboard 3-gate model, NDJSON retention, model SHA-256 verification, and
+how to re-verify after a build.
 
 ## License
 
