@@ -129,6 +129,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // runs at launch (otherwise it'd defer until the first add()).
         _ = HistoryStore.shared
 
+        // M3b: mine the existing history for single-word swaps that
+        // claude cleanup consistently fixed (e.g. "danqua" → "Danquah").
+        // Feeds CandidateStore via the same promotion pipeline used by
+        // retype detection. Off-main, low-priority — never blocks
+        // launch or audio.
+        Task.detached(priority: .background) { [weak self] in
+            await self?.runHistoryDictionaryMining()
+        }
+
         // Emit phase-change notifications for menu bar — event-driven via
         // Combine instead of a 150ms polling loop so the app has zero idle
         // wake-ups beyond what it actually needs (#GSD Phase C-3).
@@ -144,6 +153,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// after the app exits.
     func applicationWillTerminate(_ notification: Notification) {
         WhisperServer.shared.shutdown()
+    }
+
+    /// M3b: read history snapshot on main, run pure mining off-main,
+    /// hand results back to CandidateStore on main.
+    private func runHistoryDictionaryMining() async {
+        let snapshot: [(rawText: String, finalText: String, bundleId: String?)] = await MainActor.run {
+            HistoryStore.shared.records.map {
+                (rawText: $0.rawText, finalText: $0.finalText, bundleId: $0.bundleId)
+            }
+        }
+        // Pure analysis off-main.
+        let swaps = HistoryDictionaryMiner.mine(records: snapshot)
+        guard !swaps.isEmpty else { return }
+        await MainActor.run {
+            CandidateStore.shared.ingestMined(swaps)
+        }
     }
 
     // MARK: - Hotkey handlers
