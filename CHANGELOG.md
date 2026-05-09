@@ -4,7 +4,11 @@ All notable user-facing changes per release. Format inspired by [Keep a Changelo
 
 ## [Unreleased]
 
-These changes are merged to `main` but not yet tagged or installed in `/Applications`. Bump the version in `project.yml`, tag, and run `scripts/release.sh` to ship.
+_Nothing yet — next merge after v0.13.0 lands here._
+
+## [v0.13.0] — 2026-05-09
+
+The "Wispr-parity + foundations" release. Three months of work in three days, captured across PRs #18 / #19 / #20 / #21.
 
 ### Added — Wispr UX parity (M3)
 
