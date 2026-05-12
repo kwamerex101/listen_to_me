@@ -17,6 +17,8 @@ struct SettingsView: View {
     @State private var historyEncryptionEnabled: Bool = Preferences.shared.historyEncryptionEnabled
     @State private var transcriptionEngine: Preferences.TranscriptionEngine = Preferences.shared.transcriptionEngine
     @State private var streamingPartialsEnabled: Bool = Preferences.shared.streamingPartialsEnabled
+    @State private var inputDeviceUID: String = Preferences.shared.inputDeviceUID ?? ""
+    @State private var availableInputs: [AudioInputDevice] = []
     @ObservedObject private var modelManager = WhisperModelManager.shared
 
     /// Reads the version straight from the bundle so future bumps don't
@@ -194,9 +196,18 @@ struct SettingsView: View {
                     }
                     .hoverableRow()   // only this Settings row is interactive (Grant…)
                     row(label: "Microphone") {
-                        Text("Built-in microphone")
-                            .font(.system(size: 13))
-                            .foregroundStyle(.secondary)
+                        Picker("", selection: $inputDeviceUID) {
+                            Text("System default").tag("")
+                            ForEach(availableInputs, id: \.uid) { dev in
+                                Text(dev.name).tag(dev.uid)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                        .frame(width: 240)
+                        .onChange(of: inputDeviceUID) { _, new in
+                            Preferences.shared.inputDeviceUID = new.isEmpty ? nil : new
+                        }
                     }
                     row(label: "Language") {
                         Text("English")
@@ -313,6 +324,9 @@ struct SettingsView: View {
             historyEncryptionEnabled = Preferences.shared.historyEncryptionEnabled
             transcriptionEngine = Preferences.shared.transcriptionEngine
             streamingPartialsEnabled = Preferences.shared.streamingPartialsEnabled
+            availableInputs = AudioInputDevices.available()
+            let savedUID = Preferences.shared.inputDeviceUID ?? ""
+            inputDeviceUID = (savedUID.isEmpty || availableInputs.contains(where: { $0.uid == savedUID })) ? savedUID : ""
             modelManager.refreshStatus()
         }
     }
