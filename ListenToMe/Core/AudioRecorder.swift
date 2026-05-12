@@ -1,5 +1,7 @@
 import Accelerate
+import AudioToolbox
 import AVFoundation
+import CoreAudio
 import Foundation
 
 /// Records microphone audio to a 16kHz mono WAV file and publishes RMS level.
@@ -74,6 +76,23 @@ final class AudioRecorder {
         currentURL = url
 
         let input = engine.inputNode
+
+        // Route the engine's input to the user-selected device, if any.
+        // Must happen before reading outputFormat / prepare / start — the
+        // format follows the device. A nil/unresolvable UID falls through
+        // to the macOS-wide default input.
+        if let uid = Preferences.shared.inputDeviceUID,
+           var deviceID = AudioInputDevices.resolve(uid: uid),
+           let audioUnit = input.audioUnit {
+            AudioUnitSetProperty(
+                audioUnit,
+                kAudioOutputUnitProperty_CurrentDevice,
+                kAudioUnitScope_Global,
+                0,
+                &deviceID,
+                UInt32(MemoryLayout<AudioDeviceID>.size)
+            )
+        }
 
         // Defensive teardown — installTap raises an Objective-C NSException
         // (which Swift `throws` cannot catch) if a tap is already on the bus

@@ -105,6 +105,7 @@ final class Preferences {
     private let kPillHasCustomOrigin = "wf.pillHasCustomOrigin"
     private let kTranscriptionEngine = "wf.transcriptionEngine"
     private let kStreamingPartialsEnabled = "wf.streamingPartialsEnabled"
+    private let kInputDeviceUID = "wf.inputDeviceUID"
 
     /// Keychain account names (bundled here so call sites don't sprout
     /// stringly-typed names of their own).
@@ -231,6 +232,21 @@ final class Preferences {
     var streamingPartialsEnabled: Bool {
         get { defaults.bool(forKey: kStreamingPartialsEnabled) }
         set { defaults.set(newValue, forKey: kStreamingPartialsEnabled) }
+    }
+
+    /// Persistent Core Audio UID of the chosen input device. nil means
+    /// "follow the macOS-wide default input" (preserves pre-0.14 behavior).
+    /// Stored by UID rather than the numeric AudioDeviceID because the
+    /// numeric ID is reassigned on replug.
+    var inputDeviceUID: String? {
+        get { defaults.string(forKey: kInputDeviceUID) }
+        set {
+            if let v = newValue, !v.isEmpty {
+                defaults.set(v, forKey: kInputDeviceUID)
+            } else {
+                defaults.removeObject(forKey: kInputDeviceUID)
+            }
+        }
     }
 
     /// Cleanup backend selection. `.auto` (default) prefers the direct
