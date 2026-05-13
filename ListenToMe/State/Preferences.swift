@@ -103,6 +103,9 @@ final class Preferences {
     private let kPillOriginX = "wf.pillOriginX"
     private let kPillOriginY = "wf.pillOriginY"
     private let kPillHasCustomOrigin = "wf.pillHasCustomOrigin"
+    private let kPillAnchorX = "wf.pillAnchorX"
+    private let kPillAnchorY = "wf.pillAnchorY"
+    private let kPillHasCustomAnchor = "wf.pillHasCustomAnchor"
     private let kTranscriptionEngine = "wf.transcriptionEngine"
     private let kStreamingPartialsEnabled = "wf.streamingPartialsEnabled"
     private let kInputDeviceUID = "wf.inputDeviceUID"
@@ -284,10 +287,9 @@ final class Preferences {
     }
 
     /// Persisted pill origin (NSPanel frame.origin in screen coordinates).
-    /// nil means "no user preference yet — use default bottom-center".
-    /// We store the absolute origin and validate against current screen
-    /// geometry on read so a disconnected monitor doesn't strand the
-    /// pill off-screen.
+    /// Legacy from the fixed-480×260-window era; new code reads/writes
+    /// `pillAnchor` instead. Kept for one release so first-launch
+    /// migration can convert old saved positions.
     var pillOrigin: CGPoint? {
         get {
             guard defaults.bool(forKey: kPillHasCustomOrigin) else { return nil }
@@ -301,6 +303,40 @@ final class Preferences {
                 defaults.set(Double(p.y), forKey: kPillOriginY)
                 defaults.set(true, forKey: kPillHasCustomOrigin)
             } else {
+                defaults.set(false, forKey: kPillHasCustomOrigin)
+            }
+        }
+    }
+
+    /// Persisted pill anchor — the visible chip's bottom-center in screen
+    /// coordinates. Survives window resizes (the chip stays put while the
+    /// hosting NSPanel grows/shrinks around it). nil means "no user
+    /// preference yet — use default bottom-center of the active screen".
+    /// On first read, migrates from legacy `pillOrigin` by adding the old
+    /// half-width (240) and bottom inset (4) so existing saved positions
+    /// translate to the equivalent anchor.
+    var pillAnchor: CGPoint? {
+        get {
+            if defaults.bool(forKey: kPillHasCustomAnchor) {
+                let x = defaults.double(forKey: kPillAnchorX)
+                let y = defaults.double(forKey: kPillAnchorY)
+                return CGPoint(x: x, y: y)
+            }
+            if let legacy = pillOrigin {
+                let migrated = CGPoint(x: legacy.x + 240, y: legacy.y + 4)
+                pillAnchor = migrated
+                return migrated
+            }
+            return nil
+        }
+        set {
+            if let p = newValue {
+                defaults.set(Double(p.x), forKey: kPillAnchorX)
+                defaults.set(Double(p.y), forKey: kPillAnchorY)
+                defaults.set(true, forKey: kPillHasCustomAnchor)
+            } else {
+                defaults.set(false, forKey: kPillHasCustomAnchor)
+                // Also clear legacy so reset truly returns to default.
                 defaults.set(false, forKey: kPillHasCustomOrigin)
             }
         }

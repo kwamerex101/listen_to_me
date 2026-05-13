@@ -252,12 +252,12 @@ struct SettingsView: View {
                     }
                     row(label: "Pill position") {
                         HStack(spacing: 10) {
-                            Text(Preferences.shared.pillOrigin == nil
+                            Text(Preferences.shared.pillAnchor == nil
                                  ? "Default (bottom-center)"
                                  : "Custom — drag the pill to move")
                                 .font(.system(size: 13))
                                 .foregroundStyle(.secondary)
-                            if Preferences.shared.pillOrigin != nil {
+                            if Preferences.shared.pillAnchor != nil {
                                 Button("Reset") {
                                     PillWindow.shared.resetPositionToDefault()
                                 }

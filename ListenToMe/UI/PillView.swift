@@ -413,28 +413,15 @@ struct PillView: View {
     // MARK: - Sizing
 
     private var pillWidth: CGFloat {
-        if state.showPermissionPrompt { return 440 }
-        if isShrunkToDot, case .idle = state.phase { return 10 }
-        switch state.phase {
-        case .idle:         return 48
-        case .recording:    return 176
-        case .transcribing: return 176
-        case .cleaning:     return 176
-        case .polishing:    return 200
-        case .success:      return 60
-        case .error:        return 280
-        case .correcting:   return 48
-        case .suggestion:   return 400
-        }
+        PillMetrics.pillWidth(phase: state.phase,
+                              showPermissionPrompt: state.showPermissionPrompt,
+                              shrunkToDot: isShrunkToDot)
     }
 
     private var pillHeight: CGFloat {
-        if state.showPermissionPrompt { return 170 }
-        if isShrunkToDot, case .idle = state.phase { return 10 }
-        if case .idle = state.phase { return 12 }
-        if case .correcting = state.phase { return 12 }
-        if case .suggestion = state.phase { return 56 }
-        return 34
+        PillMetrics.pillHeight(phase: state.phase,
+                               showPermissionPrompt: state.showPermissionPrompt,
+                               shrunkToDot: isShrunkToDot)
     }
 
     private var cornerRadius: CGFloat {
@@ -457,9 +444,7 @@ struct PillView: View {
     }
 
     private var isCompact: Bool {
-        if case .idle = state.phase { return true }
-        if case .correcting = state.phase { return true }
-        return false
+        PillMetrics.isCompact(phase: state.phase)
     }
 
     /// Key for the content transition. Prompt takes priority over phase.
