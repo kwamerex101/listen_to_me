@@ -10,10 +10,11 @@ enum WhisperError: Error {
 struct WhisperRunner {
     static let shared = WhisperRunner()
 
-    /// `~/Library/Application Support/ListenToMe/models/ggml-base.en.bin`
+    /// Path to the selected Whisper model file.
     static var modelURL: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return base.appendingPathComponent("ListenToMe/models/ggml-base.en.bin")
+        let model = Preferences.shared.selectedWhisperModel
+        return base.appendingPathComponent("ListenToMe/models/\(model.filename)")
     }
 
     private var binaryURL: URL? {

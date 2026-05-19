@@ -26,36 +26,18 @@ final class WhisperModelManager: NSObject, ObservableObject {
 
     @Published private(set) var status: Status = .missing
 
-    /// Mirror the URL used by `scripts/setup.sh` so the dev path and the
-    /// in-app path stay in sync. If we ever move to a smaller model (e.g.
-    /// `ggml-base.en-q5_1.bin`) update this and `WhisperRunner.modelURL`
-    /// in lockstep.
-    private let downloadURL = URL(string:
-        "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin"
-    )!
-
-    /// Approximate expected size — used as a quick sanity check after
-    /// download to catch obviously-truncated files. Authoritative
-    /// integrity comes from the SHA-256 below.
-    private let expectedMinBytes: Int64 = 100_000_000
-
-    /// SHA-256 of the canonical Hugging Face ggml-base.en.bin
-    /// (147,964,211 bytes). Verified by `shasum -a 256` against a clean
-    /// download. If we ever swap to a different model file (small.en,
-    /// quantized variant, Core ML encoder package, etc.) update this in
-    /// lockstep with `downloadURL` — a mismatch is treated as tampering
-    /// and the file is removed.
-    private let expectedSHA256: String = "a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002"
+    /// Derives download URL, size floor, and SHA from the currently selected model.
+    private var activeModel: Preferences.WhisperModel { Preferences.shared.selectedWhisperModel }
 
     /// Optional Core ML encoder package (ANE-accelerated encoder).
     /// whisper.cpp linked builds auto-load this when the .mlmodelc
     /// directory sits next to the .bin. Without it, the encoder runs
-    /// on Metal/CPU — same accuracy, slightly slower per-call. A
-    /// future PR will surface a download / progress UI; for now the
-    /// presence is just exposed as a Bool for Settings.
+    /// on Metal/CPU — same accuracy, slightly slower per-call.
     static var coreMLPackageURL: URL {
-        WhisperRunner.modelURL.deletingLastPathComponent()
-            .appendingPathComponent("ggml-base.en-encoder.mlmodelc", isDirectory: true)
+        let modelURL = WhisperRunner.modelURL
+        let stem = modelURL.deletingPathExtension().lastPathComponent
+        return modelURL.deletingLastPathComponent()
+            .appendingPathComponent("\(stem)-encoder.mlmodelc", isDirectory: true)
     }
 
     var coreMLPackageInstalled: Bool {
@@ -82,23 +64,23 @@ final class WhisperModelManager: NSObject, ObservableObject {
     /// silicon. Called once on launch (init) and after a download
     /// completes, so the user-felt cost is invisible.
     func refreshStatus() {
+        let model = activeModel
         let url = WhisperRunner.modelURL
         guard FileManager.default.fileExists(atPath: url.path) else {
             status = .missing
             return
         }
         let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
-        if size < expectedMinBytes {
+        if size < model.expectedMinBytes {
             // Truncated download from a previous attempt — treat as missing.
             try? FileManager.default.removeItem(at: url)
             status = .missing
             return
         }
-        // SHA-256 verification. Mismatch means tampering, partial
-        // download corruption, or a different model dropped at the same
-        // path — in every case the safe action is to remove and re-fetch.
-        if let actual = Self.sha256(of: url), actual != expectedSHA256 {
-            NSLog("[ListenToMe] model SHA mismatch (got \(actual.prefix(12))…, expected \(expectedSHA256.prefix(12))…) — removing")
+        // SHA-256 verification where a known hash exists. nil = size-only check.
+        if let expected = model.sha256,
+           let actual = Self.sha256(of: url), actual != expected {
+            NSLog("[ListenToMe] model SHA mismatch (got \(actual.prefix(12))…, expected \(expected.prefix(12))…) — removing")
             try? FileManager.default.removeItem(at: url)
             status = .failed(message: "Model integrity check failed — re-download required")
             return
@@ -134,7 +116,7 @@ final class WhisperModelManager: NSObject, ObservableObject {
         )
 
         status = .downloading(progress: 0)
-        let task = session.downloadTask(with: downloadURL)
+        let task = session.downloadTask(with: activeModel.downloadURL)
         downloadTask = task
         task.resume()
     }

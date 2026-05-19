@@ -16,6 +16,7 @@ struct SettingsView: View {
     @State private var historyRetentionDays: Double = Double(Preferences.shared.historyRetentionDays)
     @State private var historyEncryptionEnabled: Bool = Preferences.shared.historyEncryptionEnabled
     @State private var transcriptionEngine: Preferences.TranscriptionEngine = Preferences.shared.transcriptionEngine
+    @State private var selectedWhisperModel: Preferences.WhisperModel = Preferences.shared.selectedWhisperModel
     @State private var streamingPartialsEnabled: Bool = Preferences.shared.streamingPartialsEnabled
     @State private var inputDeviceUID: String = Preferences.shared.inputDeviceUID ?? ""
     @State private var availableInputs: [AudioInputDevice] = []
@@ -136,7 +137,21 @@ struct SettingsView: View {
                 }
 
                 section(title: "Whisper Model") {
-                    row(label: "Local model") {
+                    row(label: "Model") {
+                        Picker("", selection: $selectedWhisperModel) {
+                            ForEach(Preferences.WhisperModel.allCases, id: \.self) { model in
+                                Text(model.displayName).tag(model)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                        .onChange(of: selectedWhisperModel) { _, new in
+                            Preferences.shared.selectedWhisperModel = new
+                            WhisperLib.shared.shutdown()
+                            modelManager.refreshStatus()
+                        }
+                    }
+                    row(label: "Status") {
                         modelStatusView
                     }
                     .hoverableRow()
@@ -324,6 +339,7 @@ struct SettingsView: View {
             historyEncryptionEnabled = Preferences.shared.historyEncryptionEnabled
             transcriptionEngine = Preferences.shared.transcriptionEngine
             streamingPartialsEnabled = Preferences.shared.streamingPartialsEnabled
+            selectedWhisperModel = Preferences.shared.selectedWhisperModel
             availableInputs = AudioInputDevices.available()
             let savedUID = Preferences.shared.inputDeviceUID ?? ""
             inputDeviceUID = (savedUID.isEmpty || availableInputs.contains(where: { $0.uid == savedUID })) ? savedUID : ""
@@ -344,7 +360,7 @@ struct SettingsView: View {
             }
         case .missing:
             HStack(spacing: 10) {
-                Text("Not downloaded (~148 MB)")
+                Text("Not downloaded (\(selectedWhisperModel.displayName))")
                     .font(.system(size: 13))
                     .foregroundStyle(.orange)
                 Button("Download") { modelManager.startDownload() }

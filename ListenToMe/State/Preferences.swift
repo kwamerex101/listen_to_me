@@ -109,6 +109,7 @@ final class Preferences {
     private let kTranscriptionEngine = "wf.transcriptionEngine"
     private let kStreamingPartialsEnabled = "wf.streamingPartialsEnabled"
     private let kInputDeviceUID = "wf.inputDeviceUID"
+    private let kSelectedWhisperModel = "wf.selectedWhisperModel"
 
     /// Keychain account names (bundled here so call sites don't sprout
     /// stringly-typed names of their own).
@@ -223,6 +224,55 @@ final class Preferences {
             return TranscriptionEngine(rawValue: raw) ?? .server
         }
         set { defaults.set(newValue.rawValue, forKey: kTranscriptionEngine) }
+    }
+
+    /// Available Whisper GGML models. Each maps to a file in
+    /// `~/Library/Application Support/ListenToMe/models/`.
+    enum WhisperModel: String, CaseIterable {
+        case baseEn     = "base.en"
+        case smallEn    = "small.en"
+        case largeTurbo = "large-v3-turbo"
+
+        var displayName: String {
+            switch self {
+            case .baseEn:     return "Base — 148 MB · Fast"
+            case .smallEn:    return "Small — 465 MB · Balanced"
+            case .largeTurbo: return "Large Turbo — 1.6 GB · Best accuracy"
+            }
+        }
+
+        var filename: String { "ggml-\(rawValue).bin" }
+
+        var downloadURL: URL {
+            URL(string: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/\(filename)")!
+        }
+
+        /// Minimum expected file size — rejects obviously-truncated downloads.
+        var expectedMinBytes: Int64 {
+            switch self {
+            case .baseEn:     return 100_000_000
+            case .smallEn:    return 400_000_000
+            case .largeTurbo: return 1_500_000_000
+            }
+        }
+
+        /// Verified SHA-256 for base.en. nil = size-only check for other models.
+        var sha256: String? {
+            switch self {
+            case .baseEn:
+                return "a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002"
+            case .smallEn, .largeTurbo:
+                return nil
+            }
+        }
+    }
+
+    var selectedWhisperModel: WhisperModel {
+        get {
+            let raw = defaults.string(forKey: kSelectedWhisperModel) ?? WhisperModel.baseEn.rawValue
+            return WhisperModel(rawValue: raw) ?? .baseEn
+        }
+        set { defaults.set(newValue.rawValue, forKey: kSelectedWhisperModel) }
     }
 
     /// When true AND the transcription engine is `.linked`, run a
