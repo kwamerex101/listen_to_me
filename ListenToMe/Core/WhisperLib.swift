@@ -36,6 +36,10 @@ final class WhisperLib {
     /// or torn down". Held outside an actor so the off-main `whisper_full`
     /// call can use it directly via the wrapper struct.
     private var ctx: OpaquePointer?
+    /// Path of the model currently loaded into `ctx`. Used to detect
+    /// model switches (PR #28) and invalidate the cached context so the
+    /// new model is loaded on the next transcribe call.
+    private var loadedModelPath: String?
     private var isBusy: Bool = false
 
     private init() {}
@@ -99,14 +103,22 @@ final class WhisperLib {
             whisper_free(ctx)
         }
         ctx = nil
+        loadedModelPath = nil
         isBusy = false
     }
 
     // MARK: - Internals
 
     private func ensureContext() throws {
-        if ctx != nil { return }
         let modelPath = WhisperRunner.modelURL.path
+        // Model switch detected (user changed selection in Settings): free
+        // the old context so the new model is loaded below.
+        if ctx != nil && loadedModelPath != modelPath {
+            whisper_free(ctx!)
+            ctx = nil
+            loadedModelPath = nil
+        }
+        if ctx != nil { return }
         guard FileManager.default.fileExists(atPath: modelPath) else {
             throw LibError.modelNotFound(modelPath)
         }
@@ -121,6 +133,7 @@ final class WhisperLib {
         let p = modelPath.withCString { whisper_init_from_file_with_params($0, cparams) }
         guard let p else { throw LibError.initFailed }
         ctx = p
+        loadedModelPath = modelPath
     }
 
     /// The actual `whisper_full` call. Pulled into a static helper so
