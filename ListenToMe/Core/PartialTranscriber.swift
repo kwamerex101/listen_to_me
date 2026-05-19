@@ -66,6 +66,10 @@ final class PartialTranscriber {
             NSLog("[ListenToMe] streaming partials skipped — engine is .server (linked required)")
             return
         }
+        guard WhisperLib.shared.isReady else {
+            NSLog("[ListenToMe] streaming partials skipped — model not downloaded yet")
+            return
+        }
         isStarted = true
         AppState.shared.partialText = ""
         loopTask = Task { @MainActor [weak self] in
