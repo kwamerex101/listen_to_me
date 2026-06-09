@@ -108,7 +108,11 @@ struct SettingsView: View {
                                 .buttonStyle(.pressable)
                             }
                         }
+                        // Clear button appears/disappears with save state —
+                        // fade instead of snapping the row layout.
+                        .animation(Motion.tabFade, value: apiKeySaved)
                     }
+                    .hoverableRow()
                 }
 
                 section(title: "Audio") {
@@ -181,6 +185,7 @@ struct SettingsView: View {
                                     .foregroundStyle(.secondary)
                             }
                         }
+                        .animation(Motion.tabFade, value: transcriptionEngine)
                     }
                 }
 
@@ -208,8 +213,9 @@ struct SettingsView: View {
                                 .buttonStyle(.pressable)
                             }
                         }
+                        .animation(Motion.tabFade, value: accessibilityGranted)
                     }
-                    .hoverableRow()   // only this Settings row is interactive (Grant…)
+                    .hoverableRow()
                     row(label: "Microphone") {
                         Picker("", selection: $inputDeviceUID) {
                             Text("System default").tag("")
@@ -280,6 +286,7 @@ struct SettingsView: View {
                             }
                         }
                     }
+                    .hoverableRow()
                     row(label: "History retention") {
                         HStack(spacing: 10) {
                             Slider(value: $historyRetentionDays, in: 0...365, step: 30)

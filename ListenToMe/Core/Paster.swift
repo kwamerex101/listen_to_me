@@ -299,11 +299,20 @@ enum Paster {
         return String(line.prefix(while: { $0 == " " || $0 == "\t" }))
     }
 
-    /// Inserts `ws` after every `\n` in `text`. No-op when `ws` is empty or
-    /// `text` contains no `\n`. Per D-03 (mirror only — no smart indent per D-04).
-    private static func injectIndent(_ text: String, leadingWhitespace ws: String) -> String {
+    /// Inserts `ws` at the start of every non-empty continuation line.
+    /// No-op when `ws` is empty or `text` contains no `\n`. Blank lines
+    /// (paragraph breaks from pause detection) stay blank — indenting
+    /// them would turn "\n\n" into "\n<ws>\n<ws>" and leave trailing
+    /// whitespace inside the break. Per D-03 (mirror only — no smart
+    /// indent per D-04). Internal (not private) so tests can exercise
+    /// the blank-line rule directly — same pattern as
+    /// `PartialTranscriber.isSilent` / `WhisperLib.joinSegments`.
+    static func injectIndent(_ text: String, leadingWhitespace ws: String) -> String {
         guard !ws.isEmpty, text.contains("\n") else { return text }
-        return text.replacingOccurrences(of: "\n", with: "\n" + ws)
+        return text.split(separator: "\n", omittingEmptySubsequences: false)
+            .enumerated()
+            .map { i, line in (i == 0 || line.isEmpty) ? String(line) : ws + line }
+            .joined(separator: "\n")
     }
 
     // MARK: - Keystroke Simulation

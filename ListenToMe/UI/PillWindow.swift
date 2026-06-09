@@ -153,12 +153,34 @@ final class PillWindow: NSPanel {
     /// Place the window so the chip lands at the resolved anchor at the
     /// currently-desired size. Used at launch, on screen-config change,
     /// and whenever AppState publishes a relevant value.
+    ///
+    /// `animated` (phase-driven resizes only): the SwiftUI pill content
+    /// springs between phase sizes over ~300 ms, but an instant
+    /// `setFrame` clips that spring mid-flight whenever the window
+    /// shrinks — the visible stutter on recording→success. An ease-out
+    /// frame animation tuned to the same envelope as `Motion.phaseSize`
+    /// keeps the clip region ahead of the content. Launch, drag, and
+    /// display-config repositions stay instant.
     @MainActor
-    func applyDesiredSize() {
+    func applyDesiredSize(animated: Bool = false) {
         let size = currentDesiredSize()
         let anchor = resolvedAnchor()
         let newFrame = NSRect(origin: origin(forAnchor: anchor, size: size), size: size)
-        setFrame(newFrame, display: true, animate: false)
+        guard newFrame != frame else { return }
+        // Rapid back-to-back phase flips can start a new frame animation
+        // while one is in flight; AppKit retargets the animator to the
+        // newest frame (last-writer-wins), which is the behavior we want,
+        // so no explicit serialization here.
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if animated && !reduceMotion {
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.28
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                self.animator().setFrame(newFrame, display: true)
+            }
+        } else {
+            setFrame(newFrame, display: true, animate: false)
+        }
     }
 
     /// Place window so the chip lands at the resolved anchor; show it.
@@ -248,14 +270,14 @@ final class PillWindow: NSPanel {
         s.$phase
             .removeDuplicates()
             .sink { [weak self] _ in
-                Task { @MainActor in self?.applyDesiredSize() }
+                Task { @MainActor in self?.applyDesiredSize(animated: true) }
             }
             .store(in: &cancellables)
 
         s.$showPermissionPrompt
             .removeDuplicates()
             .sink { [weak self] _ in
-                Task { @MainActor in self?.applyDesiredSize() }
+                Task { @MainActor in self?.applyDesiredSize(animated: true) }
             }
             .store(in: &cancellables)
 
@@ -266,7 +288,7 @@ final class PillWindow: NSPanel {
             .map { !$0.isEmpty }
             .removeDuplicates()
             .sink { [weak self] _ in
-                Task { @MainActor in self?.applyDesiredSize() }
+                Task { @MainActor in self?.applyDesiredSize(animated: true) }
             }
             .store(in: &cancellables)
     }
