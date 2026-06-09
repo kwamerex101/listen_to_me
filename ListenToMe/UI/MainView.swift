@@ -1,42 +1,32 @@
 import SwiftUI
 
 enum WfSection: String, CaseIterable, Identifiable {
-    // Active sections shown in the sidebar.
-    case home, dictionary, snippets, style, settings
+    // Active sections shown in the sidebar. (The old experimental
+    // Transforms / Scratchpad / Pages sections were deliberately cut —
+    // off-mission for a focused dictation tool.)
+    case home, history, dictionary, snippets, style, settings
 
-    // Hidden / experimental sections — commented out of the sidebar list
-    // because they're off-mission for a focused "speak once, ship clean
-    // text" dictation tool. View files and stores are kept on disk so
-    // they can be re-enabled by uncommenting these cases and adding them
-    // back to SidebarView's main-nav ForEach + MainView's switch.
-    // case transforms
-    // case scratchpad
-    // case pages
     var id: String { rawValue }
 
     var label: String {
         switch self {
         case .home: return "Home"
+        case .history: return "History"
         case .dictionary: return "Dictionary"
         case .snippets: return "Snippets"
         case .style: return "Style"
         case .settings: return "Settings"
-        // case .transforms: return "Transforms"
-        // case .scratchpad: return "Scratchpad"
-        // case .pages: return "Pages"
         }
     }
 
     var sfSymbol: String {
         switch self {
         case .home: return "square.grid.2x2"
+        case .history: return "clock"
         case .dictionary: return "doc.text"
         case .snippets: return "scissors"
         case .style: return "textformat"
         case .settings: return "gearshape"
-        // case .transforms: return "wand.and.stars"
-        // case .scratchpad: return "note.text"
-        // case .pages: return "doc.plaintext"
         }
     }
 
@@ -47,6 +37,7 @@ enum WfSection: String, CaseIterable, Identifiable {
     var selectedSymbol: String {
         switch self {
         case .home: return "square.grid.2x2.fill"
+        case .history: return "clock.fill"
         case .dictionary: return "doc.text.fill"
         case .snippets: return "scissors"            // no .fill variant
         case .style: return "textformat"             // no .fill variant
@@ -60,6 +51,7 @@ enum WfSection: String, CaseIterable, Identifiable {
     var selectedTint: Color {
         switch self {
         case .home: return .blue
+        case .history: return .orange
         case .dictionary: return .teal
         case .snippets: return .pink
         case .style: return .indigo
@@ -88,13 +80,11 @@ struct MainView: View {
                 Group {
                     switch selection {
                     case .home: HomeView()
+                    case .history: HistoryView()
                     case .dictionary: DictionaryView()
                     case .snippets: SnippetsView()
                     case .style: StyleView()
                     case .settings: SettingsView()
-                    // case .transforms: TransformsView()
-                    // case .scratchpad: ScratchpadView()
-                    // case .pages: PagesView()
                     }
                 }
                 .id(selection)

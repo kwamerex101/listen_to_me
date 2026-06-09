@@ -132,7 +132,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // migration runs at launch rather than at first tab visit.
         // Each store is a thin façade that auto-imports its legacy
         // .json once and renames it to .json.bak.
-        _ = ScratchpadStore.shared
         _ = SnippetsStore.shared
         _ = TransformsStore.shared
 
