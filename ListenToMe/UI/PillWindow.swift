@@ -167,6 +167,10 @@ final class PillWindow: NSPanel {
         let anchor = resolvedAnchor()
         let newFrame = NSRect(origin: origin(forAnchor: anchor, size: size), size: size)
         guard newFrame != frame else { return }
+        // Rapid back-to-back phase flips can start a new frame animation
+        // while one is in flight; AppKit retargets the animator to the
+        // newest frame (last-writer-wins), which is the behavior we want,
+        // so no explicit serialization here.
         let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         if animated && !reduceMotion {
             NSAnimationContext.runAnimationGroup { ctx in
