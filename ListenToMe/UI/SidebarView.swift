@@ -11,7 +11,7 @@ struct SidebarView: View {
             // Logo / brand row
             logoRow
                 .padding(.horizontal, compact ? 14 : 20)
-                .padding(.top, 60)
+                .padding(.top, DT.safeAreaTop)
                 .padding(.bottom, DT.space4)
 
             Divider()

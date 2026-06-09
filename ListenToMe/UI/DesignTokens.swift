@@ -48,6 +48,16 @@ enum DT {
     /// On-accent text used inside a filled accent button.
     static let onAccent          = Color.white
 
+    /// Semantic status colors. One vocabulary for "this is fine /
+    /// caution / problem / live" across Settings, Dictionary, the hero
+    /// CTA, and the streak — instead of raw .green/.orange/.red scattered
+    /// per-view. Decorative tints (sidebar section colors, app-identity
+    /// palette) are NOT status and stay as-is.
+    static let statusSuccess   = Color.green
+    static let statusWarning   = Color.orange
+    static let statusError     = Color.red
+    static let statusRecording = Color.red
+
     // MARK: - Hero gradient
 
     /// Dark hero card background — a touch of indigo at top-left fading
@@ -83,6 +93,15 @@ enum DT {
     static let space8: CGFloat  = 32
     static let space10: CGFloat = 40
     static let space12: CGFloat = 48
+
+    /// Top padding that clears the transparent title bar on every page.
+    static let safeAreaTop: CGFloat = 60
+
+    /// Standard control widths used in Settings rows so pickers, sliders,
+    /// and value labels align column-like across sections.
+    static let controlSliderWidth: CGFloat     = 180
+    static let controlPickerWidth: CGFloat     = 240
+    static let controlValueLabelWidth: CGFloat = 44
 
     // MARK: - Corner radius
 

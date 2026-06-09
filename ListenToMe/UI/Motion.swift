@@ -53,4 +53,11 @@ enum Motion {
     /// Snappy enough to feel responsive at the edge of a 48px target, soft enough
     /// not to compete with the idle breath.
     static let hoverLift      = Animation.spring(response: 0.28, dampingFraction: 0.78)
+
+    /// Main-window hover feedback — background fills, action-button
+    /// reveals, accent bars. One timing for every flat hover surface so
+    /// rows across Home/History/Settings respond in the same rhythm.
+    /// (The pill keeps its springier hoverLift — it's a floating object,
+    /// not a row.)
+    static let hoverFade      = Animation.easeInOut(duration: 0.15)
 }

@@ -38,7 +38,7 @@ struct HistoryView: View {
                     }
                 }
             }
-            .padding(.top, 60)
+            .padding(.top, DT.safeAreaTop)
             .padding(.horizontal, isNarrow ? DT.space6 : DT.space10)
             .padding(.bottom, DT.space10)
             .frame(maxWidth: DT.pageMaxWidth, alignment: .leading)

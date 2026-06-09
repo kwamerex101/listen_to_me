@@ -123,7 +123,7 @@ struct PlaceholderView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .padding(.top, 60)              // clear the transparent title bar
+        .padding(.top, DT.safeAreaTop)  // clear the transparent title bar
         .padding(.horizontal, 40)
         .padding(.bottom, 40)
     }
