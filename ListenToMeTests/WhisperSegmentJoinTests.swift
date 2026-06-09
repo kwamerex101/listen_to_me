@@ -58,6 +58,17 @@ final class WhisperSegmentJoinTests: XCTestCase {
                        "First. Second.")
     }
 
+    func test_overlapping_timestamps_join_flat() {
+        // Overlapping segments (t0 < previous t1) produce a negative gap;
+        // must never insert a break.
+        let segs: [Segment] = [
+            ("First.", 0, 300),
+            (" Second.", 250, 500),
+        ]
+        XCTAssertEqual(WhisperLib.joinSegments(segs, paragraphBreaks: true),
+                       "First. Second.")
+    }
+
     func test_multiple_gaps_produce_multiple_paragraphs() {
         let segs: [Segment] = [
             ("One.", 0, 100),
