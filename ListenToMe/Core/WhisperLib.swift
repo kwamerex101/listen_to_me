@@ -54,7 +54,13 @@ final class WhisperLib {
     /// Transcribe a 16 kHz mono Float32 PCM buffer to text. Use this
     /// path for both batch (full WAV) and streaming partial passes.
     /// Returns the concatenated segment text.
-    func transcribe(samples: [Float], prompt: String? = nil) async throws -> String {
+    ///
+    /// `paragraphBreaks`: when true, a silence gap of ≥1.5 s between
+    /// consecutive whisper segments is rendered as a paragraph break
+    /// ("\n\n") — the spoken-pause equivalent of starting a new
+    /// paragraph. Final pass only; partial previews stay flat.
+    func transcribe(samples: [Float], prompt: String? = nil,
+                    paragraphBreaks: Bool = false) async throws -> String {
         guard !isBusy else { throw LibError.alreadyBusy }
         try ensureContext()
         guard let ctx else { throw LibError.initFailed }
@@ -84,10 +90,12 @@ final class WhisperLib {
                 if let p = promptCopy, !p.isEmpty {
                     return p.withCString { promptCStr -> Result<String, LibError> in
                         params.initial_prompt = promptCStr
-                        return Self.runWhisperFull(ctx: ctx, params: params, samples: samples)
+                        return Self.runWhisperFull(ctx: ctx, params: params, samples: samples,
+                                                   paragraphBreaks: paragraphBreaks)
                     }
                 }
-                return Self.runWhisperFull(ctx: ctx, params: params, samples: samples)
+                return Self.runWhisperFull(ctx: ctx, params: params, samples: samples,
+                                           paragraphBreaks: paragraphBreaks)
             }
         }.value
         switch result {
@@ -176,7 +184,8 @@ final class WhisperLib {
     /// passed in by value / address-stable via withUnsafeBufferPointer.
     nonisolated private static func runWhisperFull(ctx: OpaquePointer,
                                                    params: whisper_full_params,
-                                                   samples: [Float]) -> Result<String, LibError> {
+                                                   samples: [Float],
+                                                   paragraphBreaks: Bool) -> Result<String, LibError> {
         let n = Int32(samples.count)
         let rc = samples.withUnsafeBufferPointer { buf -> Int32 in
             whisper_full(ctx, params, buf.baseAddress, n)
@@ -185,13 +194,43 @@ final class WhisperLib {
             return .failure(.inferenceFailed(rc))
         }
         let segs = whisper_full_n_segments(ctx)
-        var out = ""
+        var segments: [(text: String, t0: Int64, t1: Int64)] = []
+        segments.reserveCapacity(Int(segs))
         for i in 0..<segs {
-            if let cstr = whisper_full_get_segment_text(ctx, i) {
-                out += String(cString: cstr)
-            }
+            guard let cstr = whisper_full_get_segment_text(ctx, i) else { continue }
+            segments.append((text: String(cString: cstr),
+                             t0: whisper_full_get_segment_t0(ctx, i),
+                             t1: whisper_full_get_segment_t1(ctx, i)))
         }
-        return .success(out.trimmingCharacters(in: .whitespacesAndNewlines))
+        return .success(joinSegments(segments, paragraphBreaks: paragraphBreaks))
+    }
+
+    /// Segment timestamps are centiseconds (10 ms units). A ≥1.5 s
+    /// silence between segments reads as a deliberate pause — the
+    /// spoken cue for "new paragraph". Below that it's normal
+    /// inter-sentence breathing and the segments join flat.
+    nonisolated static let paragraphGapCentiseconds: Int64 = 150
+
+    /// Concatenate whisper segments, inserting a paragraph break where
+    /// the inter-segment silence crosses the threshold. Pure — pulled
+    /// out of `runWhisperFull` so tests can exercise the gap logic
+    /// without a model context.
+    nonisolated static func joinSegments(_ segments: [(text: String, t0: Int64, t1: Int64)],
+                                         paragraphBreaks: Bool) -> String {
+        var out = ""
+        var prevEnd: Int64 = 0
+        for (i, seg) in segments.enumerated() {
+            if paragraphBreaks, i > 0, seg.t0 - prevEnd >= paragraphGapCentiseconds {
+                out = out.trimmingCharacters(in: .whitespaces) + "\n\n"
+                // Whisper segment text leads with a space; after a break
+                // that space would indent the new paragraph.
+                out += seg.text.drop(while: { $0 == " " || $0 == "\t" })
+            } else {
+                out += seg.text
+            }
+            prevEnd = seg.t1
+        }
+        return out.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 

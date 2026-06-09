@@ -70,6 +70,7 @@ struct ClaudeClient {
       • Fix punctuation and capitalization.
       • Remove disfluency filler words: um, uh, er, uhm, erm, you know, like (only when used as filler), i mean.
       • Collapse repeated stutters ("the the cat" → "the cat").
+      • Preserve existing line breaks and paragraph breaks exactly — never merge paragraphs.
 
     HARD RULES — violating any makes the output invalid:
       1. Output ONLY the cleaned text. Nothing else.
@@ -115,6 +116,22 @@ struct ClaudeClient {
             let context = AppContext.current()
             if let line = context.promptLine {
                 sections.append("CONTEXT — \(line)")
+            }
+            // Category guidance: promptLine carries the raw facts (app,
+            // category, URL) but says nothing about what to DO with
+            // them. One sentence per category steers formality without
+            // touching the HARD RULES. Code/terminal handled by the
+            // base-prompt swap below; browser stays neutral (URL alone
+            // doesn't reveal whether the user is in a form or a doc).
+            switch context.category {
+            case .messaging:
+                sections.append("TARGET — chat message. Keep it conversational: contractions are fine, no terminal period on a single short sentence, don't formalize casual phrasing.")
+            case .email:
+                sections.append("TARGET — email. Prefer complete sentences with terminal punctuation; keep the speaker's greeting/sign-off phrasing intact.")
+            case .document:
+                sections.append("TARGET — document editor. Prefer complete, well-punctuated prose. Preserve any line breaks and paragraph breaks in the input.")
+            default:
+                break
             }
             if let bundleId, let hint = StyleStore.shared.promptHint(for: bundleId) {
                 sections.append(hint)

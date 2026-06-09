@@ -35,6 +35,15 @@ final class PartialTranscriber {
     private let warmupSeconds: TimeInterval = 1.0
     /// 16 kHz mono → 32k samples per warmup-second.
     private var warmupSampleCount: Int { Int(16_000 * warmupSeconds) }
+    /// Partial passes only transcribe the most recent slice of audio.
+    /// The preview renders two head-truncated lines (the transcript
+    /// tail), so re-transcribing the whole accumulated buffer every
+    /// tick is O(n²) waste — a 60 s hold would re-process the first
+    /// second forty times. 15 s comfortably fills two preview lines
+    /// at normal speech rate while keeping per-tick cost constant.
+    /// Window-start can clip a word mid-syllable; acceptable for a
+    /// throwaway preview whose head is truncated out of view anyway.
+    nonisolated private static let maxWindowSamples = 15 * 16_000
 
     /// Common whisper outputs on silence / blank audio. Lowercased
     /// match. Dropped before posting to AppState.partialText.
@@ -112,7 +121,7 @@ final class PartialTranscriber {
         while !Task.isCancelled {
             let samples = AudioRecorder.shared.currentSamples()
             if !samples.isEmpty {
-                await runOnePartial(samples: samples)
+                await runOnePartial(samples: Array(samples.suffix(Self.maxWindowSamples)))
             }
             if Task.isCancelled { return }
             try? await Task.sleep(for: .seconds(pollInterval))
