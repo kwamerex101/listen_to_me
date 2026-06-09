@@ -15,12 +15,13 @@ enum Migrations {
     /// schema_version to 1, etc.).
     private static let steps: [(Database) throws -> Void] = [
         // v1 — initial schema. Three small stores migrated as proof of
-        //      pattern: scratchpad (singleton blob), snippets (k/v),
-        //      transforms (named records). Future migrations add the
-        //      remaining 5 stores (DictionaryStore, CandidateStore,
-        //      StyleStore, StyleSamplesStore, PagesStore) in their own
-        //      numbered steps so partially-rolled-out builds don't
-        //      double-migrate.
+        //      pattern: scratchpad (singleton blob; the Scratchpad
+        //      feature was later cut but the table stays — migrations
+        //      are append-only), snippets (k/v), transforms (named
+        //      records). Future migrations add the remaining stores
+        //      (DictionaryStore, CandidateStore, StyleStore,
+        //      StyleSamplesStore) in their own numbered steps so
+        //      partially-rolled-out builds don't double-migrate.
         v1_initialSchema,
     ]
 

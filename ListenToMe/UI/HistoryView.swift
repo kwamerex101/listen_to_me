@@ -13,7 +13,13 @@ struct HistoryView: View {
     @State private var appFilter: String?
 
     var body: some View {
-        ScrollView {
+        // Filter once per body evaluation — `filtered` walks the whole
+        // record set, so computing it in each subview property would
+        // triple the work on every keystroke.
+        let filtered = self.filtered
+        let total = history.records.filter { !$0.dismissed }.count
+
+        return ScrollView {
             VStack(alignment: .leading, spacing: DT.space6) {
                 PageHeader(
                     title: "History",
@@ -22,12 +28,12 @@ struct HistoryView: View {
                     iconTint: .orange
                 )
 
-                filterBar
+                filterBar(matchCount: filtered.count, total: total)
 
                 if filtered.isEmpty {
                     emptyState
                 } else {
-                    ForEach(dayGroups, id: \.day) { group in
+                    ForEach(dayGroups(from: filtered), id: \.day) { group in
                         daySection(group)
                     }
                 }
@@ -46,6 +52,9 @@ struct HistoryView: View {
 
     private var filtered: [TranscriptRecord] {
         history.records.filter { record in
+            // History is the archive — dismissed dictations are noise
+            // here. (Home's Today section deliberately still shows them
+            // as same-day feedback that a dictation was discarded.)
             if record.dismissed { return false }
             if let appFilter {
                 let key = record.bundleId ?? "__other__"
@@ -79,7 +88,7 @@ struct HistoryView: View {
 
     /// Newest-day-first groups; records inside each day stay newest-first
     /// (HistoryStore inserts at the front).
-    private var dayGroups: [DayGroup] {
+    private func dayGroups(from filtered: [TranscriptRecord]) -> [DayGroup] {
         let cal = Calendar.current
         let grouped = Dictionary(grouping: filtered) { cal.startOfDay(for: $0.timestamp) }
         return grouped
@@ -89,7 +98,7 @@ struct HistoryView: View {
 
     // MARK: - Filter bar
 
-    private var filterBar: some View {
+    private func filterBar(matchCount: Int, total: Int) -> some View {
         HStack(spacing: DT.space3) {
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
@@ -121,7 +130,7 @@ struct HistoryView: View {
 
             Spacer()
 
-            Text("\(filtered.count) of \(history.records.filter { !$0.dismissed }.count)")
+            Text("\(matchCount) of \(total)")
                 .font(DT.monoCaption)
                 .foregroundStyle(.tertiary)
         }
