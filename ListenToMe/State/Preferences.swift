@@ -110,6 +110,7 @@ final class Preferences {
     private let kStreamingPartialsEnabled = "wf.streamingPartialsEnabled"
     private let kInputDeviceUID = "wf.inputDeviceUID"
     private let kSelectedWhisperModel = "wf.selectedWhisperModel"
+    private let kTranscriptionAccuracy = "wf.transcriptionAccuracy"
 
     /// Keychain account names (bundled here so call sites don't sprout
     /// stringly-typed names of their own).
@@ -224,6 +225,36 @@ final class Preferences {
             return TranscriptionEngine(rawValue: raw) ?? .server
         }
         set { defaults.set(newValue.rawValue, forKey: kTranscriptionEngine) }
+    }
+
+    /// Decoder strategy for the FINAL transcription pass. Streaming
+    /// partials always use greedy — they're throwaway previews and the
+    /// beam's extra latency would slow the live feel for no benefit.
+    enum TranscriptionAccuracy: String, CaseIterable {
+        case fast, accurate
+
+        var label: String {
+            switch self {
+            case .fast:     return "Fast (greedy decode, default)"
+            case .accurate: return "Accurate (beam search, ~25% slower)"
+            }
+        }
+
+        /// whisper.cpp beam width. 1 = greedy.
+        var beamSize: Int {
+            switch self {
+            case .fast:     return 1
+            case .accurate: return 5
+            }
+        }
+    }
+
+    var transcriptionAccuracy: TranscriptionAccuracy {
+        get {
+            let raw = defaults.string(forKey: kTranscriptionAccuracy) ?? TranscriptionAccuracy.fast.rawValue
+            return TranscriptionAccuracy(rawValue: raw) ?? .fast
+        }
+        set { defaults.set(newValue.rawValue, forKey: kTranscriptionAccuracy) }
     }
 
     /// Available Whisper GGML models. Each maps to a file in

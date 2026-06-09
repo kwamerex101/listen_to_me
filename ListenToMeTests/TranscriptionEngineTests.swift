@@ -92,3 +92,42 @@ final class WhisperModelManagerCoreMLTests: XCTestCase {
         XCTAssertTrue(result == true || result == false)
     }
 }
+
+/// Tests for the transcription-accuracy preference and its beam mapping.
+final class TranscriptionAccuracyPrefTests: XCTestCase {
+
+    private static let key = "wf.transcriptionAccuracy"
+
+    override func setUp() {
+        super.setUp()
+        UserDefaults.standard.removeObject(forKey: Self.key)
+    }
+    override func tearDown() {
+        UserDefaults.standard.removeObject(forKey: Self.key)
+        super.tearDown()
+    }
+
+    @MainActor
+    func test_default_is_fast() {
+        XCTAssertEqual(Preferences.shared.transcriptionAccuracy, .fast)
+    }
+
+    @MainActor
+    func test_persists_across_reads() {
+        Preferences.shared.transcriptionAccuracy = .accurate
+        XCTAssertEqual(Preferences.shared.transcriptionAccuracy, .accurate)
+        Preferences.shared.transcriptionAccuracy = .fast
+        XCTAssertEqual(Preferences.shared.transcriptionAccuracy, .fast)
+    }
+
+    @MainActor
+    func test_unknown_raw_value_falls_back_to_fast() {
+        UserDefaults.standard.set("turbo-ludicrous", forKey: Self.key)
+        XCTAssertEqual(Preferences.shared.transcriptionAccuracy, .fast)
+    }
+
+    func test_beam_size_mapping() {
+        XCTAssertEqual(Preferences.TranscriptionAccuracy.fast.beamSize, 1)
+        XCTAssertEqual(Preferences.TranscriptionAccuracy.accurate.beamSize, 5)
+    }
+}

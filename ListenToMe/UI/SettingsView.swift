@@ -17,6 +17,7 @@ struct SettingsView: View {
     @State private var historyEncryptionEnabled: Bool = Preferences.shared.historyEncryptionEnabled
     @State private var transcriptionEngine: Preferences.TranscriptionEngine = Preferences.shared.transcriptionEngine
     @State private var selectedWhisperModel: Preferences.WhisperModel = Preferences.shared.selectedWhisperModel
+    @State private var transcriptionAccuracy: Preferences.TranscriptionAccuracy = Preferences.shared.transcriptionAccuracy
     @State private var streamingPartialsEnabled: Bool = Preferences.shared.streamingPartialsEnabled
     @State private var inputDeviceUID: String = Preferences.shared.inputDeviceUID ?? ""
     @State private var availableInputs: [AudioInputDevice] = []
@@ -169,6 +170,18 @@ struct SettingsView: View {
                         .labelsHidden()
                         .onChange(of: transcriptionEngine) { _, new in
                             Preferences.shared.transcriptionEngine = new
+                        }
+                    }
+                    row(label: "Accuracy") {
+                        Picker("", selection: $transcriptionAccuracy) {
+                            ForEach(Preferences.TranscriptionAccuracy.allCases, id: \.self) { acc in
+                                Text(acc.label).tag(acc)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                        .onChange(of: transcriptionAccuracy) { _, new in
+                            Preferences.shared.transcriptionAccuracy = new
                         }
                     }
                     row(label: "Live partial transcripts") {
@@ -347,6 +360,7 @@ struct SettingsView: View {
             transcriptionEngine = Preferences.shared.transcriptionEngine
             streamingPartialsEnabled = Preferences.shared.streamingPartialsEnabled
             selectedWhisperModel = Preferences.shared.selectedWhisperModel
+            transcriptionAccuracy = Preferences.shared.transcriptionAccuracy
             availableInputs = AudioInputDevices.available()
             let savedUID = Preferences.shared.inputDeviceUID ?? ""
             inputDeviceUID = (savedUID.isEmpty || availableInputs.contains(where: { $0.uid == savedUID })) ? savedUID : ""
