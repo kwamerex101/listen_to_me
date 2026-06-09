@@ -46,7 +46,8 @@ struct WhisperRunner {
         if engine == .linked {
             do {
                 let samples = try WhisperWAVReader.samples(at: wav)
-                let text = try await WhisperLib.shared.transcribe(samples: samples, prompt: prompt)
+                let text = try await WhisperLib.shared.transcribe(samples: samples, prompt: prompt,
+                                                                  paragraphBreaks: true)
                 try? FileManager.default.removeItem(at: wav)
                 if text.isEmpty { throw WhisperError.noOutput }
                 return text

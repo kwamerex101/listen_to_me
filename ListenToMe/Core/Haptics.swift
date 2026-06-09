@@ -20,10 +20,13 @@ enum Haptics {
     }
 
     /// Fired when transcription + cleanup succeed and text is pasted.
+    /// `.drawCompleted` defers the tap to the next screen update so it
+    /// lands on the same frame the success visuals (checkmark/halo)
+    /// start, reading as one event instead of haptic-then-animation.
     static func success() {
         NSHapticFeedbackManager.defaultPerformer.perform(
             .generic,
-            performanceTime: .now
+            performanceTime: .drawCompleted
         )
     }
 }

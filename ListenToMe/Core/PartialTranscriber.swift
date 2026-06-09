@@ -1,3 +1,4 @@
+import Accelerate
 import Foundation
 
 /// Drives the M5' streaming-partial-transcripts loop. While the user
@@ -10,9 +11,10 @@ import Foundation
 /// - 1.5 s cadence (not 500 ms): partial passes on sub-second audio
 ///   chunks hallucinate ("[BLANK_AUDIO]", generic phrases). 1.5 s is
 ///   tight enough to feel live, slow enough to be coherent.
-/// - First pass deferred by 2.0 s: whisper-base hallucinates badly on
-///   < 1 s audio. By 2.0 s the user has typically said something
-///   meaningful.
+/// - First pass deferred by 1.0 s: whisper-base hallucinates badly on
+///   < 1 s audio. At 1.0 s there's usually a word or two to show; the
+///   hallucination filter below catches the residual silence outputs,
+///   and the next tick (1.5 s later) corrects any junk.
 /// - `WhisperLib.isBusy` gate: if a partial is still running when the
 ///   next tick fires, skip — don't queue. The audio is still
 ///   accumulating; the next tick will see more.
@@ -30,9 +32,18 @@ final class PartialTranscriber {
     private let pollInterval: TimeInterval = 1.5
     /// Defer the first pass until at least this much audio is in the
     /// accumulator. Avoids whisper-on-silence hallucinations.
-    private let warmupSeconds: TimeInterval = 2.0
+    private let warmupSeconds: TimeInterval = 1.0
     /// 16 kHz mono → 32k samples per warmup-second.
     private var warmupSampleCount: Int { Int(16_000 * warmupSeconds) }
+    /// Partial passes only transcribe the most recent slice of audio.
+    /// The preview renders two head-truncated lines (the transcript
+    /// tail), so re-transcribing the whole accumulated buffer every
+    /// tick is O(n²) waste — a 60 s hold would re-process the first
+    /// second forty times. 15 s comfortably fills two preview lines
+    /// at normal speech rate while keeping per-tick cost constant.
+    /// Window-start can clip a word mid-syllable; acceptable for a
+    /// throwaway preview whose head is truncated out of view anyway.
+    nonisolated private static let maxWindowSamples = 15 * 16_000
 
     /// Common whisper outputs on silence / blank audio. Lowercased
     /// match. Dropped before posting to AppState.partialText.
@@ -53,6 +64,10 @@ final class PartialTranscriber {
 
     private var loopTask: Task<Void, Never>?
     private var isStarted = false
+    /// Dictionary biasing prompt, snapshotted once per dictation in
+    /// `start()`. Entries can't change mid-hold, and snapshotting avoids
+    /// re-reading the store on every tick.
+    private var dictionaryPrompt: String?
 
     private init() {}
 
@@ -71,6 +86,7 @@ final class PartialTranscriber {
             return
         }
         isStarted = true
+        dictionaryPrompt = DictionaryStore.shared.whisperPrompt
         AppState.shared.partialText = ""
         loopTask = Task { @MainActor [weak self] in
             await self?.runLoop()
@@ -105,19 +121,52 @@ final class PartialTranscriber {
         while !Task.isCancelled {
             let samples = AudioRecorder.shared.currentSamples()
             if !samples.isEmpty {
-                await runOnePartial(samples: samples)
+                await runOnePartial(samples: Array(samples.suffix(Self.maxWindowSamples)))
             }
             if Task.isCancelled { return }
             try? await Task.sleep(for: .seconds(pollInterval))
         }
     }
 
+    /// Linear RMS below which the whole accumulated buffer counts as
+    /// silence (~-40 dBFS). Whisper hallucinates fluent text on silent
+    /// input; skipping the pass entirely is both more correct and
+    /// cheaper than transcribe-then-filter.
+    nonisolated private static let silenceRMSThreshold: Float = 0.01
+
+    /// True when the buffer contains no speech-level energy anywhere.
+    /// Checked per 0.5 s window, not whole-buffer: a single whole-buffer
+    /// RMS dilutes — one second of quiet speech inside a long pause-heavy
+    /// hold would average below the threshold and wrongly mute partials
+    /// mid-dictation. Any window with energy ⇒ not silent, so once the
+    /// user has spoken the gate stays open for the rest of the hold.
+    /// `nonisolated` + static so tests can call directly.
+    nonisolated static func isSilent(_ samples: [Float]) -> Bool {
+        guard !samples.isEmpty else { return true }
+        let window = 8_000  // 0.5 s at 16 kHz
+        var start = 0
+        while start < samples.count {
+            let count = min(window, samples.count - start)
+            var rms: Float = 0
+            samples.withUnsafeBufferPointer { buf in
+                vDSP_rmsqv(buf.baseAddress! + start, 1, &rms, vDSP_Length(count))
+            }
+            if rms >= silenceRMSThreshold { return false }
+            start += window
+        }
+        return true
+    }
+
     private func runOnePartial(samples: [Float]) async {
+        // VAD gate: nothing said yet — no point waking whisper just to
+        // hallucinate "Thank you." over room tone.
+        if Self.isSilent(samples) { return }
         do {
-            // No prompt for partials — DictionaryStore biasing applies
-            // to the FINAL pass on release; partials are throwaway
-            // previews.
-            let raw = try await WhisperLib.shared.transcribe(samples: samples, prompt: nil)
+            // Bias partials with the same dictionary prompt the final
+            // pass uses, so user-trained terms render correctly in the
+            // live preview too. Snapshotted in start() — see
+            // `dictionaryPrompt`.
+            let raw = try await WhisperLib.shared.transcribe(samples: samples, prompt: dictionaryPrompt)
             let cleaned = Self.filterHallucination(raw)
             if !cleaned.isEmpty, !Task.isCancelled {
                 AppState.shared.partialText = cleaned
