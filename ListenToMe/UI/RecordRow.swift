@@ -89,7 +89,7 @@ struct RecordRow: View {
                     )
                 }
                 .opacity(hovered ? 1 : 0.32)
-                .animation(.easeInOut(duration: 0.12), value: hovered)
+                .animation(Motion.hoverFade, value: hovered)
             }
         }
         .padding(.horizontal, DT.space5)
@@ -99,10 +99,10 @@ struct RecordRow: View {
             Rectangle()
                 .fill(DT.accent)
                 .frame(width: hovered ? 3 : 0)
-                .animation(.easeInOut(duration: 0.12), value: hovered)
+                .animation(Motion.hoverFade, value: hovered)
         }
         .onHover { hovered = $0 }
-        .animation(.easeInOut(duration: 0.12), value: hovered)
+        .animation(Motion.hoverFade, value: hovered)
     }
 
     private func actionButton(icon: String, help: String, action: @escaping () -> Void) -> some View {

@@ -201,7 +201,7 @@ struct SettingsView: View {
                     row(label: "Accessibility") {
                         HStack(spacing: 10) {
                             Text(accessibilityGranted ? "Granted ✓" : "Not granted")
-                                .foregroundStyle(accessibilityGranted ? .green : .orange)
+                                .foregroundStyle(accessibilityGranted ? DT.statusSuccess : DT.statusWarning)
                                 .font(.system(size: 13))
                             if !accessibilityGranted {
                                 Button("Grant…") {
@@ -225,7 +225,7 @@ struct SettingsView: View {
                         }
                         .pickerStyle(.menu)
                         .labelsHidden()
-                        .frame(width: 240)
+                        .frame(width: DT.controlPickerWidth)
                         .onChange(of: inputDeviceUID) { _, new in
                             Preferences.shared.inputDeviceUID = new.isEmpty ? nil : new
                         }
@@ -241,27 +241,27 @@ struct SettingsView: View {
                     row(label: "Max recording duration") {
                         HStack(spacing: 10) {
                             Slider(value: $maxRecordingSec, in: 30...600, step: 30)
-                                .frame(width: 180)
+                                .frame(width: DT.controlSliderWidth)
                                 .onChange(of: maxRecordingSec) { _, new in
                                     Preferences.shared.maxRecordingSec = Int(new)
                                 }
                             Text("\(Int(maxRecordingSec))s")
                                 .font(DT.monoCaption)
                                 .foregroundStyle(.secondary)
-                                .frame(width: 44, alignment: .trailing)
+                                .frame(width: DT.controlValueLabelWidth, alignment: .trailing)
                         }
                     }
                     row(label: "Cleanup timeout") {
                         HStack(spacing: 10) {
                             Slider(value: $cleanupTimeoutSec, in: 5...60, step: 5)
-                                .frame(width: 180)
+                                .frame(width: DT.controlSliderWidth)
                                 .onChange(of: cleanupTimeoutSec) { _, new in
                                     Preferences.shared.cleanupTimeoutSec = Int(new)
                                 }
                             Text("\(Int(cleanupTimeoutSec))s")
                                 .font(DT.monoCaption)
                                 .foregroundStyle(.secondary)
-                                .frame(width: 44, alignment: .trailing)
+                                .frame(width: DT.controlValueLabelWidth, alignment: .trailing)
                         }
                     }
                     row(label: "Diagnostics log") {
@@ -290,7 +290,7 @@ struct SettingsView: View {
                     row(label: "History retention") {
                         HStack(spacing: 10) {
                             Slider(value: $historyRetentionDays, in: 0...365, step: 30)
-                                .frame(width: 180)
+                                .frame(width: DT.controlSliderWidth)
                                 .onChange(of: historyRetentionDays) { _, new in
                                     Preferences.shared.historyRetentionDays = Int(new)
                                 }
@@ -327,7 +327,7 @@ struct SettingsView: View {
                     }
                 }
             }
-            .padding(.top, 60)
+            .padding(.top, DT.safeAreaTop)
             .padding(.horizontal, 40)
             .padding(.bottom, 40)
         }
@@ -363,13 +363,13 @@ struct SettingsView: View {
             HStack(spacing: 10) {
                 Text("Downloaded ✓ (\(formatBytes(bytes)))")
                     .font(.system(size: 13))
-                    .foregroundStyle(.green)
+                    .foregroundStyle(DT.statusSuccess)
             }
         case .missing:
             HStack(spacing: 10) {
                 Text("Not downloaded (\(selectedWhisperModel.displayName))")
                     .font(.system(size: 13))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(DT.statusWarning)
                 Button("Download") { modelManager.startDownload() }
                     .buttonStyle(.pressable)
             }
@@ -388,7 +388,7 @@ struct SettingsView: View {
             HStack(spacing: 10) {
                 Text("⚠ \(message)")
                     .font(.system(size: 13))
-                    .foregroundStyle(.red)
+                    .foregroundStyle(DT.statusError)
                     .lineLimit(2)
                 Button("Retry") { modelManager.startDownload() }
                     .buttonStyle(.pressable)

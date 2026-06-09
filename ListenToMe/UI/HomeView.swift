@@ -27,7 +27,7 @@ struct HomeView: View {
 
                 todaySection
             }
-            .padding(.top, 60)
+            .padding(.top, DT.safeAreaTop)
             .padding(.horizontal, isNarrow ? DT.space6 : DT.space10)
             .padding(.bottom, DT.space10)
             // Cap the content width on very wide screens so the page reads
@@ -103,7 +103,7 @@ struct HomeView: View {
         Button(action: { state.onStartTap?() }) {
             HStack(spacing: 8) {
                 if case .recording = state.phase {
-                    Circle().fill(Color.red).frame(width: 7, height: 7)
+                    Circle().fill(DT.statusRecording).frame(width: 7, height: 7)
                     Text("Recording…")
                 } else {
                     Image(systemName: "mic.fill")

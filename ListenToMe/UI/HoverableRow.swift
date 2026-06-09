@@ -22,7 +22,7 @@ struct HoverableRow: ViewModifier {
             )
             .contentShape(Rectangle())
             .onHover { hovered = $0 }
-            .animation(.easeInOut(duration: 0.15), value: hovered)
+            .animation(Motion.hoverFade, value: hovered)
     }
 }
 

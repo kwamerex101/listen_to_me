@@ -34,7 +34,7 @@ struct DictionaryView: View {
                     manualSection
                 }
             }
-            .padding(.top, 60)
+            .padding(.top, DT.safeAreaTop)
             .padding(.horizontal, DT.space10)
             .padding(.bottom, DT.space10)
             .frame(maxWidth: .infinity, alignment: .leading)
