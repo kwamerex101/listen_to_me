@@ -49,6 +49,51 @@ final class PartialTranscriberTests: XCTestCase {
         XCTAssertEqual(PartialTranscriber.filterHallucination("\n\n"), "")
     }
 
+    // MARK: - VAD silence gate
+
+    func test_isSilent_true_for_empty_buffer() {
+        XCTAssertTrue(PartialTranscriber.isSilent([]))
+    }
+
+    func test_isSilent_true_for_all_zero_samples() {
+        XCTAssertTrue(PartialTranscriber.isSilent([Float](repeating: 0, count: 16_000)))
+    }
+
+    func test_isSilent_true_for_room_tone() {
+        // Low-level noise well under the -40 dBFS threshold (RMS 0.001).
+        let noise = (0..<16_000).map { i in Float(i % 2 == 0 ? 0.001 : -0.001) }
+        XCTAssertTrue(PartialTranscriber.isSilent(noise))
+    }
+
+    func test_isSilent_false_for_speech_level_audio() {
+        // 440 Hz tone at 0.1 amplitude — RMS ≈ 0.07, far above threshold.
+        let tone = (0..<16_000).map { i in
+            Float(0.1 * sin(2.0 * Double.pi * 440.0 * Double(i) / 16_000.0))
+        }
+        XCTAssertFalse(PartialTranscriber.isSilent(tone))
+    }
+
+    func test_isSilent_false_when_speech_buried_in_long_silent_buffer() {
+        // 59 s of silence + 1 s of quiet speech (0.05 amplitude). A
+        // whole-buffer RMS would dilute to ~0.0046 and wrongly read as
+        // silence; the windowed check finds the speech window.
+        var samples = [Float](repeating: 0, count: 960_000)
+        for i in 0..<16_000 {
+            samples[944_000 + i] = Float(0.05 * sin(2.0 * Double.pi * 440.0 * Double(i) / 16_000.0))
+        }
+        XCTAssertFalse(PartialTranscriber.isSilent(samples))
+    }
+
+    func test_isSilent_handles_buffer_not_multiple_of_window() {
+        // 12_345 samples (not a multiple of the 8_000 window) with energy
+        // only in the final ragged window.
+        var samples = [Float](repeating: 0, count: 12_345)
+        for i in 8_000..<12_345 {
+            samples[i] = Float(0.1 * sin(2.0 * Double.pi * 440.0 * Double(i) / 16_000.0))
+        }
+        XCTAssertFalse(PartialTranscriber.isSilent(samples))
+    }
+
     // MARK: - Pass-through
 
     func test_filter_passes_real_partials() {

@@ -1,3 +1,4 @@
+import Accelerate
 import Foundation
 
 /// Drives the M5' streaming-partial-transcripts loop. While the user
@@ -118,7 +119,39 @@ final class PartialTranscriber {
         }
     }
 
+    /// Linear RMS below which the whole accumulated buffer counts as
+    /// silence (~-40 dBFS). Whisper hallucinates fluent text on silent
+    /// input; skipping the pass entirely is both more correct and
+    /// cheaper than transcribe-then-filter.
+    nonisolated private static let silenceRMSThreshold: Float = 0.01
+
+    /// True when the buffer contains no speech-level energy anywhere.
+    /// Checked per 0.5 s window, not whole-buffer: a single whole-buffer
+    /// RMS dilutes — one second of quiet speech inside a long pause-heavy
+    /// hold would average below the threshold and wrongly mute partials
+    /// mid-dictation. Any window with energy ⇒ not silent, so once the
+    /// user has spoken the gate stays open for the rest of the hold.
+    /// `nonisolated` + static so tests can call directly.
+    nonisolated static func isSilent(_ samples: [Float]) -> Bool {
+        guard !samples.isEmpty else { return true }
+        let window = 8_000  // 0.5 s at 16 kHz
+        var start = 0
+        while start < samples.count {
+            let count = min(window, samples.count - start)
+            var rms: Float = 0
+            samples.withUnsafeBufferPointer { buf in
+                vDSP_rmsqv(buf.baseAddress! + start, 1, &rms, vDSP_Length(count))
+            }
+            if rms >= silenceRMSThreshold { return false }
+            start += window
+        }
+        return true
+    }
+
     private func runOnePartial(samples: [Float]) async {
+        // VAD gate: nothing said yet — no point waking whisper just to
+        // hallucinate "Thank you." over room tone.
+        if Self.isSilent(samples) { return }
         do {
             // Bias partials with the same dictionary prompt the final
             // pass uses, so user-trained terms render correctly in the
