@@ -96,6 +96,32 @@ final class WhisperLib {
         }
     }
 
+    /// Warm the model context in the background so the first hotkey
+    /// press doesn't pay the synchronous model load (~200-800 ms warm
+    /// cache, up to ~8 s cold disk) on the main thread. Called from
+    /// AppDelegate at launch when the linked engine is selected.
+    ///
+    /// The heavy `whisper_init` runs off-main; adoption back on the
+    /// MainActor is guarded: if a transcribe call raced us and already
+    /// loaded a context, or the user switched models mid-load, the
+    /// orphaned context is freed instead of adopted.
+    func preload() {
+        guard ctx == nil, isReady else { return }
+        let modelPath = WhisperRunner.modelURL.path
+        Task.detached(priority: .utility) {
+            let loaded = Self.initContext(path: modelPath)
+            await MainActor.run {
+                let lib = WhisperLib.shared
+                if lib.ctx == nil, WhisperRunner.modelURL.path == modelPath {
+                    lib.ctx = loaded
+                    lib.loadedModelPath = loaded != nil ? modelPath : nil
+                } else if let loaded {
+                    whisper_free(loaded)
+                }
+            }
+        }
+    }
+
     /// Tear down the model context. Idempotent. Wired from
     /// AppDelegate.applicationWillTerminate alongside WhisperServer.
     func shutdown() {
@@ -122,6 +148,15 @@ final class WhisperLib {
         guard FileManager.default.fileExists(atPath: modelPath) else {
             throw LibError.modelNotFound(modelPath)
         }
+        guard let p = Self.initContext(path: modelPath) else { throw LibError.initFailed }
+        ctx = p
+        loadedModelPath = modelPath
+    }
+
+    /// The raw whisper context init. Pulled into a nonisolated static
+    /// helper so `preload()` can run it off the MainActor; `ensureContext`
+    /// shares it for the synchronous on-demand path.
+    nonisolated private static func initContext(path: String) -> OpaquePointer? {
         var cparams = whisper_context_default_params()
         // Metal backend on Apple Silicon is what makes this fast;
         // explicit YES so a future header default flip doesn't
@@ -130,10 +165,7 @@ final class WhisperLib {
         // sits next to the .bin (handled by WhisperModelManager).
         cparams.use_gpu = true
         cparams.flash_attn = true
-        let p = modelPath.withCString { whisper_init_from_file_with_params($0, cparams) }
-        guard let p else { throw LibError.initFailed }
-        ctx = p
-        loadedModelPath = modelPath
+        return path.withCString { whisper_init_from_file_with_params($0, cparams) }
     }
 
     /// The actual `whisper_full` call. Pulled into a static helper so

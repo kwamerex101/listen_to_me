@@ -10,9 +10,10 @@ import Foundation
 /// - 1.5 s cadence (not 500 ms): partial passes on sub-second audio
 ///   chunks hallucinate ("[BLANK_AUDIO]", generic phrases). 1.5 s is
 ///   tight enough to feel live, slow enough to be coherent.
-/// - First pass deferred by 2.0 s: whisper-base hallucinates badly on
-///   < 1 s audio. By 2.0 s the user has typically said something
-///   meaningful.
+/// - First pass deferred by 1.0 s: whisper-base hallucinates badly on
+///   < 1 s audio. At 1.0 s there's usually a word or two to show; the
+///   hallucination filter below catches the residual silence outputs,
+///   and the next tick (1.5 s later) corrects any junk.
 /// - `WhisperLib.isBusy` gate: if a partial is still running when the
 ///   next tick fires, skip — don't queue. The audio is still
 ///   accumulating; the next tick will see more.
@@ -30,7 +31,7 @@ final class PartialTranscriber {
     private let pollInterval: TimeInterval = 1.5
     /// Defer the first pass until at least this much audio is in the
     /// accumulator. Avoids whisper-on-silence hallucinations.
-    private let warmupSeconds: TimeInterval = 2.0
+    private let warmupSeconds: TimeInterval = 1.0
     /// 16 kHz mono → 32k samples per warmup-second.
     private var warmupSampleCount: Int { Int(16_000 * warmupSeconds) }
 
@@ -53,6 +54,10 @@ final class PartialTranscriber {
 
     private var loopTask: Task<Void, Never>?
     private var isStarted = false
+    /// Dictionary biasing prompt, snapshotted once per dictation in
+    /// `start()`. Entries can't change mid-hold, and snapshotting avoids
+    /// re-reading the store on every tick.
+    private var dictionaryPrompt: String?
 
     private init() {}
 
@@ -71,6 +76,7 @@ final class PartialTranscriber {
             return
         }
         isStarted = true
+        dictionaryPrompt = DictionaryStore.shared.whisperPrompt
         AppState.shared.partialText = ""
         loopTask = Task { @MainActor [weak self] in
             await self?.runLoop()
@@ -114,10 +120,11 @@ final class PartialTranscriber {
 
     private func runOnePartial(samples: [Float]) async {
         do {
-            // No prompt for partials — DictionaryStore biasing applies
-            // to the FINAL pass on release; partials are throwaway
-            // previews.
-            let raw = try await WhisperLib.shared.transcribe(samples: samples, prompt: nil)
+            // Bias partials with the same dictionary prompt the final
+            // pass uses, so user-trained terms render correctly in the
+            // live preview too. Snapshotted in start() — see
+            // `dictionaryPrompt`.
+            let raw = try await WhisperLib.shared.transcribe(samples: samples, prompt: dictionaryPrompt)
             let cleaned = Self.filterHallucination(raw)
             if !cleaned.isEmpty, !Task.isCancelled {
                 AppState.shared.partialText = cleaned

@@ -119,6 +119,14 @@ struct ClaudeClient {
             if let bundleId, let hint = StyleStore.shared.promptHint(for: bundleId) {
                 sections.append(hint)
             }
+            // User dictionary: the same terms that bias Whisper via
+            // --prompt. Without this, cleanup can "fix" a correctly
+            // transcribed proper noun back to a generic spelling,
+            // undoing the user's training. Reuses the ~800-char-capped
+            // whisperPrompt string so the prompt stays bounded.
+            if let vocabulary = DictionaryStore.shared.whisperPrompt {
+                sections.append("VOCABULARY — these user-defined terms and proper nouns are spelled correctly; preserve them exactly as written: \(vocabulary)")
+            }
             // Code-mode swap (M3a.6): if the target is a code editor /
             // terminal, use the casing-aware base prompt. Per-app tone
             // hint still applies on top — they layer.

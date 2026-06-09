@@ -107,10 +107,10 @@ struct PillView: View {
                 .accessibilityLabel(accessibilityLabelForCurrentPhase)
                 .accessibilityHint(accessibilityHintForCurrentPhase)
                 .accessibilityAddTraits(isPillTappable ? .isButton : [])
-                .animation(Motion.phaseSize, value: pillWidth)
-                .animation(Motion.phaseSize, value: pillHeight)
-                .animation(Motion.phaseSwap, value: visualID)
-                .animation(Motion.hoverLift, value: hovered)
+                .animation(reduceMotion ? nil : Motion.phaseSize, value: pillWidth)
+                .animation(reduceMotion ? nil : Motion.phaseSize, value: pillHeight)
+                .animation(reduceMotion ? nil : Motion.phaseSwap, value: visualID)
+                .animation(reduceMotion ? nil : Motion.hoverLift, value: hovered)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         .onChange(of: state.level) { _, newValue in
@@ -151,7 +151,11 @@ struct PillView: View {
             triggerSuccessHalo()
             cancelExhale()
         case .error:
-            withAnimation(Motion.shake) { shakeTrigger += 1 }
+            // Shake is pure decoration — the error message + icon carry
+            // the information. Skip entirely under reduce-motion.
+            if !reduceMotion {
+                withAnimation(Motion.shake) { shakeTrigger += 1 }
+            }
             cancelExhale()
         case .idle:
             // Only exhale if we're returning from a meaningful phase, not on
@@ -169,7 +173,10 @@ struct PillView: View {
         shrinkTimer?.invalidate()
         shrinkTimer = nil
         if isShrunkToDot {
-            withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+            // Shrink/wake is functional (the pill genuinely changes size),
+            // so it still happens under reduce-motion — just without the
+            // spring.
+            withAnimation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.78)) {
                 isShrunkToDot = false
             }
         }
@@ -185,7 +192,7 @@ struct PillView: View {
         guard isIdleAndCalm, !hovered else { return }
         shrinkTimer = Timer.scheduledTimer(withTimeInterval: shrinkAfter, repeats: false) { _ in
             Task { @MainActor in
-                withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+                withAnimation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.78)) {
                     isShrunkToDot = true
                 }
                 shrinkTimer = nil
@@ -196,7 +203,7 @@ struct PillView: View {
     // MARK: - Promotion flash (POLISH-04c)
 
     private func triggerPromotionFlash(if isFlashing: Bool) {
-        guard isFlashing else { return }
+        guard isFlashing, !reduceMotion else { return }
         // Snap to start state (no animation), then animate to faded-out
         // larger ring. Mirrors the success-halo shape — sibling overlay.
         promotionScale = 0.6
@@ -248,6 +255,7 @@ struct PillView: View {
 
 
     private func triggerPressPop() {
+        guard !reduceMotion else { return }
         withAnimation(Motion.pressUp) { pressPop = 1.06 }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) {
             withAnimation(Motion.pressDown) { pressPop = 1.0 }
@@ -255,6 +263,8 @@ struct PillView: View {
     }
 
     private func triggerSuccessHalo() {
+        // Purely celebratory — the checkmark already signals success.
+        guard !reduceMotion else { return }
         haloScale = 0.6
         haloOpacity = 1
         withAnimation(Motion.halo) {
@@ -264,6 +274,7 @@ struct PillView: View {
     }
 
     private func triggerExhale() {
+        guard !reduceMotion else { return }
         // Brief downward drift + fade, then snap back to 1.0/0 so the next
         // phase entry doesn't inherit a faded state.
         withAnimation(Animation.easeIn(duration: 0.28)) {

@@ -136,6 +136,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         _ = SnippetsStore.shared
         _ = TransformsStore.shared
 
+        // Warm the whisper context off-main so the first hotkey press
+        // doesn't stall on the synchronous model load. Only the linked
+        // engine uses the in-process context; server/CLI manage their own.
+        if Preferences.shared.transcriptionEngine == .linked {
+            WhisperLib.shared.preload()
+        }
+
         // M3b: mine the existing history for single-word swaps that
         // claude cleanup consistently fixed (e.g. "danqua" → "Danquah").
         // Feeds CandidateStore via the same promotion pipeline used by
