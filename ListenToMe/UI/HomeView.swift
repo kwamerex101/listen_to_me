@@ -4,6 +4,12 @@ struct HomeView: View {
     @ObservedObject private var history = HistoryStore.shared
     @ObservedObject private var state = AppState.shared
     @Environment(\.windowWidth) private var windowWidth
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Drives the dashboard entrance choreography (number roll-up,
+    /// gauge sweep, sparkline draw). Flipped once on first appear;
+    /// under reduce-motion everything starts in its final state.
+    @State private var appeared = false
 
     var body: some View {
         ScrollView {
@@ -30,6 +36,15 @@ struct HomeView: View {
             // column has a max width.
             .frame(maxWidth: DT.pageMaxWidth, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .onAppear {
+            if reduceMotion {
+                appeared = true
+            } else {
+                withAnimation(.spring(response: 0.8, dampingFraction: 0.9)) {
+                    appeared = true
+                }
+            }
         }
     }
 
@@ -110,14 +125,42 @@ struct HomeView: View {
         GeometryReader { geo in
             HStack(spacing: 4) {
                 ForEach(0..<18, id: \.self) { i in
-                    let phase = Double(i) / 18.0
-                    let h = 0.30 + 0.50 * abs(sin(phase * .pi * 2))
-                    Capsule()
-                        .fill(Color.white.opacity(0.55))
-                        .frame(width: 4, height: max(8, geo.size.height * h))
+                    HeroBar(index: i, maxHeight: geo.size.height, animate: !reduceMotion)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        }
+    }
+
+    /// One decorative hero bar. Each bar slowly breathes between its base
+    /// height and a slightly taller one on its own phase-shifted cadence,
+    /// so the waveform reads as alive without drawing attention. Driven
+    /// by Core Animation repeatForever (GPU-cheap, no per-frame SwiftUI
+    /// re-evaluation). Static under reduce-motion.
+    private struct HeroBar: View {
+        let index: Int
+        let maxHeight: CGFloat
+        let animate: Bool
+        @State private var up = false
+
+        private var baseFrac: Double { 0.30 + 0.50 * abs(sin(Double(index) / 18.0 * .pi * 2)) }
+
+        var body: some View {
+            let base = max(8, maxHeight * baseFrac)
+            Capsule()
+                .fill(Color.white.opacity(0.55))
+                .frame(width: 4, height: base)
+                .scaleEffect(y: up ? 1.18 : 0.92, anchor: .center)
+                .onAppear {
+                    guard animate else { return }
+                    withAnimation(
+                        .easeInOut(duration: 1.4 + Double(index % 5) * 0.13)
+                        .repeatForever(autoreverses: true)
+                        .delay(Double(index) * 0.09)
+                    ) {
+                        up = true
+                    }
+                }
         }
     }
 
@@ -129,13 +172,11 @@ struct HomeView: View {
                 VStack(spacing: DT.space4) {
                     wpmCard
                     totalWordsCard
-                    streakCard
                 }
             } else {
                 HStack(spacing: DT.space4) {
                     wpmCard
                     totalWordsCard
-                    streakCard
                 }
                 // Force every tile in the row to the tallest tile's height
                 // so the gauge, sparkline, and streak cells all line up.
@@ -144,8 +185,10 @@ struct HomeView: View {
         }
     }
 
-    /// WPM tile — gauge arc showing the user's average WPM and a label
-    /// indicating their position in a coarse percentile band.
+    /// WPM tile — gauge arc showing the user's average WPM on a fixed
+    /// 0–200 scale with a single pace word in the center. (The old
+    /// pseudo-percentile "25%" read as a third competing number with no
+    /// clear meaning; one scale + one word is the whole story.)
     private var wpmCard: some View {
         let wpm = history.averageWPM
         return VStack(alignment: .leading, spacing: DT.space3) {
@@ -159,20 +202,19 @@ struct HomeView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Text("\(wpm)")
-                .font(DT.statNumber)
+            rollupNumber(wpm)
 
-            // Gauge fills the rest of the card so all three KPI tiles end
-            // up the same height in the row.
+            // Gauge fills the rest of the card so the KPI tiles end up
+            // the same height in the row. Sweeps in from zero on appear.
             ZStack {
-                GaugeArc(value: wpmGaugeValue, tint: .teal)
-                VStack(spacing: 0) {
+                GaugeArc(value: appeared ? wpmGaugeValue : 0, tint: .teal)
+                VStack(spacing: 2) {
                     Spacer().frame(height: 28)
-                    Text(percentileLabel(for: wpm))
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                    Text(percentileNumber(for: wpm))
-                        .font(.system(size: 18, weight: .bold))
+                    Text(paceLabel(for: wpm))
+                        .font(.system(size: 16, weight: .bold))
+                    Text("of 200 wpm")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -180,6 +222,15 @@ struct HomeView: View {
         .frame(maxWidth: .infinity, minHeight: DT.kpiTileMinHeight, alignment: .topLeading)
         .padding(DT.space5)
         .card()
+    }
+
+    /// Big KPI number that rolls up from zero on first appear via the
+    /// numeric-text content transition. Under reduce-motion `appeared`
+    /// starts true-without-animation, so it renders the final value.
+    private func rollupNumber(_ value: Int) -> some View {
+        Text(formatBigNumber(appeared ? value : 0))
+            .font(DT.statNumber)
+            .contentTransition(.numericText(value: Double(appeared ? value : 0)))
     }
 
     /// Total words tile — large number + week-over-week growth chip if
@@ -200,11 +251,12 @@ struct HomeView: View {
                 Spacer()
                 if let g = growth {
                     growthChip(g)
+                        .transition(.scale(scale: 0.8).combined(with: .opacity))
                 }
             }
+            .animation(.spring(response: 0.25, dampingFraction: 0.8), value: growth != nil)
 
-            Text(formatBigNumber(history.totalWords))
-                .font(DT.statNumber)
+            rollupNumber(history.totalWords)
 
             Text("Last 14 days")
                 .font(.system(size: 10))
@@ -212,8 +264,9 @@ struct HomeView: View {
                 .padding(.top, DT.space1)
 
             // Sparkline fills the remaining height so this tile matches
-            // the WPM card's vertical extent.
-            Sparkline(values: metrics.map { Double($0.words) }, tint: DT.accent)
+            // the WPM card's vertical extent. Draws in left-to-right.
+            Sparkline(values: metrics.map { Double($0.words) }, tint: DT.accent,
+                      progress: appeared ? 1 : 0)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, minHeight: DT.kpiTileMinHeight, alignment: .topLeading)
@@ -221,78 +274,7 @@ struct HomeView: View {
         .card()
     }
 
-    /// Streak tile — current count + the past week as day-cells + a
-    /// "this week" total below to fill the card and balance with the
-    /// other KPIs.
-    private var streakCard: some View {
-        let week = Array(history.dailyMetrics(lastDays: 7))
-        let streak = history.dayStreak
-        let activeThisWeek = week.filter { $0.isActive }.count
-        let wordsThisWeek = week.reduce(0) { $0 + $1.words }
-
-        return VStack(alignment: .leading, spacing: DT.space3) {
-            HStack(spacing: 6) {
-                Image(systemName: "flame.fill")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.orange)
-                Text("DAY STREAK")
-                    .font(DT.eyebrow)
-                    .tracking(0.6)
-                    .foregroundStyle(.secondary)
-            }
-
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text("\(streak)")
-                    .font(DT.statNumber)
-                Text(streak == 1 ? "day" : "days")
-                    .font(DT.captionStrong)
-                    .foregroundStyle(.secondary)
-            }
-
-            // Past 7 days as day-cells (filled when active). Cells expand
-            // horizontally so the row spans the card.
-            GeometryReader { geo in
-                let count = week.count
-                let gap: CGFloat = 6
-                let totalGap = gap * CGFloat(max(count - 1, 0))
-                let cellW = max(12, (geo.size.width - totalGap) / CGFloat(max(count, 1)))
-                HStack(spacing: gap) {
-                    ForEach(week.indices, id: \.self) { i in
-                        let active = week[i].isActive
-                        RoundedRectangle(cornerRadius: 4, style: .continuous)
-                            .fill(active ? Color.orange.opacity(0.85) : DT.surfaceElevated)
-                            .frame(width: cellW, height: 30)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                    .strokeBorder(DT.separator, lineWidth: 0.5)
-                            )
-                    }
-                }
-            }
-            .frame(height: 30)
-
-            Spacer(minLength: 0)
-
-            // Footer row — fills remaining vertical space and gives the
-            // tile body a balanced bottom edge.
-            HStack(spacing: DT.space4) {
-                metricChip(
-                    label: "this week",
-                    value: "\(activeThisWeek)/7 days"
-                )
-                metricChip(
-                    label: "words 7d",
-                    value: formatBigNumber(wordsThisWeek)
-                )
-                Spacer(minLength: 0)
-            }
-        }
-        .frame(maxWidth: .infinity, minHeight: DT.kpiTileMinHeight, alignment: .topLeading)
-        .padding(DT.space5)
-        .card()
-    }
-
-    /// Small label/value chip used in the streak tile footer.
+    /// Small label/value chip used in the heatmap card footer.
     private func metricChip(label: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label.uppercased())
@@ -319,10 +301,29 @@ struct HomeView: View {
             }
         }()
 
+        let week = Array(history.dailyMetrics(lastDays: 7))
+        let streak = history.dayStreak
+        let activeThisWeek = week.filter { $0.isActive }.count
+        let wordsThisWeek = week.reduce(0) { $0 + $1.words }
+
         return VStack(alignment: .leading, spacing: DT.space4) {
             HStack(alignment: .firstTextBaseline) {
                 Text("Activity")
                     .font(DT.sectionTitle)
+                // Streak lives with the activity history it's derived
+                // from — it used to be a third KPI tile that retold the
+                // same story as the heatmap's last column.
+                if streak > 0 {
+                    HStack(spacing: 4) {
+                        Image(systemName: "flame.fill")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.orange)
+                        Text("\(streak)-day streak")
+                            .font(DT.captionStrong)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.leading, DT.space2)
+                }
                 Spacer()
                 Text("LAST \(weeks) WEEKS")
                     .font(DT.eyebrow)
@@ -352,9 +353,9 @@ struct HomeView: View {
                     .font(.system(size: 10))
                     .foregroundStyle(.tertiary)
                 Spacer()
-                Text("Best day: \(history.bestDayWords) words")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
+                metricChip(label: "this week", value: "\(activeThisWeek)/7 days")
+                metricChip(label: "words 7d", value: formatBigNumber(wordsThisWeek))
+                metricChip(label: "best day", value: "\(history.bestDayWords)w")
             }
         }
         .padding(DT.space5)
@@ -510,24 +511,14 @@ struct HomeView: View {
         min(1.0, max(0.0, Double(history.averageWPM) / 200.0))
     }
 
-    /// Coarse band copy. Labels match common "typing speed" intuition; the
-    /// app makes no claim to a real percentile, just an encouraging band.
-    private func percentileLabel(for wpm: Int) -> String {
+    /// Coarse pace word. Matches common "typing speed" intuition — an
+    /// encouraging band, not a claimed percentile.
+    private func paceLabel(for wpm: Int) -> String {
         switch wpm {
         case ..<60:  return "Steady"
         case ..<90:  return "Solid"
         case ..<120: return "Fast"
-        case ..<150: return "Top"
-        default:     return "Top"
-        }
-    }
-    private func percentileNumber(for wpm: Int) -> String {
-        switch wpm {
-        case ..<60:  return ""
-        case ..<90:  return "50%"
-        case ..<120: return "25%"
-        case ..<150: return "10%"
-        default:     return "5%"
+        default:     return "Top speed"
         }
     }
 
@@ -557,9 +548,16 @@ struct HomeView: View {
 
 /// Half-circle gauge arc that fills a `value` 0...1 fraction. Background
 /// arc plus a foreground arc with a rounded line cap. Pure Path drawing.
-private struct GaugeArc: View {
+/// `value` is animatable so the arc sweeps when driven by withAnimation
+/// (dashboard entrance) instead of snapping.
+private struct GaugeArc: View, Animatable {
     var value: Double            // 0...1
     var tint: Color = .teal
+
+    var animatableData: Double {
+        get { value }
+        set { value = newValue }
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -590,17 +588,25 @@ private struct GaugeArc: View {
 }
 
 /// Compact line+area sparkline. Smoothed via straight-line segments for a
-/// crisp KPI feel — nothing fancy, deliberately undersized.
-private struct Sparkline: View {
+/// crisp KPI feel — nothing fancy, deliberately undersized. `progress`
+/// (0...1) trims the line left-to-right and fades the area in, so the
+/// chart draws itself on dashboard entrance.
+private struct Sparkline: View, Animatable {
     var values: [Double]
     var tint: Color = .teal
+    var progress: Double = 1
+
+    var animatableData: Double {
+        get { progress }
+        set { progress = newValue }
+    }
 
     var body: some View {
         GeometryReader { geo in
             let pts = points(in: geo.size)
             ZStack {
                 if pts.count >= 2 {
-                    // Area fill
+                    // Area fill — fades in as the line draws.
                     Path { p in
                         p.move(to: CGPoint(x: pts[0].x, y: geo.size.height))
                         for pt in pts { p.addLine(to: pt) }
@@ -611,11 +617,13 @@ private struct Sparkline: View {
                         colors: [tint.opacity(0.30), tint.opacity(0.0)],
                         startPoint: .top, endPoint: .bottom
                     ))
-                    // Line
+                    .opacity(progress)
+                    // Line — trimmed by progress for the draw-in.
                     Path { p in
                         p.move(to: pts[0])
                         for pt in pts.dropFirst() { p.addLine(to: pt) }
                     }
+                    .trimmedPath(from: 0, to: CGFloat(progress))
                     .stroke(tint, style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
                 }
             }
@@ -642,6 +650,10 @@ private struct Sparkline: View {
 struct ActivityHeatmap: View {
     let metrics: [HistoryStore.DailyMetric]
     let weeks: Int
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Drives the column-by-column entrance stagger.
+    @State private var appeared = false
 
     /// Map a 0..1 intensity to a discrete colour bucket (4 visible levels +
     /// neutral). Mirrors GitHub's contribution graph palette but in our
@@ -685,19 +697,20 @@ struct ActivityHeatmap: View {
                             let col = columns[colIdx]
                             if rowIdx < col.count {
                                 let day = col[rowIdx]
-                                let intensity = Double(day.words) / Double(topWords)
-                                let isToday = cal.isDateInToday(day.date)
-                                RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                    .fill(Self.color(forIntensity: intensity))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                            .strokeBorder(
-                                                isToday ? Color.orange : DT.separator,
-                                                lineWidth: isToday ? 1.5 : 0.5
-                                            )
-                                    )
-                                    .frame(width: cell, height: cell)
-                                    .help("\(formattedDate(day.date)) — \(day.words) words")
+                                HeatCell(
+                                    day: day,
+                                    intensity: Double(day.words) / Double(topWords),
+                                    isToday: cal.isDateInToday(day.date),
+                                    size: cell
+                                )
+                                // Entrance: columns fade in oldest-first.
+                                // Reduce-motion renders final state directly.
+                                .opacity(appeared ? 1 : 0)
+                                .animation(
+                                    reduceMotion ? nil :
+                                        .easeOut(duration: 0.25).delay(Double(colIdx) * 0.02),
+                                    value: appeared
+                                )
                             } else {
                                 Color.clear.frame(width: cell, height: cell)
                             }
@@ -710,6 +723,35 @@ struct ActivityHeatmap: View {
         // Heatmap height = 7 rows × cell + 6 gaps. Compute a sensible
         // intrinsic height so the card doesn't collapse to zero.
         .frame(height: 7 * 22 + 6 * gap)
+        .onAppear { appeared = true }
+    }
+
+    /// One heatmap day-cell with hover feedback — slight scale + accent
+    /// border so the .help tooltip's target feels responsive while the
+    /// tooltip delay runs.
+    private struct HeatCell: View {
+        let day: HistoryStore.DailyMetric
+        let intensity: Double
+        let isToday: Bool
+        let size: CGFloat
+        @State private var hovered = false
+
+        var body: some View {
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .fill(ActivityHeatmap.color(forIntensity: intensity))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                        .strokeBorder(
+                            hovered ? DT.accent : (isToday ? Color.orange : DT.separator),
+                            lineWidth: (hovered || isToday) ? 1.5 : 0.5
+                        )
+                )
+                .frame(width: size, height: size)
+                .scaleEffect(hovered ? 1.15 : 1.0)
+                .animation(.spring(response: 0.18, dampingFraction: 0.7), value: hovered)
+                .onHover { hovered = $0 }
+                .help("\(ActivityHeatmap.displayFmt.string(from: day.date)) — \(day.words) words")
+        }
     }
 
     /// Slice the metric series into columns of length 7 (one per week),
@@ -742,7 +784,6 @@ struct ActivityHeatmap: View {
         f.dateFormat = "MMM d"
         return f
     }()
-    private func formattedDate(_ d: Date) -> String { Self.displayFmt.string(from: d) }
 }
 
 // MARK: - Today record row

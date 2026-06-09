@@ -254,8 +254,9 @@ final class HistoryStore: ObservableObject {
     }
 
     /// Growth: total words this rolling 7-day window vs. the prior 7-day
-    /// window. `nil` if the prior window had zero words (avoid divide-by-0
-    /// and "+∞%" UI artefacts).
+    /// window. `nil` when the prior window is below a meaningful baseline
+    /// — a tiny denominator produces absurd ratios (1 word → 102 words
+    /// reads as "+10,100%"), which is noise, not signal.
     var weekOverWeekGrowth: Double? {
         let cal = Calendar.current
         let todayStart = cal.startOfDay(for: Date())
@@ -266,7 +267,7 @@ final class HistoryStore: ObservableObject {
             .reduce(0) { $0 + $1.wordCount }
         let prior  = usable.filter { $0.timestamp >= twoWeeks && $0.timestamp < weekAgo }
             .reduce(0) { $0 + $1.wordCount }
-        guard prior > 0 else { return nil }
+        guard prior >= 100 else { return nil }
         return (Double(recent) - Double(prior)) / Double(prior)
     }
 
