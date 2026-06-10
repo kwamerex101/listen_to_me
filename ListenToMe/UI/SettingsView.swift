@@ -173,16 +173,29 @@ struct SettingsView: View {
                         }
                     }
                     row(label: "Accuracy") {
-                        Picker("", selection: $transcriptionAccuracy) {
-                            ForEach(Preferences.TranscriptionAccuracy.allCases, id: \.self) { acc in
-                                Text(acc.label).tag(acc)
+                        HStack(spacing: 10) {
+                            Picker("", selection: $transcriptionAccuracy) {
+                                ForEach(Preferences.TranscriptionAccuracy.allCases, id: \.self) { acc in
+                                    Text(acc.label).tag(acc)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .labelsHidden()
+                            // Beam search only applies on the in-process
+                            // linked engine; server/CLI decode with their
+                            // own defaults. Same gating pattern as the
+                            // streaming-partials toggle below.
+                            .disabled(transcriptionEngine != .linked)
+                            .onChange(of: transcriptionAccuracy) { _, new in
+                                Preferences.shared.transcriptionAccuracy = new
+                            }
+                            if transcriptionEngine != .linked {
+                                Text("Requires Linked engine")
+                                    .font(DT.caption)
+                                    .foregroundStyle(.secondary)
                             }
                         }
-                        .pickerStyle(.menu)
-                        .labelsHidden()
-                        .onChange(of: transcriptionAccuracy) { _, new in
-                            Preferences.shared.transcriptionAccuracy = new
-                        }
+                        .animation(Motion.tabFade, value: transcriptionEngine)
                     }
                     row(label: "Live partial transcripts") {
                         HStack(spacing: 10) {
