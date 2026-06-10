@@ -1,6 +1,18 @@
+<div align="center">
+
+<img src="ListenToMe/Assets.xcassets/AppIcon.appiconset/icon_256x256.png" alt="ListenToMe app icon" width="128" height="128">
+
 # ListenToMe
 
-**Free, local-first alternative to Wispr Flow for macOS.** Hold a hotkey
+![License](https://img.shields.io/badge/License-MIT-yellow.svg)
+![Swift](https://img.shields.io/badge/Swift-F05138?logo=swift&logoColor=white)
+![macOS](https://img.shields.io/badge/macOS-000000?logo=apple&logoColor=white)
+
+**Free, local-first alternative to Wispr Flow for macOS.**
+
+</div>
+
+Hold a hotkey
 anywhere, speak, release — the cleaned transcript pastes into whatever app you
 were using. No subscription, no cloud-mandatory dependency, no audio leaving
 your machine.
