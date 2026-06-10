@@ -690,6 +690,10 @@ struct PillView: View {
             Text(state.partialText)
                 .font(.system(size: 13, weight: .regular))
                 .foregroundStyle(.white.opacity(0.85))
+                // Crossfade between partial updates instead of a hard
+                // text swap — each 1.5s tick replaces the whole string,
+                // and the cut read as flicker.
+                .contentTransition(.opacity)
                 .lineLimit(2)
                 .truncationMode(.head)
                 .multilineTextAlignment(.center)

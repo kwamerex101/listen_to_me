@@ -59,8 +59,14 @@ final class WhisperLib {
     /// consecutive whisper segments is rendered as a paragraph break
     /// ("\n\n") — the spoken-pause equivalent of starting a new
     /// paragraph. Final pass only; partial previews stay flat.
+    ///
+    /// `beamSize`: decoder beam width. 1 (default) = greedy sampling —
+    /// the right call for streaming partials where latency rules.
+    /// >1 switches to beam search for the accuracy-mode final pass
+    /// (~1-2% WER gain at ~25% extra decode time at width 5).
     func transcribe(samples: [Float], prompt: String? = nil,
-                    paragraphBreaks: Bool = false) async throws -> String {
+                    paragraphBreaks: Bool = false,
+                    beamSize: Int = 1) async throws -> String {
         guard !isBusy else { throw LibError.alreadyBusy }
         try ensureContext()
         guard let ctx else { throw LibError.initFailed }
@@ -68,8 +74,14 @@ final class WhisperLib {
         defer { isBusy = false }
 
         let promptCopy = prompt
+        let beamCopy = beamSize
         let result: Result<String, LibError> = await Task.detached(priority: .userInitiated) {
-            var params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY)
+            var params = whisper_full_default_params(
+                beamCopy > 1 ? WHISPER_SAMPLING_BEAM_SEARCH : WHISPER_SAMPLING_GREEDY
+            )
+            if beamCopy > 1 {
+                params.beam_search.beam_size = Int32(beamCopy)
+            }
             // Match the CLI args we use elsewhere: English-only,
             // 4-thread tuning per Apple Silicon norms, no realtime
             // printing.

@@ -41,13 +41,16 @@ struct WhisperRunner {
         // 0.13.0); .linked is opt-in via Settings → AI Cleanup →
         // Transcription engine. Any failure on the chosen engine
         // falls back to the CLI subprocess so dictation never breaks.
-        let engine = await MainActor.run { Preferences.shared.transcriptionEngine }
+        let (engine, accuracy) = await MainActor.run {
+            (Preferences.shared.transcriptionEngine, Preferences.shared.transcriptionAccuracy)
+        }
 
         if engine == .linked {
             do {
                 let samples = try WhisperWAVReader.samples(at: wav)
                 let text = try await WhisperLib.shared.transcribe(samples: samples, prompt: prompt,
-                                                                  paragraphBreaks: true)
+                                                                  paragraphBreaks: true,
+                                                                  beamSize: accuracy.beamSize)
                 try? FileManager.default.removeItem(at: wav)
                 if text.isEmpty { throw WhisperError.noOutput }
                 return text
