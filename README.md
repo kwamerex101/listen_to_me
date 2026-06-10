@@ -266,6 +266,10 @@ adhoc-signed bundle, library validation, entitlements, subprocess safety,
 pasteboard 3-gate model, NDJSON retention, model SHA-256 verification, and
 how to re-verify after a build.
 
+## Author
+
+Theophilus RexDanquah — [rexdanquah.dev](https://rexdanquah.dev)
+
 ## License
 
 Released under the [MIT License](LICENSE).
