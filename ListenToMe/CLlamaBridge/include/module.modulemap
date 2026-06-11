@@ -1,0 +1,8 @@
+// CLlamaBridge — the ONLY llama-related module Swift imports. It exposes the
+// clean C shim (llama_bridge.h) with no ggml/llama types, so it cannot clash
+// with CWhisper's ggml symbols. The actual llama.h/ggml.h are included only
+// inside llama_bridge.cpp, out of the Swift module graph.
+module CLlamaBridge {
+    header "llama_bridge.h"
+    export *
+}

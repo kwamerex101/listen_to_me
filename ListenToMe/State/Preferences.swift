@@ -111,6 +111,8 @@ final class Preferences {
     private let kInputDeviceUID = "wf.inputDeviceUID"
     private let kSelectedWhisperModel = "wf.selectedWhisperModel"
     private let kTranscriptionAccuracy = "wf.transcriptionAccuracy"
+    private let kLLMBackend = "wf.llmBackend"
+    private let kSelectedLocalLLMModel = "wf.selectedLocalLLMModel"
 
     /// Keychain account names (bundled here so call sites don't sprout
     /// stringly-typed names of their own).
@@ -304,6 +306,91 @@ final class Preferences {
             return WhisperModel(rawValue: raw) ?? .baseEn
         }
         set { defaults.set(newValue.rawValue, forKey: kSelectedWhisperModel) }
+    }
+
+    // MARK: - On-device LLM (text polish)
+
+    /// Which engine cleans/polishes the raw transcript. `.cloud` (default)
+    /// uses Claude via the CleanupBackend below. `.local` runs an on-device
+    /// Gemma model through llama.cpp — fully offline, no transcript leaves
+    /// the device. When `.local` is selected the cloud path is never used
+    /// (privacy contract): if the local model is missing the dictation keeps
+    /// its raw transcript rather than silently falling back to the cloud.
+    enum LLMBackend: String, CaseIterable {
+        case cloud, local
+
+        var label: String {
+            switch self {
+            case .cloud: return "Claude (cloud)"
+            case .local: return "On-device (Gemma)"
+            }
+        }
+    }
+
+    var llmBackend: LLMBackend {
+        get {
+            let raw = defaults.string(forKey: kLLMBackend) ?? LLMBackend.cloud.rawValue
+            return LLMBackend(rawValue: raw) ?? .cloud
+        }
+        set { defaults.set(newValue.rawValue, forKey: kLLMBackend) }
+    }
+
+    /// On-device Gemma model options. E2B is the live-polish default; 12B is
+    /// higher quality but heavy (gate on RAM in the UI). GGUFs are downloaded
+    /// to Application Support/ListenToMe/llm/ by LLMModelManager.
+    enum LocalLLMModel: String, CaseIterable {
+        case gemma4E2B   // ~3.1 GB Q4_K_M — fast, default
+        case gemma4_12B  // ~7.4 GB Q4_K_M — high quality, opt-in
+
+        var filename: String {
+            switch self {
+            case .gemma4E2B:  return "gemma-4-E2B-it-Q4_K_M.gguf"
+            case .gemma4_12B: return "gemma-4-12B-it-Q4_K_M.gguf"
+            }
+        }
+
+        var downloadURL: URL {
+            switch self {
+            case .gemma4E2B:
+                return URL(string: "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf")!
+            case .gemma4_12B:
+                return URL(string: "https://huggingface.co/ggml-org/gemma-4-12B-it-GGUF/resolve/main/gemma-4-12B-it-Q4_K_M.gguf")!
+            }
+        }
+
+        /// Reject obviously-truncated downloads. SHA pinning deferred (the HF
+        /// GGUF re-uploads aren't checksum-published the way whisper's are);
+        /// size floor + successful model load are the integrity signal.
+        var expectedMinBytes: Int64 {
+            switch self {
+            case .gemma4E2B:  return 2_800_000_000
+            case .gemma4_12B: return 6_800_000_000
+            }
+        }
+
+        /// Minimum unified memory (GB) we require before offering this model —
+        /// 12B needs ~8 GB resident alongside the app + whisper + OS.
+        var minRAMGB: Int {
+            switch self {
+            case .gemma4E2B:  return 8
+            case .gemma4_12B: return 16
+            }
+        }
+
+        var displayName: String {
+            switch self {
+            case .gemma4E2B:  return "Gemma 4 E2B — 3.1 GB · Fast"
+            case .gemma4_12B: return "Gemma 4 12B — 7.4 GB · Best quality"
+            }
+        }
+    }
+
+    var selectedLocalLLMModel: LocalLLMModel {
+        get {
+            let raw = defaults.string(forKey: kSelectedLocalLLMModel) ?? LocalLLMModel.gemma4E2B.rawValue
+            return LocalLLMModel(rawValue: raw) ?? .gemma4E2B
+        }
+        set { defaults.set(newValue.rawValue, forKey: kSelectedLocalLLMModel) }
     }
 
     /// When true AND the transcription engine is `.linked`, run a
