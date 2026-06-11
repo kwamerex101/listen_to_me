@@ -65,8 +65,8 @@ targets:
         CFBundleName: ListenToMe
         CFBundleDisplayName: ListenToMe
         CFBundleIdentifier: com.rexdanquah.listentome
-        CFBundleShortVersionString: "0.13.0"
-        CFBundleVersion: "15"
+        CFBundleShortVersionString: "0.14.0"
+        CFBundleVersion: "16"
         NSHumanReadableCopyright: "© 2026 Rex Danquah"
         NSMicrophoneUsageDescription: "ListenToMe needs microphone access to transcribe your speech."
         NSAppleEventsUsageDescription: "ListenToMe uses Apple Events to paste transcripts into the active app."
