@@ -607,15 +607,17 @@ struct ClaudeClient {
             if lower.hasPrefix(p) { return original }
         }
 
-        // Reject if word count explodes (>1.4× original is likely hallucination)
-        let origWords = original.split(whereSeparator: \.isWhitespace).count
-        let cleanWords = text.split(whereSeparator: \.isWhitespace).count
-        if origWords > 0, Double(cleanWords) > Double(origWords) * 1.4 + 1 {
-            return original
-        }
-
         // Reject if empty
         if text.isEmpty { return original }
+
+        // Meaning-preservation guard: reject (→ original) if the cleanup
+        // dropped/invented content words, drifted, or grossly expanded.
+        // Supersedes the old crude >1.4× word-explosion heuristic with
+        // content-word-aware checks. Thresholds are lenient pending eval-
+        // harness calibration (Wave 7).
+        if case .reject = MeaningGuard.evaluate(cleaned: text, original: original) {
+            return original
+        }
 
         return text
     }
