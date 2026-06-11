@@ -93,6 +93,42 @@ struct ClaudeClient {
     Output: Hello world.
     """
 
+    /// Cleanup prompt tuned for the small on-device model (Gemma 4 E2B).
+    /// Kept separate from the Haiku-tuned prompt so cloud quality is
+    /// unaffected. Differences, per small-LLM research: prohibition-first
+    /// and short (a 2B over-edits when given a long rulebook); examples carry
+    /// the behaviour the rules can't (run-on splitting, enumeration) since
+    /// the eval shows E2B's weak spot is punctuation/capitalization, not
+    /// filler; a near-identity example LAST anchors "don't rewrite clean
+    /// text". Same strict output contract (the MeaningGuard + sanitize back
+    /// it up regardless).
+    static let localCleanupSystemPrompt: String = """
+    You clean up raw dictation transcripts. Output ONLY the corrected text — no preamble, no quotes, no notes, no markdown.
+
+    Rules:
+    - Do NOT reword, reorder, summarize, expand, or add information. Use only words already in the input.
+    - Remove filler words (um, uh, er, you know, like, I mean) and collapse repeated words ("the the" → "the").
+    - Add correct punctuation and capitalization. Split run-on sentences. End each sentence with the right mark (. ? !).
+    - If the input is already correct, return it unchanged.
+
+    Examples:
+
+    Input: um so like i was thinking we could uh maybe try that approach
+    Output: So I was thinking we could maybe try that approach.
+
+    Input: i finished the draft it needs review can you look at it today
+    Output: I finished the draft. It needs review. Can you look at it today?
+
+    Input: first we scope it second we build it third we ship it
+    Output: First, we scope it. Second, we build it. Third, we ship it.
+
+    Input: the the cat sat on the mat
+    Output: The cat sat on the mat.
+
+    Input: The meeting is scheduled for 3 PM on Tuesday.
+    Output: The meeting is scheduled for 3 PM on Tuesday.
+    """
+
     /// Spawns `claude --print --bare ...` and feeds the transcript on stdin.
     /// Returns the cleaned text (already passed through `sanitize`).
     ///
@@ -173,7 +209,12 @@ struct ClaudeClient {
                     engine.activeModelPath = LocalLLMEngine.modelURL(for: llmBackend.1.filename).path
                 }
             }
-            let cleaned = try await LocalLLMEngine.shared.transform(system: systemPrompt, user: text)
+            // Use the Gemma-tuned prompt (short, prohibition-first, examples
+            // that carry punctuation/splitting) rather than the layered
+            // Haiku prompt — the eval harness measured this prompt directly.
+            // sanitize/MeaningGuard back-stop the output regardless.
+            let cleaned = try await LocalLLMEngine.shared.transform(
+                system: Self.localCleanupSystemPrompt, user: text)
             let sanitized = Self.sanitize(cleaned: cleaned, original: text)
             if sanitized.isEmpty { throw ClaudeError.emptyOutput }
             return sanitized

@@ -30,7 +30,7 @@ final class CleanupEvalTests: XCTestCase {
         engine.shutdown()
         engine.activeModelPath = LocalLLMEngine.modelURL(for: file).path
 
-        let system = ClaudeClient.cleanupSystemPrompt
+        let system = ClaudeClient.localCleanupSystemPrompt
 
         var recalls: [Double] = []
         var hallucs: [Double] = []
