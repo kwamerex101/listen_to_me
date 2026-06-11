@@ -121,6 +121,15 @@ enum Paster {
     static func replace(with newText: String,
                         token: PasteToken,
                         maxStaleness: TimeInterval = 30) -> PasteToken? {
+        // Secure-input guard. If a password field now has focus, never paste
+        // into it. Returning nil composes with the pipeline's pre-paste guard:
+        // the backtrack caller falls through to the normal dictation path,
+        // which is itself blocked + reported by the SecureInput gate.
+        if SecureInput.isActive {
+            finalize(token: token)
+            return nil
+        }
+
         // Bail early if the text is identical — nothing to do, but also
         // don't trigger an undo+repaste flicker. Return a refreshed token
         // so caller bookkeeping stays sensible.
