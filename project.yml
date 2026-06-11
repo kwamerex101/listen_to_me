@@ -15,9 +15,10 @@ targets:
           - "Info.plist"
           - "ListenToMe.entitlements"
           - "Resources/**"
-          # CWhisper headers are picked up via SWIFT_INCLUDE_PATHS /
+          # CWhisper / CLlama headers are picked up via SWIFT_INCLUDE_PATHS /
           # HEADER_SEARCH_PATHS below, not as sources to compile.
           - "CWhisper/**"
+          - "CLlama/**"
     postBuildScripts:
       - name: Copy whisper binaries + dylibs into bundle
         script: |
@@ -42,6 +43,21 @@ targets:
         outputFiles:
           - $(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/whisper-cli
           - $(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/whisper-server
+      # Separate, UNGATED phase: copies llama.cpp's renamed-ggml set from
+      # Resources/llm/ into the bundle. No inputFiles/outputFiles so Xcode
+      # never skips it (the whisper phase above is gated on whisper-cli and
+      # would otherwise swallow llm changes). cp clears stale files first so
+      # a rename in build-llama.sh can't leave old dylibs behind.
+      - name: Copy llama (llm) dylibs into bundle
+        script: |
+          set -e
+          SRC="${SRCROOT}/ListenToMe/Resources/llm"
+          DEST="${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/llm"
+          rm -rf "$DEST"
+          if [ -d "$SRC" ]; then
+            mkdir -p "$DEST"
+            cp -R "$SRC/." "$DEST/"
+          fi
     info:
       path: ListenToMe/Info.plist
       properties:
@@ -81,11 +97,19 @@ targets:
         # (copied by post-build script) and at link-time in the same
         # source location. @loader_path/../Resources is the runtime
         # rpath that lets the bundled dylib resolve once installed.
-        SWIFT_INCLUDE_PATHS: $(SRCROOT)/ListenToMe/CWhisper/include
-        HEADER_SEARCH_PATHS: $(SRCROOT)/ListenToMe/CWhisper/include
-        LIBRARY_SEARCH_PATHS: $(SRCROOT)/ListenToMe/Resources
-        LD_RUNPATH_SEARCH_PATHS: $(inherited) @loader_path/../Resources
-        OTHER_LDFLAGS: -lwhisper.1
+        # Swift imports CWhisper (ggml 0.9.8) + CLlamaBridge (clean C shim, no
+        # ggml types). CLlama/include holds llama.h/ggml.h >=0.15 for textual
+        # include by llama_bridge.cpp ONLY (HEADER_SEARCH_PATHS, not SWIFT_) —
+        # keeping llama's ggml out of the Swift module graph so it can't clash
+        # with whisper's ggml.
+        SWIFT_INCLUDE_PATHS: $(SRCROOT)/ListenToMe/CWhisper/include $(SRCROOT)/ListenToMe/CLlamaBridge/include
+        HEADER_SEARCH_PATHS: $(SRCROOT)/ListenToMe/CWhisper/include $(SRCROOT)/ListenToMe/CLlama/include $(SRCROOT)/ListenToMe/CLlamaBridge/include
+        # Resources/ holds whisper's ggml 0.9.8 set; Resources/llm/ holds
+        # llama's isolated ggml >=0.15 set + libllama (directory isolation —
+        # see scripts/build-llama.sh). Both on the link + runtime search path.
+        LIBRARY_SEARCH_PATHS: $(SRCROOT)/ListenToMe/Resources $(SRCROOT)/ListenToMe/Resources/llm
+        LD_RUNPATH_SEARCH_PATHS: $(inherited) @loader_path/../Resources @loader_path/../Resources/llm
+        OTHER_LDFLAGS: -lwhisper.1 -lllama
       configs:
         # Hardened runtime (CS_RUNTIME flag) is Release-only because
         # Xcode's Debug build links a per-build ListenToMe.debug.dylib
@@ -131,8 +155,8 @@ targets:
         # module-search path as the app target. (Linking against
         # libwhisper isn't required — the app target carries the dep
         # already; this is just for module resolution.)
-        SWIFT_INCLUDE_PATHS: $(SRCROOT)/ListenToMe/CWhisper/include
-        HEADER_SEARCH_PATHS: $(SRCROOT)/ListenToMe/CWhisper/include
+        SWIFT_INCLUDE_PATHS: $(SRCROOT)/ListenToMe/CWhisper/include $(SRCROOT)/ListenToMe/CLlamaBridge/include
+        HEADER_SEARCH_PATHS: $(SRCROOT)/ListenToMe/CWhisper/include $(SRCROOT)/ListenToMe/CLlamaBridge/include
 
 schemes:
   ListenToMe:
