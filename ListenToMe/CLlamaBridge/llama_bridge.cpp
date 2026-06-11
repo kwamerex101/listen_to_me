@@ -10,7 +10,12 @@
 #include <vector>
 #include <cstdlib>
 #include <cstring>
+#include <cstdio>
 #include <mutex>
+
+// Failure diagnostics — logs only the failing STAGE name, never transcript
+// content (PII hygiene). Quiet on the success path.
+#define LB_LOG(stage) fprintf(stderr, "[llama_bridge] FAIL: %s\n", stage)
 
 namespace {
 
@@ -29,28 +34,20 @@ char *dup_cstring(const std::string &s) {
     return out;
 }
 
-// Format `system` + `user` as one user turn via the model's embedded chat
-// template. Returns false on failure.
+// Format `system` + `user` as one Gemma user turn. We format manually rather
+// than via llama_chat_apply_template: the library's built-in template applier
+// only recognises a fixed set of templates and returns -1 on Gemma 4's Jinja
+// template (the --jinja path lives in common/, outside the C API). Gemma has
+// no system role, so system content is merged into the single user turn. Turn
+// tokens are parsed as specials at tokenize time (parse_special=true); BOS is
+// added by tokenize's add_special, so it is NOT included here.
 bool format_prompt(const llama_model *model,
                    const std::string &system,
                    const std::string &user,
                    std::string &out) {
+    (void)model;
     std::string merged = system.empty() ? user : system + "\n\n" + user;
-
-    const char *tmpl = llama_model_chat_template(model, /*name*/ nullptr);
-
-    llama_chat_message msg{ "user", merged.c_str() };
-    std::vector<char> buf(std::max<size_t>(2048, merged.size() * 2));
-    int32_t n = llama_chat_apply_template(tmpl, &msg, 1, /*add_ass*/ true,
-                                          buf.data(), (int32_t)buf.size());
-    if (n < 0) return false;
-    if ((size_t)n > buf.size()) {
-        buf.resize((size_t)n + 1);
-        n = llama_chat_apply_template(tmpl, &msg, 1, true, buf.data(),
-                                      (int32_t)buf.size());
-        if (n < 0) return false;
-    }
-    out.assign(buf.data(), (size_t)n);
+    out = "<start_of_turn>user\n" + merged + "<end_of_turn>\n<start_of_turn>model\n";
     return true;
 }
 
@@ -108,18 +105,20 @@ char *llama_bridge_transform(llama_bridge_model handle,
     cparams.n_ctx = 4096;
     cparams.n_batch = 512;
     llama_context *ctx = llama_init_from_model(model, cparams);
-    if (!ctx) return nullptr;
+    if (!ctx) { LB_LOG("init_from_model==null"); return nullptr; }
 
     const llama_vocab *vocab = llama_model_get_vocab(model);
 
     std::string formatted;
     if (!format_prompt(model, system ? system : "", user ? user : "", formatted)) {
+        LB_LOG("format_prompt");
         llama_free(ctx);
         return nullptr;
     }
 
     std::vector<llama_token> tokens = tokenize(vocab, formatted);
     if (tokens.empty()) {
+        LB_LOG("tokenize_empty");
         llama_free(ctx);
         return dup_cstring("");
     }
@@ -135,6 +134,7 @@ char *llama_bridge_transform(llama_bridge_model handle,
     // advances position from the KV cache for subsequent single-token batches.
     llama_batch batch = llama_batch_get_one(tokens.data(), (int32_t)tokens.size());
     if (llama_decode(ctx, batch) != 0) {
+        LB_LOG("decode_prompt");
         failed = true;
     }
 

@@ -158,7 +158,28 @@ struct ClaudeClient {
             return sections.joined(separator: "\n\n")
         }
 
-        // Backend selection per Preferences. .auto picks API when a key
+        // On-device path. When the user selects the local LLM backend we run
+        // Gemma via llama.cpp and NEVER fall back to the cloud — picking
+        // "on-device" is a privacy contract. If the model is missing/unloaded,
+        // the error propagates and the pipeline keeps the raw transcript
+        // rather than silently shipping it to Anthropic.
+        let llmBackend = await MainActor.run {
+            (Preferences.shared.llmBackend, Preferences.shared.selectedLocalLLMModel)
+        }
+        if llmBackend.0 == .local {
+            await MainActor.run {
+                let engine = LocalLLMEngine.shared
+                if engine.activeModelPath == nil {
+                    engine.activeModelPath = LocalLLMEngine.modelURL(for: llmBackend.1.filename).path
+                }
+            }
+            let cleaned = try await LocalLLMEngine.shared.transform(system: systemPrompt, user: text)
+            let sanitized = Self.sanitize(cleaned: cleaned, original: text)
+            if sanitized.isEmpty { throw ClaudeError.emptyOutput }
+            return sanitized
+        }
+
+        // Cloud backend selection per Preferences. .auto picks API when a key
         // is configured (it's ~3-5× faster than CLI cold-start), falls
         // back to CLI otherwise — preserving the original
         // "reuse-Claude-Code-subscription" behavior for users without

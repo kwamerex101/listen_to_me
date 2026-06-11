@@ -142,6 +142,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             WhisperLib.shared.preload()
         }
 
+        // Warm the on-device LLM too when local polish is selected and the
+        // GGUF is present, so the first dictation doesn't pay the model load.
+        if Preferences.shared.llmBackend == .local {
+            let file = Preferences.shared.selectedLocalLLMModel.filename
+            if LocalLLMEngine.shared.isReady(modelFile: file) {
+                LocalLLMEngine.shared.preload(modelFile: file)
+            }
+        }
+
         // M3b: mine the existing history for single-word swaps that
         // claude cleanup consistently fixed (e.g. "danqua" → "Danquah").
         // Feeds CandidateStore via the same promotion pipeline used by
@@ -177,6 +186,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         WhisperServer.shared.shutdown()
         WhisperLib.shared.shutdown()
+        LocalLLMEngine.shared.shutdown()
         Database.shared.close()
     }
 

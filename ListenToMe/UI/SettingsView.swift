@@ -22,6 +22,9 @@ struct SettingsView: View {
     @State private var inputDeviceUID: String = Preferences.shared.inputDeviceUID ?? ""
     @State private var availableInputs: [AudioInputDevice] = []
     @ObservedObject private var modelManager = WhisperModelManager.shared
+    @State private var llmBackend: Preferences.LLMBackend = Preferences.shared.llmBackend
+    @State private var selectedLocalLLMModel: Preferences.LocalLLMModel = Preferences.shared.selectedLocalLLMModel
+    @ObservedObject private var llmManager = LLMModelManager.shared
 
     /// Reads the version straight from the bundle so future bumps don't
     /// require touching this view.
@@ -214,6 +217,65 @@ struct SettingsView: View {
                         .animation(Motion.tabFade, value: transcriptionEngine)
                     }
                 }
+
+                section(title: "On-Device Polish") {
+                    row(label: "Cleanup engine") {
+                        Picker("", selection: $llmBackend) {
+                            ForEach(Preferences.LLMBackend.allCases, id: \.self) { b in
+                                Text(b.label).tag(b)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                        .frame(width: DT.controlPickerWidth)
+                        .onChange(of: llmBackend) { _, new in
+                            Preferences.shared.llmBackend = new
+                            if new == .local {
+                                let file = selectedLocalLLMModel.filename
+                                LocalLLMEngine.shared.activeModelPath =
+                                    LocalLLMEngine.modelURL(for: file).path
+                                if LocalLLMEngine.shared.isReady(modelFile: file) {
+                                    LocalLLMEngine.shared.preload(modelFile: file)
+                                }
+                                llmManager.refreshStatus()
+                            }
+                        }
+                    }
+                    // Model picker + download only matter for the local engine —
+                    // mirror the partials/accuracy gating pattern.
+                    if llmBackend == .local {
+                        row(label: "Model") {
+                            Picker("", selection: $selectedLocalLLMModel) {
+                                ForEach(Preferences.LocalLLMModel.allCases, id: \.self) { m in
+                                    Text(m.displayName).tag(m)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .labelsHidden()
+                            .frame(width: DT.controlPickerWidth)
+                            .disabled(!modelFitsRAM(selectedLocalLLMModel) && selectedLocalLLMModel == .gemma4_12B)
+                            .onChange(of: selectedLocalLLMModel) { _, new in
+                                Preferences.shared.selectedLocalLLMModel = new
+                                LocalLLMEngine.shared.shutdown()
+                                LocalLLMEngine.shared.activeModelPath =
+                                    LocalLLMEngine.modelURL(for: new.filename).path
+                                llmManager.refreshStatus()
+                            }
+                        }
+                        row(label: "Status") {
+                            llmModelStatusView
+                        }
+                        .hoverableRow()
+                        if !modelFitsRAM(.gemma4_12B) {
+                            row(label: "") {
+                                Text("Gemma 4 12B needs ≥16 GB RAM — this Mac has \(installedRAMGB) GB.")
+                                    .font(DT.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+                .animation(Motion.tabFade, value: llmBackend)
 
                 section(title: "System") {
                     row(label: "Launch at login") {
@@ -426,6 +488,53 @@ struct SettingsView: View {
     private func formatBytes(_ bytes: Int64) -> String {
         let mb = Double(bytes) / 1_000_000
         return String(format: "%.0f MB", mb)
+    }
+
+    @ViewBuilder
+    private var llmModelStatusView: some View {
+        switch llmManager.status {
+        case .ready(let bytes):
+            Text("Downloaded ✓ (\(formatBytes(bytes)))")
+                .font(.system(size: 13))
+                .foregroundStyle(DT.statusSuccess)
+        case .missing:
+            HStack(spacing: 10) {
+                Text("Not downloaded (\(selectedLocalLLMModel.displayName))")
+                    .font(.system(size: 13))
+                    .foregroundStyle(DT.statusWarning)
+                Button("Download") { llmManager.startDownload() }
+                    .buttonStyle(.pressable)
+            }
+        case .downloading(let progress):
+            HStack(spacing: 10) {
+                ProgressView(value: progress)
+                    .progressViewStyle(.linear)
+                    .frame(width: 110)
+                Text("\(Int(progress * 100))%")
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                Button("Cancel") { llmManager.cancelDownload() }
+                    .buttonStyle(.pressable)
+            }
+        case .failed(let message):
+            HStack(spacing: 10) {
+                Text("⚠ \(message)")
+                    .font(.system(size: 13))
+                    .foregroundStyle(DT.statusError)
+                    .lineLimit(2)
+                Button("Retry") { llmManager.startDownload() }
+                    .buttonStyle(.pressable)
+            }
+        }
+    }
+
+    /// Installed unified memory in GB (rounded).
+    private var installedRAMGB: Int {
+        Int((Double(ProcessInfo.processInfo.physicalMemory) / 1_073_741_824).rounded())
+    }
+
+    private func modelFitsRAM(_ model: Preferences.LocalLLMModel) -> Bool {
+        installedRAMGB >= model.minRAMGB
     }
 
     private func section<Content: View>(
