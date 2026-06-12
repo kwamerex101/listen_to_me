@@ -17,12 +17,22 @@ anywhere, speak, release — the cleaned transcript pastes into whatever app you
 were using. No subscription, no cloud-mandatory dependency, no audio leaving
 your machine.
 
-Audio is transcribed offline by [whisper.cpp](https://github.com/ggerganov/whisper.cpp).
-Optional cleanup runs through Claude — by default the app shells out to your
-installed [Claude Code CLI](https://claude.ai/code) (`claude --print`),
-reusing your existing subscription so no separate API key is required. Set an
-Anthropic API key in Settings to opt into the direct-API path with prompt
-caching for ~5× faster cleanup.
+**Speech-to-text** runs fully offline, with two selectable engines:
+[whisper.cpp](https://github.com/ggerganov/whisper.cpp) (default) and
+[NVIDIA Parakeet TDT v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3)
+on the Apple Neural Engine (via [FluidAudio](https://github.com/FluidInference/FluidAudio)) —
+~5–7× faster per utterance at parity accuracy. An in-app A/B benchmark
+(Settings → Models) lets you compare them on your own voice.
+
+**Cleanup** (grammar, filler removal, punctuation, casing) is optional and
+also runs on-device by default: a local **Gemma 4** model via
+[llama.cpp](https://github.com/ggml-org/llama.cpp) (E2B, or 12B on 16 GB+
+Macs). No transcript leaves the device. You can switch the cleanup engine to
+Claude — either your installed [Claude Code CLI](https://claude.ai/code)
+(reusing your subscription, no API key) or the direct Anthropic API with
+prompt caching. Cleanup has Light / Medium / High intensity levels and a
+meaning-preservation guard that falls back to the raw transcript rather than
+ship a rewrite that dropped or invented words.
 
 Built native in SwiftUI + AppKit so the menu-bar pill, dynamic notch UI, and
 global hotkey behave like first-class macOS citizens.
@@ -31,8 +41,13 @@ global hotkey behave like first-class macOS citizens.
 
 | Capability | Wispr Flow | ListenToMe |
 |---|---|---|
-| **STT** | Cloud-only ensemble | **Local whisper.cpp** (offline) |
-| **Cleanup** | Cloud LLM | Local CLI subprocess OR direct Anthropic API (Haiku 4.5, prompt-cached) |
+| **STT** | Cloud-only ensemble | **Local, offline** — whisper.cpp **or** Parakeet TDT v3 (Neural Engine) |
+| **Cleanup** | Cloud LLM | **On-device Gemma 4** (default) OR Claude CLI / direct Anthropic API |
+| **Audio leaves the device** | every clip | **never** |
+| **Cleanup can stay on-device** | no | **yes** (local Gemma) |
+| **Cleanup intensity levels** (None/Light/Medium/High) | ✅ | ✅ |
+| **Meaning-preservation guard** (reject rewrites that change content) | — | ✅ |
+| **In-app ASR A/B benchmark** | — | ✅ (WER + latency, your voice) |
 | **Backtrack** ("actually, …" rewrites the prior paste) | ✅ | ✅ |
 | **Context awareness** (per-app tone + browser URL) | ✅ | ✅ |
 | **Code-aware tokenization** (camelCase/snake_case in editors) | ✅ | ✅ |
@@ -43,8 +58,7 @@ global hotkey behave like first-class macOS citizens.
 | **VoiceOver labels + reduce-motion gating** | partial | ✅ |
 | **Hands-free voice activation** (always-listening) | ✅ | ❌ — would defeat 0 % idle CPU |
 | **Idle resource footprint** | ~800 MB RAM, ~8 % CPU | **~25 MB RSS, 0.0 % CPU** |
-| **Audio leaves the device** | every clip | **never** |
-| **Works offline** | no | yes |
+| **Works offline** | no | yes (transcription always; cleanup with local Gemma) |
 
 ## Setup
 
@@ -55,9 +69,20 @@ backend; Intel works with degraded transcription speed).
 git clone https://github.com/kwamerex101/listen_to_me.git ListenToMe
 cd ListenToMe
 ./scripts/setup.sh        # installs xcodegen, builds whisper.cpp, downloads + SHA-verifies model, bundles binaries + dylibs
+./scripts/build-llama.sh  # builds libllama (Gemma cleanup) + isolates its ggml from whisper's; syncs headers
 ./scripts/build.sh        # generates xcodeproj and builds Debug
-./scripts/release.sh      # builds Release + DMG (hardened runtime, universal binary)
+./scripts/release.sh      # builds Release + DMG (hardened runtime, arm64)
 ```
+
+`build-llama.sh` is required for the on-device Gemma cleanup engine — it
+clones + builds llama.cpp and renames its ggml dylibs (`-lt` suffix) so they
+coexist with whisper's older ggml in the same bundle. Both `setup.sh` and
+`build-llama.sh` produce gitignored build artifacts and are idempotent.
+
+The Gemma cleanup model (GGUF, ~3 GB E2B) and the Parakeet ASR model
+(~600 MB Core ML) are **downloaded in-app on first use** from Settings →
+Models — not bundled. Parakeet ships via the FluidAudio Swift Package
+(the project's only SPM dependency).
 
 To install the Release build:
 
@@ -74,16 +99,28 @@ AI cleanup is **optional**. Without it the app works perfectly — transcription
 is fully offline; only the grammar / filler-word / casing polish step is
 skipped.
 
-Two cleanup backends are supported via Settings → AI Cleanup → Backend:
+The cleanup **engine** is chosen in Settings → Models → On-Device Polish:
 
-- **Auto** (default) — direct Anthropic API when an `sk-ant-…` key is saved in
-  the Keychain, otherwise the `claude` CLI subprocess
-- **CLI** — always the `claude` CLI (preserves the "reuse Claude Code
-  subscription" path; latency dominated by Node startup, ~1.5–3 s)
-- **API** — always the direct path, ~250–500 ms with prompt caching
+- **On-device (Gemma)** — a local Gemma 4 model via llama.cpp. Fully offline;
+  the transcript never leaves the device. Picking this is a privacy contract:
+  if the model is missing the dictation keeps its raw text rather than
+  silently falling back to the cloud.
+- **Claude (cloud)** — uses the cloud **backend** selected in Settings →
+  Dictation → AI Cleanup → Cloud backend:
+  - **Auto** (default) — direct Anthropic API when an `sk-ant-…` key is saved
+    in the Keychain, otherwise the `claude` CLI subprocess
+  - **CLI** — always the `claude` CLI (reuses your Claude Code subscription;
+    latency dominated by Node startup, ~1.5–3 s)
+  - **API** — always the direct path, ~250–500 ms with prompt caching
 
-If you don't install the Claude Code CLI and don't paste an API key, set
-Cleanup Mode to "Never" in Settings to disable cleanup attempts entirely.
+Cleanup **intensity** (Light / Medium / High) controls how aggressively it
+edits — Light is structural-only and keeps every content word. A
+content-word **meaning guard** rejects any result that dropped or invented
+words and falls back to the raw transcript. Cleanup also **skips already-clean
+text** (no fillers, punctuated, capitalized) under the Smart modes, saving a
+model call and avoiding degradation.
+
+To disable cleanup entirely, set Mode to "Never" in Settings → Dictation.
 
 ## First run
 
@@ -105,8 +142,11 @@ AVAudioEngine captures mic to ${TMPDIR}/listentome-<uuid>.wav at 16 kHz mono
    ↓
 Release Fn + ⌘
    ↓
-whisper-server (HTTP, persistent — model resident across dictations)
-   └─→ falls back to whisper-cli subprocess on any error
+Transcription engine (Settings → Models → Transcription):
+   • Parakeet — one-shot Core ML / ANE (FluidAudio); ~0.09 s/utterance
+   • Whisper Server — persistent whisper-server subprocess (default)
+   • Whisper Linked — in-process whisper.cpp (supports live partials)
+   └─→ any engine falls back to the whisper-cli subprocess on error
    ↓
 Backtrack check ("actually, …" / "scratch that, …") → if matched and a
 recent paste token is still valid, rewrite the prior paste in place
@@ -117,10 +157,14 @@ Voice-edit transforms (comma, period, scratch that, new paragraph)
    ↓
 Snippet expansion (regex word-boundary replace)
    ↓
-[if word count > threshold] → Claude cleanup (direct API or CLI subprocess)
+[if Smart-mode gate passes AND text isn't already clean] → cleanup
+        engine: local Gemma 4 (llama.cpp) OR Claude (direct API / CLI)
         with system prompt: CONTEXT (app, category, browser URL) +
-        per-app STYLE (tone hint) + base prompt (default OR code-mode
-        for editors/terminals)
+        per-app STYLE (tone hint) + vocabulary + base prompt (default OR
+        code-mode for editors/terminals) + intensity instruction
+   └─→ MeaningGuard: reject + keep raw if content words dropped/invented
+   ↓
+Secure-input guard: never paste into a password field
    ↓
 NSPasteboard.setString + simulated ⌘V into the frontmost app
    ↓
@@ -149,7 +193,7 @@ backend is selected.
 | Error | Orange warning | Auto-clears |
 
 The pill is **draggable** — grab and reposition anywhere on screen; position
-persists per launch. Reset to default from Settings → Advanced → Pill position.
+persists per launch. Reset to default from Settings → General → Pill position.
 
 VoiceOver reads each phase aloud; reduce-motion suppresses the idle breath,
 recording heartbeat, and 30 Hz waveform animations.
@@ -173,22 +217,35 @@ recording heartbeat, and 30 Hz waveform animations.
 
 ## Settings
 
+Settings is organized into five tabs (chip bar):
+
 | Tab | Setting | Values / behavior |
 |---|---|---|
-| **Shortcuts** | Dictation hotkey | Fn + ⌘ (default) / Fn + ⌥ / ⌃ + ⌘ / ⌃ + ⌥ |
-| **AI Cleanup** | Mode | Never / Smart > 20 words (default) / Smart > 50 / Always |
-| | Backend | Auto / CLI subprocess / Direct Anthropic API |
-| | Anthropic API key | Stored in macOS Keychain |
-| **Audio** | Sound cues | toggle |
-| **Appearance** | Theme | System / Light / Dark |
-| **Whisper Model** | Local model | Status + download (148 MB), SHA-256 verified |
-| **System** | Launch at login | macOS-managed via `SMAppService.mainApp` |
-| | Accessibility | Status + Open System Settings shortcut |
-| **Advanced** | Max recording duration | 30–600 s (default 120) |
-| | Cleanup timeout | 5–60 s (default 20) |
-| | Diagnostics log | Off by default; rotated at 1 MB |
+| **General** | Dictation hotkey | Fn + ⌘ (default) / Fn + ⌥ / ⌃ + ⌘ / ⌃ + ⌥ |
+| | Theme | System / Light / Dark |
+| | Sound cues | toggle |
 | | Pill position | Custom (drag) or default; Reset button |
-| | History retention | 0–365 days (default 90; 0 = forever); Apply purges immediately |
+| | Launch at login | macOS-managed via `SMAppService.mainApp` |
+| | Accessibility | Status + Open System Settings shortcut |
+| **Dictation** | Microphone | System default or a specific input device |
+| | Max recording duration | 30–600 s (default 120) |
+| | AI cleanup — Mode | Never / Smart > 20 words (default) / Smart > 50 / Always |
+| | AI cleanup — Intensity | Light (default) / Medium / High |
+| | Cloud backend | Auto / CLI subprocess / Direct Anthropic API |
+| | Anthropic API key | Stored in macOS Keychain |
+| | Cleanup timeout | 5–60 s (default 20) |
+| **Models** | Transcription engine | Whisper Server (default) / Whisper Linked / Parakeet (ANE) |
+| | Whisper model | Status + download (base 148 MB … large-turbo 1.6 GB), SHA-256 verified |
+| | Accuracy / Live partials | Whisper Linked only (beam search, streaming) |
+| | Parakeet model | Status + download (~600 MB Core ML) |
+| | On-Device Polish — engine | Claude (cloud) / On-device Gemma |
+| | Gemma model | Gemma 4 E2B (default) / 12B (≥16 GB RAM); status + download |
+| | Engine Benchmark (A/B) | Read-aloud cards; WER + latency, Whisper vs Parakeet |
+| **Privacy** | History retention | 0–365 days (default 90; 0 = forever); Apply purges immediately |
+| | Encrypt history at rest | AES-GCM toggle (one-time re-encrypt of `history.ndjson`) |
+| | Diagnostics log | Off by default; rotated at 1 MB; never includes transcripts |
+| **About** | Version | from the bundle |
+| | Processing | on-device note |
 
 ## Persistent data
 
@@ -196,14 +253,15 @@ Lives at `~/Library/Application Support/ListenToMe/`:
 
 | File | Contents |
 |---|---|
-| `models/ggml-base.en.bin` | Whisper model, SHA-256-verified on every launch |
-| `history.ndjson` | Append-only line-delimited transcripts; auto-migrated from legacy `history.json.bak` once on first launch |
+| `models/ggml-*.bin` | Whisper model(s), SHA-256-verified on every launch |
+| `llm/gemma-4-*-it-Q4_K_M.gguf` | On-device Gemma cleanup model (downloaded in-app) |
+| `parakeet/` | Parakeet TDT v3 Core ML model bundles (downloaded in-app) |
+| `history.ndjson` | Append-only line-delimited transcripts; optionally AES-GCM-encrypted at rest; auto-migrated from legacy `history.json.bak` once on first launch |
 | `dictionary.json` | Custom + auto-promoted vocabulary |
 | `dictionary-candidates.json` | Pending retype + history-mined candidates (3 distinct occurrences → auto-promote) |
 | `snippets.json` | Keyword → expansion pairs |
 | `transforms.json` | Named cleanup prompts |
 | `style.json`, `style-samples.json` | Per-app inferred / accepted tones, rolling sample window |
-| `pages.json`, `scratchpad.json` | In-app dictation workspaces |
 | `retype-debug.log` | Diagnostic-only; off by default |
 
 The Anthropic API key (when set) lives in the macOS Keychain under service
@@ -213,45 +271,55 @@ The Anthropic API key (when set) lives in the macOS Keychain under service
 
 ```
 ListenToMe/
-├── project.yml                     # xcodegen config
-├── scripts/{setup,build,release}.sh
+├── project.yml                     # xcodegen config (+ FluidAudio SPM dep)
+├── scripts/{setup,build-llama,build,release}.sh
 ├── ListenToMe/
 │   ├── ListenToMeApp.swift         # @main + AppDelegate orchestration
 │   ├── Info.plist
-│   ├── ListenToMe.entitlements     # mic input + AppleEvents
+│   ├── ListenToMe.entitlements     # mic input + AppleEvents + library-validation carve-out
 │   ├── Core/
 │   │   ├── HotkeyMonitor.swift     # CGEventTap on the chosen modifier combo
 │   │   ├── AudioRecorder.swift     # AVAudioEngine → 16 kHz WAV + RMS levels
-│   │   ├── WhisperRunner.swift     # routes via WhisperServer, falls back to whisper-cli
+│   │   ├── WhisperRunner.swift     # engine router (Parakeet / server / linked) → whisper-cli fallback
 │   │   ├── WhisperServer.swift     # persistent whisper-server subprocess + multipart HTTP
+│   │   ├── WhisperLib.swift        # in-process whisper.cpp (linked engine, streaming)
 │   │   ├── WhisperModelManager.swift  # SHA-256 verify + download
-│   │   ├── ClaudeClient.swift      # direct Anthropic API + claude CLI fallback
-│   │   ├── AppContext.swift        # bundleId, category, browser URL via AppleScript
-│   │   ├── Backtrack.swift         # "actually, …" trigger parser
-│   │   ├── HistoryDictionaryMiner.swift  # mine candidates from history
+│   │   ├── ParakeetEngine.swift    # Parakeet TDT v3 via FluidAudio (Core ML / ANE)
+│   │   ├── ClaudeClient.swift      # cleanup router: local Gemma / direct API / claude CLI; sanitize
+│   │   ├── LocalLLMEngine.swift    # on-device Gemma via the CLlamaBridge shim
+│   │   ├── LLMModelManager.swift   # Gemma GGUF download + status
+│   │   ├── CleanupMetrics.swift    # content-word recall / hallucination / Jaccard
+│   │   ├── MeaningGuard.swift      # reject cleanups that change content → keep raw
+│   │   ├── CleanupGate.swift       # skip cleanup on already-clean text
+│   │   ├── WERCalculator.swift     # benchmark WER (normalized)
+│   │   ├── SecureInput.swift       # block insertion into password fields
+│   │   ├── AppContext.swift, Backtrack.swift, HistoryDictionaryMiner.swift
 │   │   ├── CommandRouter.swift, VoiceEditor.swift
-│   │   ├── Paster.swift            # NSPasteboard + simulated ⌘V + 3-gate replace
-│   │   ├── Keychain.swift          # tiny SecItem wrapper
-│   │   ├── Haptics.swift, SoundCue.swift, LaunchAtLogin.swift
+│   │   ├── Paster.swift            # NSPasteboard + simulated ⌘V + 3-gate replace + secure-input guard
+│   │   ├── Keychain.swift, Haptics.swift, SoundCue.swift, LaunchAtLogin.swift
 │   │   ├── ToneInferencer.swift, RetypeDiffer.swift
+│   ├── CWhisper/                   # Clang module map exposing whisper.cpp's C API
+│   ├── CLlama/                     # llama.cpp headers (gitignored, synced by build-llama.sh)
+│   ├── CLlamaBridge/               # C++ shim — keeps llama's ggml out of the Swift module graph
 │   ├── State/
 │   │   ├── AppState.swift          # phase / level / interaction callbacks
-│   │   ├── Preferences.swift       # cleanup mode, backend, hotkey, retention, …
-│   │   ├── HistoryStore.swift      # NDJSON append-only + days-based retention
+│   │   ├── Preferences.swift       # engines, cleanup mode/intensity/backend, hotkey, retention, …
+│   │   ├── HistoryStore.swift      # NDJSON append-only + retention + optional AES-GCM
 │   │   ├── DictionaryStore.swift, SnippetsStore.swift, CandidateStore.swift
-│   │   ├── StyleStore.swift, StyleSamplesStore.swift
-│   │   ├── TransformsStore.swift, PagesStore.swift, ScratchpadStore.swift
+│   │   ├── StyleStore.swift, StyleSamplesStore.swift, TransformsStore.swift
 │   ├── UI/
 │   │   ├── PillWindow.swift, PillView.swift, WaveformView.swift
 │   │   ├── CorrectionWindow.swift  # inline edit popover
 │   │   ├── MenuBarController.swift, MainWindowController.swift, MainView.swift
-│   │   ├── SidebarView.swift, HomeView.swift
+│   │   ├── SidebarView.swift, HomeView.swift, HistoryView.swift, RecordRow.swift
 │   │   ├── DictionaryView.swift, SnippetsView.swift, StyleView.swift
-│   │   ├── SettingsView.swift, TransformsView.swift, PagesView.swift, ScratchpadView.swift
+│   │   ├── SettingsView.swift      # five-tab layout
+│   │   ├── BenchmarkView.swift     # in-app ASR A/B benchmark
+│   │   ├── TransformsView.swift
 │   │   ├── DesignTokens.swift, Motion.swift, PressableStyle.swift, HoverableRow.swift
-│   └── Resources/                  # whisper-cli, whisper-server, dylibs (bundled by setup.sh, gitignored)
+│   └── Resources/                  # whisper-cli/-server + dylibs (setup.sh); llm/ (build-llama.sh); gitignored
 ├── ListenToMeTests/                # XCTest target
-└── vendor/whisper.cpp              # cloned by setup.sh, gitignored
+└── vendor/{whisper.cpp,llama.cpp}  # cloned by setup.sh / build-llama.sh, gitignored
 ```
 
 ## Tests
@@ -267,9 +335,24 @@ Or in Xcode: ⌘U.
 Coverage is focused on the deterministic, side-effect-free helpers: voice
 editing transforms, snippet expansion, tone inference, retype diffing,
 backtrack parsing, history mining, app context classification, history NDJSON
-round-trip, and ClaudeClient prompt sanitization. UI behavior (pill states,
-drag-to-reposition, cancel-mid-pipeline) is validated manually per the
-project's "no UI snapshot tests" stance.
+round-trip, ClaudeClient prompt sanitization, the cleanup metrics +
+meaning guard + messiness gate, secure-input role detection, and the
+benchmark WER calculator. UI behavior (pill states, drag-to-reposition,
+cancel-mid-pipeline) is validated manually per the project's "no UI snapshot
+tests" stance.
+
+Two model-backed harnesses are gated behind env flags so they don't run in
+normal CI (they load multi-GB models and are slow / nondeterministic):
+
+```bash
+# Cleanup quality eval — scores Gemma cleanup on raw→ideal fixtures
+TEST_RUNNER_LTM_RUN_EVAL=1 xcodebuild test \
+  -only-testing:ListenToMeTests/CleanupEvalTests \
+  -project ListenToMe.xcodeproj -scheme ListenToMe -destination 'platform=macOS'
+```
+
+The ASR A/B comparison (Whisper vs Parakeet) is interactive — run it from
+Settings → Models → Engine Benchmark by reading the cards aloud.
 
 ## Security & privacy
 
