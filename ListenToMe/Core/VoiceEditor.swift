@@ -7,14 +7,66 @@ import Foundation
 /// and `ClaudeClient.clean`.
 enum VoiceEditor {
 
-    /// Apply all four phases. Pure function — no state, no I/O.
+    /// Apply all five phases. Pure function — no state, no I/O.
     static func apply(_ text: String) -> String {
         var s = text
         s = applyPunctuation(s)
         s = resolveScratchThat(s)
         s = applyParagraphBreaks(s)
         s = tidy(s)
+        // Runs AFTER tidy on purpose: tidy inserts a space after `.` before a
+        // letter, which would re-split "readme.md" back into "readme. md".
+        s = joinDottedTokens(s)
         return s
+    }
+
+    // MARK: - Phase 5 — spoken "dot" in file names / domains / decimals
+
+    /// File extensions and TLDs where a spoken "dot" almost certainly means a
+    /// literal "." — high precision so prose like "the dot product" is left
+    /// alone (neither "product" nor "matrix" is in these lists).
+    private static let dotSuffixes =
+        // file extensions
+        "md|markdown|txt|swift|py|js|jsx|ts|tsx|json|yaml|yml|sh|rb|go|rs|java|" +
+        "kt|kts|c|cc|cpp|h|hpp|m|mm|css|scss|html|htm|xml|toml|lock|cfg|ini|" +
+        "env|plist|gitignore|png|jpg|jpeg|gif|svg|pdf|csv|tsv|log|sql|zip|gz|" +
+        // common TLDs
+        "com|org|net|io|dev|app|co|ai|gov|edu|me|xyz|cloud|tech"
+
+    /// Determiners/articles that should NOT glue to a following extension:
+    /// "all the dot md files" → "all the .md files", not "the.md".
+    private static let dotLeadingStopwords =
+        "the|a|an|all|some|these|those|this|that|my|your|our|their|its|any|each|every|no"
+
+    /// Convert spoken "<x> dot <ext>" into "<x>.<ext>" for known extensions,
+    /// TLDs, and numeric decimals. Determiner-led cases attach the dot to the
+    /// extension only ("the .md") rather than gluing the article.
+    private static func joinDottedTokens(_ s: String) -> String {
+        var out = s
+        let suffix = "(?:\(dotSuffixes))"
+        // 1) Determiner first → ". ext" stays detached from the determiner.
+        out = regexReplaceTemplate(
+            out,
+            "\\b(\(dotLeadingStopwords))\\s+dot\\s+(\(suffix))\\b",
+            "$1 .$2")
+        // 2) Any remaining "word dot ext" → glue ("readme.md", "node.js").
+        out = regexReplaceTemplate(
+            out,
+            "\\b(\\w+)\\s+dot\\s+(\(suffix))\\b",
+            "$1.$2")
+        // 3) Numeric decimals: "3 dot 14" → "3.14".
+        out = regexReplaceTemplate(
+            out,
+            "\\b(\\d+)\\s+dot\\s+(\\d+)\\b",
+            "$1.$2")
+        return out
+    }
+
+    /// Case-insensitive regex substitution with `$n` capture-group templates.
+    private static func regexReplaceTemplate(_ s: String, _ pattern: String, _ template: String) -> String {
+        guard let re = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return s }
+        let range = NSRange(s.startIndex..., in: s)
+        return re.stringByReplacingMatches(in: s, options: [], range: range, withTemplate: template)
     }
 
     // MARK: - Phase 1 — punctuation substitution
