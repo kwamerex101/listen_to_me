@@ -39,6 +39,11 @@ if [[ ! -d "$APP_PATH" ]]; then
   exit 1
 fi
 
+# Re-sign with a stable identity so macOS TCC persists permission decisions
+# (the build above signs ad-hoc). No-op without a Developer ID / Apple
+# Development identity in the keychain.
+"$(dirname "$0")/resign-stable.sh" "$APP_PATH" || true
+
 echo "==> Verifying signature..."
 codesign -dv "$APP_PATH" 2>&1 | head -5
 
