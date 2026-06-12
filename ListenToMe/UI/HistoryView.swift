@@ -11,6 +11,12 @@ struct HistoryView: View {
     @State private var query = ""
     /// nil = all apps; "__other__" matches records with no bundleId.
     @State private var appFilter: String?
+    /// How many matching records are currently rendered. Grows in pages as
+    /// the user scrolls so a large history isn't all built into the view
+    /// tree at once. Reset to one page whenever the filter changes.
+    @State private var visibleCount = Self.pageSize
+
+    private static let pageSize = 50
 
     var body: some View {
         // Filter once per body evaluation — `filtered` walks the whole
@@ -18,9 +24,13 @@ struct HistoryView: View {
         // triple the work on every keystroke.
         let filtered = self.filtered
         let total = history.records.filter { !$0.dismissed }.count
+        // Window to the current page before grouping/rendering. prefix is
+        // cheap; the win is not building views for the off-window records.
+        let windowed = Array(filtered.prefix(visibleCount))
+        let hasMore = filtered.count > windowed.count
 
         return ScrollView {
-            VStack(alignment: .leading, spacing: DT.space6) {
+            LazyVStack(alignment: .leading, spacing: DT.space6) {
                 PageHeader(
                     title: "History",
                     subtitle: "Everything you've dictated",
@@ -33,8 +43,11 @@ struct HistoryView: View {
                 if filtered.isEmpty {
                     emptyState
                 } else {
-                    ForEach(dayGroups(from: filtered), id: \.day) { group in
+                    ForEach(dayGroups(from: windowed), id: \.day) { group in
                         daySection(group)
+                    }
+                    if hasMore {
+                        loadMoreFooter(shown: windowed.count, total: filtered.count)
                     }
                 }
             }
@@ -44,6 +57,29 @@ struct HistoryView: View {
             .frame(maxWidth: DT.pageMaxWidth, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        // A filter change resets the window — otherwise a search that matches
+        // few records would still report a stale large visibleCount.
+        .onChange(of: query) { _, _ in visibleCount = Self.pageSize }
+        .onChange(of: appFilter) { _, _ in visibleCount = Self.pageSize }
+    }
+
+    /// Bottom sentinel: auto-loads the next page when it scrolls into view
+    /// (infinite scroll), with a manual button as a fallback.
+    private func loadMoreFooter(shown: Int, total: Int) -> some View {
+        HStack {
+            Spacer()
+            Button {
+                visibleCount += Self.pageSize
+            } label: {
+                Text("Load more — showing \(shown) of \(total)")
+                    .font(DT.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.pressable)
+            Spacer()
+        }
+        .padding(.vertical, DT.space4)
+        .onAppear { visibleCount += Self.pageSize }
     }
 
     private var isNarrow: Bool { windowWidth < DT.narrowBreakpoint }
