@@ -80,6 +80,17 @@ final class LLMModelManager: NSObject, ObservableObject {
         refreshStatus()
     }
 
+    /// Delete the on-disk cleanup GGUF to reclaim disk space, unloading the
+    /// engine first. Re-downloadable via `startDownload()`, so this is a
+    /// reclaim-space action, not data loss.
+    func deleteModel() {
+        downloadTask?.cancel()
+        downloadTask = nil
+        LocalLLMEngine.shared.shutdown()   // release the loaded model before unlinking the file
+        try? FileManager.default.removeItem(at: destURL)
+        status = .missing
+    }
+
     fileprivate func handleProgress(_ p: Double) {
         status = .downloading(progress: max(0, min(1, p)))
     }

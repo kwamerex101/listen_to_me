@@ -61,6 +61,23 @@ struct SettingsView: View {
     @ObservedObject private var parakeet = ParakeetEngine.shared
     @State private var parakeetVocabBoost: Bool = Preferences.shared.parakeetVocabBoost
 
+    /// Which downloaded model the user has asked to delete. Non-nil drives the
+    /// confirmation dialog; deletion only runs once they confirm.
+    @State private var pendingDelete: DeletableModel?
+
+    /// The on-disk models a user can reclaim space from.
+    private enum DeletableModel: String, Identifiable {
+        case whisper, cleanup, parakeet
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .whisper:  return "Whisper model"
+            case .cleanup:  return "on-device cleanup model"
+            case .parakeet: return "Parakeet model"
+            }
+        }
+    }
+
     /// Sticky tab selection — survives navigating away and relaunch.
     @AppStorage("wf.settingsTab") private var selectedTabRaw: String = SettingsTab.general.rawValue
     private var selectedTab: SettingsTab { SettingsTab(rawValue: selectedTabRaw) ?? .general }
@@ -133,6 +150,28 @@ struct SettingsView: View {
             inputDeviceUID = (savedUID.isEmpty || availableInputs.contains(where: { $0.uid == savedUID })) ? savedUID : ""
             modelManager.refreshStatus()
         }
+        .confirmationDialog(
+            "Delete \(pendingDelete?.label ?? "model")?",
+            isPresented: Binding(
+                get: { pendingDelete != nil },
+                set: { if !$0 { pendingDelete = nil } }
+            ),
+            presenting: pendingDelete
+        ) { model in
+            Button("Delete", role: .destructive) { performDelete(model) }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("This frees up disk space. You can re-download it anytime.")
+        }
+    }
+
+    private func performDelete(_ model: DeletableModel) {
+        switch model {
+        case .whisper:  modelManager.deleteModel()
+        case .cleanup:  llmManager.deleteModel()
+        case .parakeet: parakeet.deleteModel()
+        }
+        pendingDelete = nil
     }
 
     // MARK: - Tab bar
@@ -652,6 +691,7 @@ struct SettingsView: View {
                 Text("Downloaded ✓ (\(formatBytes(bytes)))")
                     .font(.system(size: 13))
                     .foregroundStyle(DT.statusSuccess)
+                deleteButton(.whisper)
             }
         case .missing:
             HStack(spacing: 10) {
@@ -689,13 +729,24 @@ struct SettingsView: View {
         return String(format: "%.0f MB", mb)
     }
 
+    /// Compact "Delete" affordance shown next to a downloaded model. Opens the
+    /// confirmation dialog rather than deleting immediately.
+    private func deleteButton(_ model: DeletableModel) -> some View {
+        Button("Delete") { pendingDelete = model }
+            .buttonStyle(.pressable)
+            .foregroundStyle(DT.statusError)
+    }
+
     @ViewBuilder
     private var llmModelStatusView: some View {
         switch llmManager.status {
         case .ready(let bytes):
-            Text("Downloaded ✓ (\(formatBytes(bytes)))")
-                .font(.system(size: 13))
-                .foregroundStyle(DT.statusSuccess)
+            HStack(spacing: 10) {
+                Text("Downloaded ✓ (\(formatBytes(bytes)))")
+                    .font(.system(size: 13))
+                    .foregroundStyle(DT.statusSuccess)
+                deleteButton(.cleanup)
+            }
         case .missing:
             HStack(spacing: 10) {
                 Text("Not downloaded (\(selectedLocalLLMModel.displayName))")
@@ -731,9 +782,12 @@ struct SettingsView: View {
     private var parakeetStatusView: some View {
         switch parakeet.status {
         case .ready:
-            Text("Loaded ✓ (Neural Engine)")
-                .font(.system(size: 13))
-                .foregroundStyle(DT.statusSuccess)
+            HStack(spacing: 10) {
+                Text("Loaded ✓ (Neural Engine)")
+                    .font(.system(size: 13))
+                    .foregroundStyle(DT.statusSuccess)
+                deleteButton(.parakeet)
+            }
         case .missing:
             HStack(spacing: 10) {
                 Text("Not downloaded (~600 MB)")

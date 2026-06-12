@@ -173,4 +173,14 @@ final class ParakeetEngine: ObservableObject {
         configuredTerms = []
         if status == .ready { status = .missing }
     }
+
+    /// Free the loaded model and delete the on-disk Parakeet model tree to
+    /// reclaim disk space. FluidAudio stores several `.mlmodelc` bundles under
+    /// `modelsDirectory`, so we remove the whole directory. Re-downloadable via
+    /// `ensureReady()`, so this is a reclaim-space action, not data loss.
+    func deleteModel() {
+        shutdown()
+        try? FileManager.default.removeItem(at: Self.modelsDirectory)
+        status = .missing
+    }
 }

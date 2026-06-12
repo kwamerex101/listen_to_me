@@ -127,6 +127,21 @@ final class WhisperModelManager: NSObject, ObservableObject {
         refreshStatus()
     }
 
+    /// Delete the on-disk Whisper model (and its optional Core ML encoder
+    /// package) to reclaim disk space, freeing any in-process context first.
+    /// Re-downloadable via `startDownload()`, so this is a reclaim-space
+    /// action, not data loss.
+    func deleteModel() {
+        downloadTask?.cancel()
+        downloadTask = nil
+        WhisperLib.shared.shutdown()   // release the loaded context before unlinking the file
+        try? FileManager.default.removeItem(at: WhisperRunner.modelURL)
+        if coreMLPackageInstalled {
+            try? FileManager.default.removeItem(at: Self.coreMLPackageURL)
+        }
+        status = .missing
+    }
+
     fileprivate func handleProgress(_ p: Double) {
         status = .downloading(progress: max(0, min(1, p)))
     }
