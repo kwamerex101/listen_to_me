@@ -20,20 +20,12 @@ enum LiquidGlass {
 }
 
 extension View {
-    /// Elevated card surface. macOS 26 → Liquid Glass; older → the existing
-    /// CardSurface fill + hairline stroke. Drop-in for `.card()`.
-    @ViewBuilder
+    /// Elevated card surface — delegates to CardSurface (a standard material
+    /// on macOS 26, solid fill below). Cards are content, not chrome, so they
+    /// are deliberately NOT Liquid Glass (Apple HIG: glass belongs to the
+    /// navigation/control layer). Kept as a drop-in alias for `.card()`.
     func glassCard(cornerRadius: CGFloat = DT.radiusLg) -> some View {
-        if #available(macOS 26.0, *) {
-            self
-                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.06), lineWidth: 0.5)
-                )
-        } else {
-            modifier(CardSurface(cornerRadius: cornerRadius))
-        }
+        modifier(CardSurface(cornerRadius: cornerRadius))
     }
 
     /// Tinted, interactive glass — for hero/CTA surfaces. macOS 26 only;
@@ -59,14 +51,23 @@ extension View {
     @ViewBuilder
     func pillGlassBackground(cornerRadius: CGFloat, borderOpacity: Double) -> some View {
         if #available(macOS 26.0, *) {
+            // Apple's documented recipe for a DARK floating control over
+            // arbitrary/bright content: `.clear` glass over a 35% black
+            // dimming layer. Keeps the white waveform/text legible in BOTH
+            // themes (the dim, not a theme-tuned tint, carries the contrast)
+            // and still refracts the app behind the transparent pill window.
             self
+                .background(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .fill(Color.black.opacity(0.35))
+                )
                 .glassEffect(
-                    Glass.regular.tint(Color.black.opacity(0.55)).interactive(),
+                    Glass.clear.interactive(),
                     in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .strokeBorder(Color.white.opacity(borderOpacity), lineWidth: 1)
+                        .strokeBorder(Color.white.opacity(borderOpacity * 0.5), lineWidth: 0.5)
                 )
         } else {
             self

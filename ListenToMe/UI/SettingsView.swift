@@ -64,6 +64,8 @@ struct SettingsView: View {
     /// Sticky tab selection — survives navigating away and relaunch.
     @AppStorage("wf.settingsTab") private var selectedTabRaw: String = SettingsTab.general.rawValue
     private var selectedTab: SettingsTab { SettingsTab(rawValue: selectedTabRaw) ?? .general }
+    @Namespace private var chipNamespace
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Reads the version straight from the bundle so future bumps don't
     /// require touching this view.
@@ -99,6 +101,9 @@ struct SettingsView: View {
                 .id(selectedTab)
                 .transition(.opacity)
                 .animation(Motion.tabFade, value: selectedTab)
+                // Settings forms shouldn't sprawl on wide windows — cap the
+                // content column so labels and controls don't drift apart.
+                .frame(maxWidth: 720, alignment: .leading)
             }
             .padding(.top, DT.safeAreaTop)
             .padding(.horizontal, 40)
@@ -137,7 +142,13 @@ struct SettingsView: View {
             ForEach(SettingsTab.allCases, id: \.self) { tab in
                 let selected = tab == selectedTab
                 Button {
-                    selectedTabRaw = tab.rawValue
+                    if reduceMotion {
+                        selectedTabRaw = tab.rawValue
+                    } else {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                            selectedTabRaw = tab.rawValue
+                        }
+                    }
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: tab.icon)
@@ -147,21 +158,27 @@ struct SettingsView: View {
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 7)
-                    .background(
-                        Capsule(style: .continuous)
-                            .fill(selected ? DT.accent.opacity(0.16) : Color.primary.opacity(0.05))
-                    )
-                    .overlay(
-                        Capsule(style: .continuous)
-                            .strokeBorder(selected ? DT.accent.opacity(0.45) : Color.clear, lineWidth: 1)
-                    )
-                    .foregroundStyle(selected ? DT.accent : Color.primary.opacity(0.75))
+                    // Only the selected chip carries a fill — presence vs.
+                    // absence reads faster than two faint fills. A single
+                    // matched-geometry capsule slides between chips.
+                    .background {
+                        if selected {
+                            Capsule(style: .continuous)
+                                .fill(DT.accent.opacity(0.22))
+                                .overlay(
+                                    Capsule(style: .continuous)
+                                        .strokeBorder(DT.accent.opacity(0.5), lineWidth: 1)
+                                )
+                                .matchedGeometryEffect(id: "settingsTabChip", in: chipNamespace)
+                        }
+                    }
+                    .foregroundStyle(selected ? DT.accent : Color.primary.opacity(0.7))
+                    .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
             }
             Spacer()
         }
-        .animation(Motion.tabFade, value: selectedTabRaw)
     }
 
     // MARK: - General
@@ -384,6 +401,8 @@ struct SettingsView: View {
                     }
                 }
             }
+
+            onDevicePolishSection
         }
     }
 
@@ -447,116 +466,101 @@ struct SettingsView: View {
                     }
                     .hoverableRow()
                 }
-                row(label: "Accuracy") {
-                    HStack(spacing: 10) {
-                        Picker("", selection: $transcriptionAccuracy) {
-                            ForEach(Preferences.TranscriptionAccuracy.allCases, id: \.self) { acc in
-                                Text(acc.label).tag(acc)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        .labelsHidden()
-                        // Beam search only applies on the in-process
-                        // linked engine; server/CLI decode with their
-                        // own defaults. Same gating pattern as the
-                        // streaming-partials toggle below.
-                        .disabled(transcriptionEngine != .linked)
-                        .onChange(of: transcriptionAccuracy) { _, new in
-                            Preferences.shared.transcriptionAccuracy = new
-                        }
-                        if transcriptionEngine != .linked {
-                            Text("Requires Linked engine")
-                                .font(DT.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .animation(Motion.tabFade, value: transcriptionEngine)
-                }
-                row(label: "Live partial transcripts",
-                    description: "Preview words as you speak.") {
-                    HStack(spacing: 10) {
-                        Toggle("", isOn: $streamingPartialsEnabled)
-                            .labelsHidden()
-                            .disabled(transcriptionEngine != .linked)
-                            .onChange(of: streamingPartialsEnabled) { _, new in
-                                Preferences.shared.streamingPartialsEnabled = new
-                            }
-                        if transcriptionEngine != .linked {
-                            Text("Requires Linked engine")
-                                .font(DT.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .animation(Motion.tabFade, value: transcriptionEngine)
-                }
-            }
-            .animation(Motion.tabFade, value: transcriptionEngine)
-
-            section(title: "On-Device Polish") {
-                row(label: "Cleanup engine",
-                    description: "On-device keeps every transcript on this Mac.") {
-                    Picker("", selection: $llmBackend) {
-                        ForEach(Preferences.LLMBackend.allCases, id: \.self) { b in
-                            Text(b.label).tag(b)
+                // Beam search + live partials only apply on the in-process
+                // Linked engine; the whole row dims when another engine is
+                // active (the "requires" reason lives in the description).
+                row(label: "Accuracy",
+                    description: transcriptionEngine == .linked
+                        ? "Beam search trades a little speed for fewer errors."
+                        : "Requires the Whisper · Linked engine.",
+                    enabled: transcriptionEngine == .linked) {
+                    Picker("", selection: $transcriptionAccuracy) {
+                        ForEach(Preferences.TranscriptionAccuracy.allCases, id: \.self) { acc in
+                            Text(acc.label).tag(acc)
                         }
                     }
                     .pickerStyle(.menu)
                     .labelsHidden()
                     .frame(width: DT.controlPickerWidth)
-                    .onChange(of: llmBackend) { _, new in
-                        Preferences.shared.llmBackend = new
-                        if new == .local {
-                            let file = selectedLocalLLMModel.filename
-                            LocalLLMEngine.shared.activeModelPath =
-                                LocalLLMEngine.modelURL(for: file).path
-                            if LocalLLMEngine.shared.isReady(modelFile: file) {
-                                LocalLLMEngine.shared.preload(modelFile: file)
-                            }
-                            llmManager.refreshStatus()
-                        }
+                    .onChange(of: transcriptionAccuracy) { _, new in
+                        Preferences.shared.transcriptionAccuracy = new
                     }
                 }
-                // Model picker + download only matter for the local engine —
-                // mirror the partials/accuracy gating pattern.
-                if llmBackend == .local {
-                    row(label: "Model") {
-                        Picker("", selection: $selectedLocalLLMModel) {
-                            ForEach(Preferences.LocalLLMModel.allCases, id: \.self) { m in
-                                Text(m.displayName).tag(m)
-                            }
-                        }
-                        .pickerStyle(.menu)
+                row(label: "Live partial transcripts",
+                    description: transcriptionEngine == .linked
+                        ? "Preview words as you speak."
+                        : "Requires the Whisper · Linked engine.",
+                    enabled: transcriptionEngine == .linked) {
+                    Toggle("", isOn: $streamingPartialsEnabled)
                         .labelsHidden()
-                        .frame(width: DT.controlPickerWidth)
-                        .disabled(!modelFitsRAM(selectedLocalLLMModel) && selectedLocalLLMModel == .gemma4_12B)
-                        .onChange(of: selectedLocalLLMModel) { _, new in
-                            Preferences.shared.selectedLocalLLMModel = new
-                            LocalLLMEngine.shared.shutdown()
-                            LocalLLMEngine.shared.activeModelPath =
-                                LocalLLMEngine.modelURL(for: new.filename).path
-                            llmManager.refreshStatus()
+                        .onChange(of: streamingPartialsEnabled) { _, new in
+                            Preferences.shared.streamingPartialsEnabled = new
                         }
+                }
+            }
+            .animation(Motion.tabFade, value: transcriptionEngine)
+        }
+    }
+
+    /// On-Device Polish — lives on the Dictation tab next to AI Cleanup
+    /// (it's the cleanup engine, same pipeline stage).
+    private var onDevicePolishSection: some View {
+        section(title: "On-Device Polish") {
+            row(label: "Cleanup engine",
+                description: "On-device keeps every transcript on this Mac.") {
+                Picker("", selection: $llmBackend) {
+                    ForEach(Preferences.LLMBackend.allCases, id: \.self) { b in
+                        Text(b.label).tag(b)
                     }
-                    row(label: "Status") {
-                        llmModelStatusView
-                    }
-                    .hoverableRow()
-                    if !modelFitsRAM(.gemma4_12B) {
-                        row(label: "") {
-                            Text("Gemma 4 12B needs ≥16 GB RAM — this Mac has \(installedRAMGB) GB.")
-                                .font(DT.caption)
-                                .foregroundStyle(.secondary)
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .frame(width: DT.controlPickerWidth)
+                .onChange(of: llmBackend) { _, new in
+                    Preferences.shared.llmBackend = new
+                    if new == .local {
+                        let file = selectedLocalLLMModel.filename
+                        LocalLLMEngine.shared.activeModelPath =
+                            LocalLLMEngine.modelURL(for: file).path
+                        if LocalLLMEngine.shared.isReady(modelFile: file) {
+                            LocalLLMEngine.shared.preload(modelFile: file)
                         }
+                        llmManager.refreshStatus()
                     }
                 }
             }
-            .animation(Motion.tabFade, value: llmBackend)
-
-            section(title: "Engine Benchmark (A/B)") {
-                BenchmarkSection()
-                    .padding(.vertical, DT.space3)
+            if llmBackend == .local {
+                row(label: "Model") {
+                    Picker("", selection: $selectedLocalLLMModel) {
+                        ForEach(Preferences.LocalLLMModel.allCases, id: \.self) { m in
+                            Text(m.displayName).tag(m)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .frame(width: DT.controlPickerWidth)
+                    .disabled(!modelFitsRAM(selectedLocalLLMModel) && selectedLocalLLMModel == .gemma4_12B)
+                    .onChange(of: selectedLocalLLMModel) { _, new in
+                        Preferences.shared.selectedLocalLLMModel = new
+                        LocalLLMEngine.shared.shutdown()
+                        LocalLLMEngine.shared.activeModelPath =
+                            LocalLLMEngine.modelURL(for: new.filename).path
+                        llmManager.refreshStatus()
+                    }
+                }
+                row(label: "Status") {
+                    llmModelStatusView
+                }
+                .hoverableRow()
+                if !modelFitsRAM(.gemma4_12B) {
+                    row(label: "Gemma 4 12B",
+                        description: "Needs ≥16 GB RAM — this Mac has \(installedRAMGB) GB.") {
+                        EmptyView()
+                    }
+                }
             }
         }
+        .animation(Motion.tabFade, value: llmBackend)
     }
 
     // MARK: - Privacy
@@ -607,6 +611,13 @@ struct SettingsView: View {
                             Preferences.shared.diagnosticsEnabled = new
                         }
                 }
+            }
+
+            // The A/B benchmark is a diagnostic tool, not a setting — lives
+            // here rather than overloading the Models tab.
+            section(title: "Engine Benchmark (A/B)") {
+                BenchmarkSection()
+                    .padding(.vertical, DT.space3)
             }
         }
     }
@@ -779,17 +790,20 @@ struct SettingsView: View {
         }
     }
 
-    /// Settings row: short label, optional one-line benefit description
-    /// underneath (Eloquent copy pattern), control trailing.
+    /// Settings row: bold label, optional one-line benefit description
+    /// underneath (Eloquent copy pattern), control trailing. When `enabled`
+    /// is false the WHOLE row dims (macOS convention — a disabled control
+    /// dims its label too) and stops taking hits.
     private func row<Trailing: View>(
         label: String,
         description: String? = nil,
+        enabled: Bool = true,
         @ViewBuilder trailing: () -> Trailing
     ) -> some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(label)
-                    .font(DT.body)
+                    .font(DT.bodyStrong)
                 if let description {
                     Text(description)
                         .font(DT.caption)
@@ -797,11 +811,13 @@ struct SettingsView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            Spacer()
+            Spacer(minLength: DT.space5)
             trailing()
         }
         .padding(.horizontal, DT.space4)
         .padding(.vertical, DT.space3)
+        .opacity(enabled ? 1 : 0.5)
+        .allowsHitTesting(enabled)
     }
 
     private func kbd(_ text: String) -> some View {

@@ -29,4 +29,13 @@ enum Haptics {
             performanceTime: .drawCompleted
         )
     }
+
+    /// Fired when a dictation fails — balances the success tap so a failure
+    /// is felt, not just seen. `.levelChange` is the firmest available tap.
+    static func error() {
+        NSHapticFeedbackManager.defaultPerformer.perform(
+            .levelChange,
+            performanceTime: .now
+        )
+    }
 }
