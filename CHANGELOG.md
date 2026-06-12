@@ -48,6 +48,26 @@ All notable user-facing changes per release. Format inspired by [Keep a Changelo
 
 - **Streaming partial transcripts** — the linked engine makes them possible, but the UX (avoiding hallucinations on sub-second chunks, reading a growing WAV, busy-gate coordination with the final transcribe) wants its own focused PR. Tracked as a follow-up.
 
+## [v0.14.3] — 2026-06-12
+
+User-facing arc since v0.13.0 (waves 5–8 plus polish). Bundle build 30.
+
+### Added
+
+- **Parakeet TDT v3 transcription** (FluidAudio, Core ML / Apple Neural Engine) as a selectable engine alongside whisper.cpp — ~0.09 s/utterance. Opt-in **dictionary biasing** (CTC word-spotting) favors your saved terms.
+- **In-app A/B benchmark** (Settings → Privacy → Engine Benchmark): read-aloud cards scoring WER + latency, Whisper vs Parakeet.
+- **On-device Gemma 4 cleanup** via llama.cpp — transcripts never leave the Mac. Light/Medium/High intensity, a meaning-guard (content-word recall / hallucination checks) replacing the old heuristic, and a cleanup-gate that skips already-clean text. Cloud Claude (direct API or CLI) remains an alternative.
+- **Tabbed Settings** (General / Dictation / Models / Privacy / About) and a **Liquid Glass** UI pass on macOS 26 (graceful fallback on 14–25).
+- **History pagination** (windowed / infinite scroll).
+- **Delete downloaded models** to reclaim disk space (Whisper, Gemma, Parakeet) — re-downloadable anytime.
+- **Privacy → Permissions toggles**, both default off: *Context-aware tone* (reads active browser tab URL) and *Voice commands* (`open`/`shell`/`log to today`).
+
+### Fixed / Security
+
+- **Stable code signing** (`scripts/resign-stable.sh`): builds are re-signed with a Developer ID / Apple Development identity so macOS TCC **persists permission decisions** instead of re-prompting on every dictation.
+- The launch-time `which claude` probe now runs only when cloud cleanup is selected — removes a spurious "network volume" permission prompt for on-device users.
+- Dictation into secure (password) fields is blocked (`SecureInput` guard).
+
 ## [v0.13.0] — 2026-05-09
 
 ## [v0.13.0] — 2026-05-09

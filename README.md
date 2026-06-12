@@ -124,12 +124,20 @@ To disable cleanup entirely, set Mode to "Never" in Settings → Dictation.
 
 ## First run
 
-1. Launch from `/Applications/ListenToMe.app`. The app is ad-hoc-signed (not
-   notarized); on first launch macOS may show a Gatekeeper warning unless you
-   ran the `xattr -dr com.apple.quarantine` step above.
+1. Launch from `/Applications/ListenToMe.app`. Builds are signed with a stable
+   identity when one is in your keychain (Developer ID or Apple Development —
+   see `scripts/resign-stable.sh`), which lets macOS **remember** your
+   permission choices. Without a signing identity the build falls back to
+   ad-hoc — still runs, but macOS re-prompts for permissions each launch (and
+   may show a Gatekeeper warning unless you ran `xattr -dr com.apple.quarantine`
+   above). Not notarized either way.
 2. Permission card pops up — click **Open Settings**, toggle ListenToMe on
    under Privacy & Security → Accessibility, then return to the app.
-3. macOS prompts for Microphone access on first hotkey press.
+3. macOS prompts for Microphone access on first hotkey press. You may also see
+   one-time prompts for media/Photos — these are AVFoundation side effects of
+   mic capture; the app never reads that content, so **Don't Allow** is safe.
+   (After switching from an older ad-hoc build to a signed one, re-grant
+   Microphone + Accessibility once — the signing identity changed.)
 4. Click into any text field; **hold Fn + ⌘**; speak; release.
 5. Open the menu-bar icon → "Open ListenToMe…" (⌘,) for the main window.
 
@@ -207,8 +215,10 @@ recording heartbeat, and 30 Hz waveform animations.
 - **Backtrack** (Wispr-style): start your next dictation with
   `actually, …` / `scratch that, …` / `wait, change that to …` / `i meant …`
   to rewrite the previous paste in place via Claude
-- **Voice commands**: `open Chrome`, `open Safari`, `open <App>`,
-  `shell: <command>`, `log to today: <text>`
+- **Voice commands** (opt-in — Settings → Privacy → Permissions): `open Chrome`,
+  `open Safari`, `open <App>`, `shell: <command>`, `log to today: <text>`. Off
+  by default because `log to today` writes to your Documents folder and `shell`
+  runs a terminal command.
 - **Code mode** (auto): when the target app is a code editor or terminal
   (Cursor, Xcode, VS Code, iTerm, Warp, Zed, Hyper, IntelliJ, …), the
   cleanup prompt skips sentence-case and recognizes
@@ -238,11 +248,14 @@ Settings is organized into five tabs (chip bar):
 | | Whisper model | Status + download (base 148 MB … large-turbo 1.6 GB), SHA-256 verified |
 | | Accuracy / Live partials | Whisper Linked only (beam search, streaming) |
 | | Parakeet model | Status + download (~600 MB Core ML) |
+| | (any downloaded model) | **Delete** to reclaim disk space — re-downloadable anytime |
 | | On-Device Polish — engine | Claude (cloud) / On-device Gemma |
 | | Gemma model | Gemma 4 E2B (default) / 12B (≥16 GB RAM); status + download |
 | | Engine Benchmark (A/B) | Read-aloud cards; WER + latency, Whisper vs Parakeet |
 | **Privacy** | History retention | 0–365 days (default 90; 0 = forever); Apply purges immediately |
 | | Encrypt history at rest | AES-GCM toggle (one-time re-encrypt of `history.ndjson`) |
+| | Context-aware tone | Opt-in (default off); reads active browser tab URL to match cleanup tone |
+| | Voice commands | Opt-in (default off); enables `open`/`shell`/`log to today` |
 | | Diagnostics log | Off by default; rotated at 1 MB; never includes transcripts |
 | **About** | Version | from the bundle |
 | | Processing | on-device note |

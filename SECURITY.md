@@ -35,14 +35,21 @@ If cleanup is set to "Never" in Settings, no transcripts leave the device under 
 | Permission | Why |
 |---|---|
 | Microphone (`com.apple.security.device.audio-input`) | AVAudioEngine capture |
-| Apple Events (`com.apple.security.automation.apple-events`) | Activate the paste-target app before posting Cmd+V |
+| Apple Events (`com.apple.security.automation.apple-events`) | Activate the paste-target app before posting Cmd+V; also the opt-in browser active-tab-URL read (Settings → Privacy → Permissions → Context-aware tone, default off) |
 | Accessibility (runtime) | `CGEventTap` for the global hotkey + `CGEvent.post` for the paste keystroke |
+
+**Media / Photos prompts are not requested by the app.** macOS may surface
+one-time "Apple Music / media library / Photos" prompts; these are AVFoundation
+side effects of initializing the audio stack for mic capture. The app links no
+Photos/MediaPlayer frameworks and reads none of that content — denying them does
+not affect dictation. The separate "network volume" prompt was a launch-time
+`which claude` PATH probe; it now runs only when cloud cleanup is selected.
 
 ## Code signing & runtime
 
-- **Adhoc-signed** (`CODE_SIGN_IDENTITY: "-"`). No Developer ID, no notarization — by design for a personal-use tool.
-- **Hardened runtime: ON.** Verified via `codesign -d --verbose=4` showing `flags=0x10002(adhoc,runtime)`. Both `ENABLE_HARDENED_RUNTIME: YES` and `OTHER_CODE_SIGN_FLAGS: "--options=runtime"` are set in `project.yml` because adhoc signing silently dropped the runtime flag with only the former.
-- **Library validation: ON** (default with hardened runtime). Bundled `whisper-cli` and `libwhisper.*.dylib` / `libggml*.dylib` are all adhoc-signed by `scripts/setup.sh` so they pass.
+- **Stable signing via `scripts/resign-stable.sh`.** The Xcode build signs ad-hoc (`CODE_SIGN_IDENTITY: "-"`), then a post-build step re-signs the whole bundle (nested dylibs → helper binaries → app) with a real keychain identity — preferring **Developer ID Application**, falling back to **Apple Development**. This gives a stable `TeamIdentifier` so **macOS TCC persists permission decisions** instead of re-prompting every launch (an ad-hoc signature has no stable identity to key the grant to). No identity in the keychain → it degrades to the ad-hoc signature (still runs; TCC re-prompts). Not notarized either way — a personal-use tool.
+- **Hardened runtime: ON.** `resign-stable.sh` re-signs with `--options runtime`; `ENABLE_HARDENED_RUNTIME: YES` + `OTHER_CODE_SIGN_FLAGS: "--options=runtime"` are also set in `project.yml`. Verify with `codesign -dvvv ListenToMe.app` (look for `runtime` in flags and a non-empty `TeamIdentifier`).
+- **Library validation: relaxed** via `com.apple.security.cs.disable-library-validation` so the bundled `libwhisper.*` / `libggml*` / `libllama*` dylibs (built and signed by `scripts/setup.sh` / `build-llama.sh`) load under hardened runtime even when their signing identity differs from the main binary's. `resign-stable.sh` re-signs them with the same identity where possible.
 - **Sandbox: OFF** by design. The app posts synthetic Cmd+V/Cmd+Z keystrokes via `CGEvent.post(tap: .cghidEventTap)` which the sandbox blocks. Re-enabling the sandbox would break the core paste loop.
 
 ## Subprocess safety
@@ -66,7 +73,7 @@ If cleanup is set to "Never" in Settings, no transcripts leave the device under 
 
 ## Known limitations / accepted risk
 
-1. **Adhoc signing means no Gatekeeper trust chain.** Other Macs would need `xattr -dr com.apple.quarantine`. Acceptable per personal-tool ethos.
+1. **Not notarized — no Gatekeeper trust chain.** Even when signed with Developer ID / Apple Development, the app isn't notarized, so other Macs may need `xattr -dr com.apple.quarantine`. On a machine with no signing identity the build is ad-hoc and macOS re-prompts for permissions each launch. Acceptable per personal-tool ethos.
 2. **No code signing of the bundled `claude` CLI** — that binary lives outside this app and is the user's responsibility.
 3. **No at-rest encryption on the JSON stores.** Threat model is "another user on this Mac" — for that, FileVault + home-folder POSIX perms are the line of defense.
 4. **No HMAC on history.json** — a local attacker with write access could tamper with stored transcripts. Out of scope.
