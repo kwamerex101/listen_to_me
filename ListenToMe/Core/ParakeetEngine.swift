@@ -25,6 +25,11 @@ final class ParakeetEngine: ObservableObject {
     @Published private(set) var status: Status = .missing
 
     private var manager: AsrManager?
+    private var models: AsrModels?            // retained to share with the sliding manager
+    // Lazy vocabulary-biasing stack (only built when boosting is actually used).
+    private var ctcModels: CtcModels?
+    private var slidingManager: SlidingWindowAsrManager?
+    private var configuredTerms: Set<String> = []
     private init() {}
 
     /// Models live alongside our other model trees. FluidAudio manages the
@@ -63,6 +68,7 @@ final class ParakeetEngine: ObservableObject {
             let mgr = AsrManager(config: .default)
             try await mgr.loadModels(models)
             manager = mgr
+            self.models = models
             status = .ready
         } catch {
             status = .failed(message: error.localizedDescription)
@@ -84,8 +90,87 @@ final class ParakeetEngine: ObservableObject {
         return (result.text, result.processingTime)
     }
 
+    /// Transcribe with optional dictionary biasing. When `biasTerms` is empty
+    /// this is exactly the fast one-shot path. Otherwise it routes through the
+    /// sliding-window manager with CTC word-spotting so the given terms (e.g.
+    /// proper nouns) are favored. ANY failure in the biased path falls back to
+    /// the fast path — dictation never breaks.
+    func transcribe(samples: [Float], biasTerms: [String]) async throws -> (text: String, seconds: Double) {
+        let terms = biasTerms
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { $0.count >= 3 }   // CTC-WS skips very short terms anyway
+        guard !terms.isEmpty else { return try await transcribe(samples: samples) }
+
+        do {
+            let start = Date()
+            let text = try await biasedTranscribe(samples: samples, terms: terms)
+            return (text, Date().timeIntervalSince(start))
+        } catch {
+            NSLog("[ListenToMe] Parakeet vocab-boost failed (\(error)) — using fast path")
+            return try await transcribe(samples: samples)
+        }
+    }
+
+    private func biasedTranscribe(samples: [Float], terms: [String]) async throws -> String {
+        try await ensureReady()
+        guard let models else { throw ASRBiasError.notReady }
+
+        try await ensureVocabConfigured(terms: terms, models: models)
+        guard let sliding = slidingManager else { throw ASRBiasError.notReady }
+
+        let buffer = try Self.makeBuffer(from: samples)
+        try await sliding.startStreaming(source: .microphone)
+        await sliding.streamAudio(buffer)
+        let text = try await sliding.finish()
+        try? await sliding.reset()   // ready for the next utterance
+        return text
+    }
+
+    /// Build/refresh the CTC + sliding stack for the given term set. Rebuilds
+    /// the vocabulary only when the set changed (cheap to skip otherwise).
+    private func ensureVocabConfigured(terms: [String], models: AsrModels) async throws {
+        let termSet = Set(terms)
+        if slidingManager != nil, configuredTerms == termSet { return }
+
+        if ctcModels == nil {
+            ctcModels = try await CtcModels.downloadAndLoad(to: Self.modelsDirectory)
+        }
+        guard let ctc = ctcModels else { throw ASRBiasError.notReady }
+
+        let sliding = slidingManager ?? SlidingWindowAsrManager(config: .default)
+        if slidingManager == nil {
+            try await sliding.loadModels(models)
+        }
+        let vocab = CustomVocabularyContext(terms: terms.map { CustomVocabularyTerm(text: $0) })
+        try await sliding.configureVocabularyBoosting(vocabulary: vocab, ctcModels: ctc)
+        slidingManager = sliding
+        configuredTerms = termSet
+    }
+
+    /// [Float] @ 16 kHz mono → AVAudioPCMBuffer (FluidAudio's stream input).
+    nonisolated private static func makeBuffer(from samples: [Float]) throws -> AVAudioPCMBuffer {
+        guard let fmt = AVAudioFormat(commonFormat: .pcmFormatFloat32,
+                                      sampleRate: 16_000, channels: 1, interleaved: false),
+              let buf = AVAudioPCMBuffer(pcmFormat: fmt,
+                                         frameCapacity: AVAudioFrameCount(max(1, samples.count)))
+        else { throw ASRBiasError.bufferAllocFailed }
+        buf.frameLength = AVAudioFrameCount(samples.count)
+        samples.withUnsafeBufferPointer { src in
+            if let dst = buf.floatChannelData?[0], let base = src.baseAddress {
+                dst.update(from: base, count: samples.count)
+            }
+        }
+        return buf
+    }
+
+    enum ASRBiasError: Error { case notReady, bufferAllocFailed }
+
     func shutdown() {
         manager = nil
+        models = nil
+        slidingManager = nil
+        ctcModels = nil
+        configuredTerms = []
         if status == .ready { status = .missing }
     }
 }
