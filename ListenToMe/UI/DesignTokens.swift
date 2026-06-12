@@ -224,37 +224,27 @@ struct CardSurface: ViewModifier {
     var stroke: Color = DT.separator
 
     func body(content: Content) -> some View {
-        // macOS 26: Liquid Glass surface (refracts the translucent window
-        // behind it). Older: the tuned fill + hairline-stroke card. Every
-        // `.card()` call site across the app picks this up automatically.
-        if #available(macOS 26.0, *) {
-            content
-                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.06), lineWidth: 0.5)
-                )
-        } else {
-            content
-                .background(
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .fill(fill)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .strokeBorder(
-                            LinearGradient(
-                                colors: [stroke, stroke.opacity(0.55)],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            ),
-                            lineWidth: 0.5
-                        )
-                )
-                // Very subtle drop shadow — almost imperceptible but adds depth
-                // in light mode where the card surfaces would otherwise float.
-                .shadow(color: .black.opacity(0.04), radius: 2, x: 0, y: 1)
-        }
+        // Cards are CONTENT, not chrome — per Apple's Liquid Glass HIG, the
+        // content layer uses STANDARD MATERIALS, not glass (glass is reserved
+        // for navigation/controls: the pill, sidebar, CTA). On macOS 26 we use
+        // `.regularMaterial` over the translucent window; older OS keeps the
+        // tuned solid fill. Both use an ADAPTIVE stroke (DT.separator darkens
+        // in light mode) + a faint elevation shadow so cards read as distinct
+        // surfaces in both themes.
+        let surface: AnyShapeStyle = {
+            if #available(macOS 26.0, *) { return AnyShapeStyle(.regularMaterial) }
+            return AnyShapeStyle(fill)
+        }()
+        return content
+            .background(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(surface)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(stroke, lineWidth: 0.5)
+            )
+            .shadow(color: .black.opacity(0.05), radius: 3, x: 0, y: 1)
     }
 }
 
@@ -333,8 +323,10 @@ struct SectionEyebrow: View {
     var body: some View {
         Text(title.uppercased())
             .font(DT.eyebrow)
-            .tracking(0.6)
-            .foregroundStyle(.secondary)
+            .tracking(0.8)
+            // Eyebrows label the rows beneath them, so they must out-contrast
+            // the .secondary descriptions — not recede below them.
+            .foregroundStyle(Color.primary.opacity(0.7))
     }
 }
 

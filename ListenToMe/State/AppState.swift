@@ -36,6 +36,10 @@ final class AppState: ObservableObject {
     @Published var hotkeyGranted: Bool = false
     @Published var micGranted: Bool = false
     @Published var showPermissionPrompt: Bool = false
+    /// Briefly true after Accessibility is granted — the permission card
+    /// shows a "Granted ✓" beat before collapsing, so the user knows the app
+    /// saw the grant rather than the card silently vanishing.
+    @Published var permissionJustGranted: Bool = false
     /// True if the `claude` CLI resolves on PATH. Default true (optimistic);
     /// set on launch by an `isAvailable()` probe. Drives the menu warning
     /// when cleanup is enabled but the binary is missing.

@@ -183,6 +183,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 } else {
                     self?.state.partialText = ""
                 }
+                // A failure should be felt, not just seen — success already
+                // taps, this balances it. Fired centrally so every .error
+                // path (mic, record, transcribe, command, cleanup) gets it.
+                if case .error = phase { Haptics.error() }
             }
     }
 

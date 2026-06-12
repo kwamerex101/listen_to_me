@@ -30,17 +30,28 @@ final class HotkeyMonitor {
 
     func start() {
         if tryStartTap() { return }
-        NSLog("[ListenToMe] Accessibility not granted yet — will retry every 2s")
-        retryTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] t in
+        NSLog("[ListenToMe] Accessibility not granted yet — polling")
+        // Poll fast (0.5s) while the user is in System Settings — AXIsProcessTrusted
+        // is cheap, and a 2s wait after they flip the switch felt dead. Once the
+        // tap is live we stop entirely (no idle polling).
+        retryTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] t in
             Task { @MainActor in
                 guard let self else { t.invalidate(); return }
                 if self.tryStartTap() {
                     NSLog("[ListenToMe] Accessibility granted — hotkey tap active")
                     t.invalidate()
                     self.retryTimer = nil
-                    AppState.shared.showPermissionPrompt = false
-                    PillWindow.shared.setInteractive(false)
+                    // Confirm the grant, return focus to the app, then let the
+                    // permission card clear (PillView shows a brief "Granted ✓").
+                    AppState.shared.permissionJustGranted = true
+                    NSApp.activate(ignoringOtherApps: true)
                     NotificationCenter.default.post(name: .phaseChanged, object: nil)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.1) {
+                        AppState.shared.permissionJustGranted = false
+                        AppState.shared.showPermissionPrompt = false
+                        PillWindow.shared.setInteractive(false)
+                        NotificationCenter.default.post(name: .phaseChanged, object: nil)
+                    }
                 }
             }
         }

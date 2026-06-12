@@ -743,7 +743,37 @@ struct PillView: View {
 
     // MARK: - Permission card content (rendered inside the morphed pill)
 
+    @ViewBuilder
     private var permissionContent: some View {
+        if state.permissionJustGranted {
+            permissionGrantedContent
+        } else {
+            permissionRequiredContent
+        }
+    }
+
+    /// Brief confirmation beat shown the moment Accessibility is granted,
+    /// before the card collapses — so the grant doesn't register as the card
+    /// silently vanishing.
+    private var permissionGrantedContent: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 22))
+                .foregroundStyle(DT.statusSuccess)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Accessibility Granted")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
+                Text("You're all set — hold the hotkey to dictate.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.white.opacity(0.75))
+            }
+            Spacer(minLength: 0)
+        }
+        .transition(.opacity)
+    }
+
+    private var permissionRequiredContent: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 12) {
                 ZStack {
