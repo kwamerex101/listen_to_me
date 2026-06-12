@@ -224,28 +224,37 @@ struct CardSurface: ViewModifier {
     var stroke: Color = DT.separator
 
     func body(content: Content) -> some View {
-        content
-            .background(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(fill)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(
-                        LinearGradient(
-                            colors: [
-                                stroke,
-                                stroke.opacity(0.55)
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        ),
-                        lineWidth: 0.5
-                    )
-            )
-            // Very subtle drop shadow — almost imperceptible but adds depth
-            // in light mode where the card surfaces would otherwise float.
-            .shadow(color: .black.opacity(0.04), radius: 2, x: 0, y: 1)
+        // macOS 26: Liquid Glass surface (refracts the translucent window
+        // behind it). Older: the tuned fill + hairline-stroke card. Every
+        // `.card()` call site across the app picks this up automatically.
+        if #available(macOS 26.0, *) {
+            content
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.06), lineWidth: 0.5)
+                )
+        } else {
+            content
+                .background(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .fill(fill)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .strokeBorder(
+                            LinearGradient(
+                                colors: [stroke, stroke.opacity(0.55)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            ),
+                            lineWidth: 0.5
+                        )
+                )
+                // Very subtle drop shadow — almost imperceptible but adds depth
+                // in light mode where the card surfaces would otherwise float.
+                .shadow(color: .black.opacity(0.04), radius: 2, x: 0, y: 1)
+        }
     }
 }
 
