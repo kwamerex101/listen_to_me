@@ -330,18 +330,9 @@ struct PillView: View {
                     .opacity(promotionOpacity)
                     .allowsHitTesting(false)
             )
-            // Layered shadow: a crisp inner edge that defines the pill against
-            // light backgrounds, plus an ambient cloud that gives depth. Hover
-            // intensifies the ambient layer so the pill visibly "lifts".
-            .shadow(color: .black.opacity(0.28), radius: 1.0, x: 0, y: 0.5)
-            .shadow(
-                color: .black.opacity(hovered ? 0.62 : 0.46),
-                radius: isCompact ? (hovered ? 14 :  9)
-                                  : (hovered ? 26 : 19),
-                x: 0,
-                y: isCompact ? (hovered ?  7 :  4)
-                             : (hovered ? 14 : 10)
-            )
+            // No drop shadow — the Liquid Glass body provides its own edge
+            // and depth, and a cast shadow over arbitrary app content reads
+            // as heavy/dated next to the glass.
             .padding(.bottom, 4)
             .onAppear {
                 // Both breath axes share one timeline so they stay in phase.

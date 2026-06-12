@@ -111,6 +111,7 @@ final class Preferences {
     private let kInputDeviceUID = "wf.inputDeviceUID"
     private let kSelectedWhisperModel = "wf.selectedWhisperModel"
     private let kTranscriptionAccuracy = "wf.transcriptionAccuracy"
+    private let kParakeetVocabBoost = "wf.parakeetVocabBoost"
     private let kLLMBackend = "wf.llmBackend"
     private let kSelectedLocalLLMModel = "wf.selectedLocalLLMModel"
     private let kCleanupIntensity = "wf.cleanupIntensity"
@@ -233,6 +234,16 @@ final class Preferences {
             return TranscriptionEngine(rawValue: raw) ?? .server
         }
         set { defaults.set(newValue.rawValue, forKey: kTranscriptionEngine) }
+    }
+
+    /// Parakeet-only: bias transcription toward the user dictionary using
+    /// FluidAudio's CTC word-spotting rescorer. Opt-in (off by default) — it
+    /// downloads a second ~CTC model and routes through the sliding-window
+    /// manager, which is slower than the one-shot path. When off (or no
+    /// dictionary terms), Parakeet uses the fast one-shot path.
+    var parakeetVocabBoost: Bool {
+        get { defaults.bool(forKey: kParakeetVocabBoost) }
+        set { defaults.set(newValue, forKey: kParakeetVocabBoost) }
     }
 
     /// Decoder strategy for the FINAL transcription pass. Streaming

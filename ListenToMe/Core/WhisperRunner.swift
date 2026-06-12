@@ -46,7 +46,15 @@ struct WhisperRunner {
         if engine == .parakeet {
             do {
                 let samples = try WhisperWAVReader.samples(at: wav)
-                let (text, _) = try await ParakeetEngine.shared.transcribe(samples: samples)
+                // Opt-in dictionary biasing (CTC word-spotting). Empty terms
+                // or boost-off → the fast one-shot path inside the engine.
+                let biasTerms: [String] = await MainActor.run {
+                    Preferences.shared.parakeetVocabBoost
+                        ? DictionaryStore.shared.entries.map(\.word)
+                        : []
+                }
+                let (text, _) = try await ParakeetEngine.shared.transcribe(
+                    samples: samples, biasTerms: biasTerms)
                 if text.isEmpty { throw WhisperError.noOutput }
                 try? FileManager.default.removeItem(at: wav)
                 return text

@@ -59,6 +59,7 @@ struct SettingsView: View {
     @State private var selectedLocalLLMModel: Preferences.LocalLLMModel = Preferences.shared.selectedLocalLLMModel
     @ObservedObject private var llmManager = LLMModelManager.shared
     @ObservedObject private var parakeet = ParakeetEngine.shared
+    @State private var parakeetVocabBoost: Bool = Preferences.shared.parakeetVocabBoost
 
     /// Sticky tab selection — survives navigating away and relaunch.
     @AppStorage("wf.settingsTab") private var selectedTabRaw: String = SettingsTab.general.rawValue
@@ -118,6 +119,7 @@ struct SettingsView: View {
             historyRetentionDays = Double(Preferences.shared.historyRetentionDays)
             historyEncryptionEnabled = Preferences.shared.historyEncryptionEnabled
             transcriptionEngine = Preferences.shared.transcriptionEngine
+            parakeetVocabBoost = Preferences.shared.parakeetVocabBoost
             streamingPartialsEnabled = Preferences.shared.streamingPartialsEnabled
             selectedWhisperModel = Preferences.shared.selectedWhisperModel
             transcriptionAccuracy = Preferences.shared.transcriptionAccuracy
@@ -415,6 +417,14 @@ struct SettingsView: View {
                         parakeetStatusView
                     }
                     .hoverableRow()
+                    row(label: "Boost dictionary terms",
+                        description: "Favor your dictionary words during transcription (CTC word-spotting). Downloads a small extra model; slightly slower.") {
+                        Toggle("", isOn: $parakeetVocabBoost)
+                            .labelsHidden()
+                            .onChange(of: parakeetVocabBoost) { _, new in
+                                Preferences.shared.parakeetVocabBoost = new
+                            }
+                    }
                 }
                 // Whisper-only model controls.
                 if transcriptionEngine.isWhisper {
