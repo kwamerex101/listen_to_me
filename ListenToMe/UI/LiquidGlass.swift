@@ -52,6 +52,35 @@ extension View {
         }
     }
 
+    /// Floating-pill body. macOS 26 → interactive Liquid Glass with a dark
+    /// tint (keeps the white waveform/text legible over arbitrary app content
+    /// behind the transparent pill window) + the hover/press lensing; older →
+    /// the solid-black fill. Folds in the hairline stroke either way.
+    @ViewBuilder
+    func pillGlassBackground(cornerRadius: CGFloat, borderOpacity: Double) -> some View {
+        if #available(macOS 26.0, *) {
+            self
+                .glassEffect(
+                    Glass.regular.tint(Color.black.opacity(0.55)).interactive(),
+                    in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .strokeBorder(Color.white.opacity(borderOpacity), lineWidth: 1)
+                )
+        } else {
+            self
+                .background(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .fill(Color.black)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .strokeBorder(Color.white.opacity(borderOpacity), lineWidth: 1)
+                )
+        }
+    }
+
     /// Window / large-panel backing. macOS 26 → an NSVisualEffectView material
     /// so glass layered above it refracts the desktop; older → a solid color.
     @ViewBuilder

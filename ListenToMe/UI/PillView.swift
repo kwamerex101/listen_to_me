@@ -310,14 +310,10 @@ struct PillView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(.horizontal, horizontalPadding)
             .padding(.vertical, verticalPadding)
-            .background(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(Color.black)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(Color.white.opacity(borderOpacity), lineWidth: 1)
-            )
+            // macOS 26: interactive Liquid Glass body (refracts the app behind
+            // the transparent pill window); older: solid-black fill. Hairline
+            // stroke folds in either way.
+            .pillGlassBackground(cornerRadius: cornerRadius, borderOpacity: borderOpacity)
             // POLISH-04(c) — gold promotion-flash ring (sibling to success halo).
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
