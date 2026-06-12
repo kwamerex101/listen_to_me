@@ -20,6 +20,12 @@ xcodebuild \
   build | tail -n 30
 
 APP="$(pwd)/build/Build/Products/Debug/ListenToMe.app"
+
+# Re-sign with a stable identity so macOS TCC persists permission decisions
+# (the Xcode build signs ad-hoc, which makes the OS re-prompt every launch).
+# No-op if no Developer ID / Apple Development identity is in the keychain.
+"$(dirname "$0")/resign-stable.sh" "$APP" || true
+
 echo ""
 echo "Built: $APP"
 echo "Launch with: open \"$APP\""
