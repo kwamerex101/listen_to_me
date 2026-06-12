@@ -569,6 +569,17 @@ struct SettingsView: View {
                             LocalLLMEngine.shared.preload(modelFile: file)
                         }
                         llmManager.refreshStatus()
+                    } else {
+                        // Switching to cloud: probe the CLI now so the menu
+                        // warning is accurate (the launch probe is skipped for
+                        // non-cloud users to avoid a network-volume prompt).
+                        Task {
+                            let available = await ClaudeClient.shared.isAvailable()
+                            await MainActor.run {
+                                AppState.shared.claudeAvailable = available
+                                NotificationCenter.default.post(name: .phaseChanged, object: nil)
+                            }
+                        }
                     }
                 }
             }
