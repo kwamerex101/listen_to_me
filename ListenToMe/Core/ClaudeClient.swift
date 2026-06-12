@@ -199,9 +199,16 @@ struct ClaudeClient {
         // "on-device" is a privacy contract. If the model is missing/unloaded,
         // the error propagates and the pipeline keeps the raw transcript
         // rather than silently shipping it to Anthropic.
-        let llmBackend = await MainActor.run {
-            (Preferences.shared.llmBackend, Preferences.shared.selectedLocalLLMModel)
+        let (llmBackend, intensity) = await MainActor.run {
+            ((Preferences.shared.llmBackend, Preferences.shared.selectedLocalLLMModel),
+             Preferences.shared.cleanupIntensity)
         }
+        // Intensity modulates the prompt (an extra instruction) and how strict
+        // the MeaningGuard is (a rewrite legitimately diverges more). `.light`
+        // adds nothing and keeps the validated defaults.
+        let intensitySuffix = Self.intensitySuffix(intensity)
+        let guardThresholds = MeaningGuard.Thresholds.of(intensity)
+
         if llmBackend.0 == .local {
             await MainActor.run {
                 let engine = LocalLLMEngine.shared
@@ -214,8 +221,8 @@ struct ClaudeClient {
             // Haiku prompt — the eval harness measured this prompt directly.
             // sanitize/MeaningGuard back-stop the output regardless.
             let cleaned = try await LocalLLMEngine.shared.transform(
-                system: Self.localCleanupSystemPrompt, user: text)
-            let sanitized = Self.sanitize(cleaned: cleaned, original: text)
+                system: Self.localCleanupSystemPrompt + intensitySuffix, user: text)
+            let sanitized = Self.sanitize(cleaned: cleaned, original: text, thresholds: guardThresholds)
             if sanitized.isEmpty { throw ClaudeError.emptyOutput }
             return sanitized
         }
@@ -240,9 +247,10 @@ struct ClaudeClient {
             guard let key = apiKey, !key.isEmpty else { throw ClaudeError.apiKeyMissing }
             return try await runDirectAPI(
                 text: text,
-                systemPrompt: systemPrompt,
+                systemPrompt: systemPrompt + intensitySuffix,
                 apiKey: key,
-                timeout: timeout
+                timeout: timeout,
+                thresholds: guardThresholds
             )
         }
 
@@ -258,15 +266,28 @@ struct ClaudeClient {
                 "--disable-slash-commands",
                 "--model", "haiku",
                 "--output-format", "text",
-                "--append-system-prompt", systemPrompt,
+                "--append-system-prompt", systemPrompt + intensitySuffix,
             ],
             timeout: timeout
         )
 
         let raw = String(data: stdoutData, encoding: .utf8) ?? ""
-        let sanitized = Self.sanitize(cleaned: raw, original: text)
+        let sanitized = Self.sanitize(cleaned: raw, original: text, thresholds: guardThresholds)
         if sanitized.isEmpty { throw ClaudeError.emptyOutput }
         return sanitized
+    }
+
+    /// Extra instruction appended to the cleanup prompt per intensity. `.light`
+    /// adds nothing (structural cleanup is the base prompt's job).
+    static func intensitySuffix(_ intensity: Preferences.CleanupIntensity) -> String {
+        switch intensity {
+        case .light:
+            return ""
+        case .medium:
+            return "\n\nAlso split run-on sentences and tighten wordy phrasing for readability — but keep every point the speaker made and do not add information."
+        case .high:
+            return "\n\nRewrite the text to be concise and clear while preserving all key information and the speaker's intent. You may rephrase and reorder."
+        }
     }
 
     /// Apply a freeform transformation to `text` (Wispr's "Polish /
@@ -449,7 +470,8 @@ struct ClaudeClient {
     private func runDirectAPI(text: String,
                               systemPrompt: String,
                               apiKey: String,
-                              timeout: TimeInterval) async throws -> String {
+                              timeout: TimeInterval,
+                              thresholds: MeaningGuard.Thresholds = .default) async throws -> String {
         var req = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
         req.httpMethod = "POST"
         req.timeoutInterval = timeout
@@ -500,7 +522,7 @@ struct ClaudeClient {
             return block["text"] as? String
         }.joined()
 
-        let sanitized = Self.sanitize(cleaned: cleaned, original: text)
+        let sanitized = Self.sanitize(cleaned: cleaned, original: text, thresholds: thresholds)
         if sanitized.isEmpty { throw ClaudeError.emptyOutput }
         return sanitized
     }
@@ -617,7 +639,8 @@ struct ClaudeClient {
 
     /// Defensive filter on the model's response. Rejects common failure modes
     /// by returning the original text unchanged.
-    static func sanitize(cleaned raw: String, original: String) -> String {
+    static func sanitize(cleaned raw: String, original: String,
+                         thresholds: MeaningGuard.Thresholds = .default) -> String {
         var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
 
         // Strip wrapping quotes (single / double / smart)
@@ -656,7 +679,8 @@ struct ClaudeClient {
         // Supersedes the old crude >1.4× word-explosion heuristic with
         // content-word-aware checks. Thresholds are lenient pending eval-
         // harness calibration (Wave 7).
-        if case .reject = MeaningGuard.evaluate(cleaned: text, original: original) {
+        if case .reject = MeaningGuard.evaluate(cleaned: text, original: original,
+                                                thresholds: thresholds) {
             return original
         }
 

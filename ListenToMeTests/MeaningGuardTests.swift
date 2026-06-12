@@ -51,4 +51,26 @@ final class MeaningGuardTests: XCTestCase {
                                       original: "ship the report monday")
         XCTAssertTrue(d.isAccept, "\(d)")
     }
+
+    // MARK: - intensity thresholds
+
+    func test_intensity_thresholds_loosen_monotonically() {
+        let l = MeaningGuard.Thresholds.of(.light)
+        let m = MeaningGuard.Thresholds.of(.medium)
+        let h = MeaningGuard.Thresholds.of(.high)
+        // Higher intensity = looser guard: min* non-increasing, max* non-decreasing.
+        XCTAssertGreaterThanOrEqual(l.minRecall, m.minRecall)
+        XCTAssertGreaterThanOrEqual(m.minRecall, h.minRecall)
+        XCTAssertLessThanOrEqual(l.maxHallucination, m.maxHallucination)
+        XCTAssertLessThanOrEqual(m.maxHallucination, h.maxHallucination)
+        XCTAssertGreaterThanOrEqual(l.minJaccard, h.minJaccard)
+        XCTAssertLessThanOrEqual(l.maxLengthRatio, h.maxLengthRatio)
+    }
+
+    func test_light_matches_defaults() {
+        let l = MeaningGuard.Thresholds.of(.light)
+        let d = MeaningGuard.Thresholds.default
+        XCTAssertEqual(l.minRecall, d.minRecall)
+        XCTAssertEqual(l.maxLengthRatio, d.maxLengthRatio)
+    }
 }

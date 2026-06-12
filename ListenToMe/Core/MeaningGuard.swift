@@ -32,6 +32,23 @@ enum MeaningGuard {
         var maxLengthRatio: Double = 1.4
 
         static let `default` = Thresholds()
+
+        /// Thresholds per cleanup intensity. Higher intensity = looser guard,
+        /// because more aggressive editing legitimately drops/reorders words.
+        /// `.light` keeps the validated defaults; `.high` only catches gross
+        /// garbage (a rewrite is expected to diverge).
+        static func of(_ intensity: Preferences.CleanupIntensity) -> Thresholds {
+            switch intensity {
+            case .light:
+                return Thresholds()   // defaults
+            case .medium:
+                return Thresholds(minRecall: 0.4, maxHallucination: 0.55,
+                                  minJaccard: 0.25, minLengthRatio: 0.3, maxLengthRatio: 1.6)
+            case .high:
+                return Thresholds(minRecall: 0.2, maxHallucination: 0.8,
+                                  minJaccard: 0.1, minLengthRatio: 0.2, maxLengthRatio: 2.5)
+            }
+        }
     }
 
     enum Decision: Equatable {
