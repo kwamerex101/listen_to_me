@@ -58,6 +58,7 @@ struct SettingsView: View {
     @State private var llmBackend: Preferences.LLMBackend = Preferences.shared.llmBackend
     @State private var selectedLocalLLMModel: Preferences.LocalLLMModel = Preferences.shared.selectedLocalLLMModel
     @ObservedObject private var llmManager = LLMModelManager.shared
+    @ObservedObject private var parakeet = ParakeetEngine.shared
 
     /// Sticky tab selection — survives navigating away and relaunch.
     @AppStorage("wf.settingsTab") private var selectedTabRaw: String = SettingsTab.general.rawValue
@@ -388,26 +389,9 @@ struct SettingsView: View {
 
     private var modelsTab: some View {
         VStack(alignment: .leading, spacing: DT.space6) {
-            section(title: "Whisper Model") {
-                row(label: "Model") {
-                    Picker("", selection: $selectedWhisperModel) {
-                        ForEach(Preferences.WhisperModel.allCases, id: \.self) { model in
-                            Text(model.displayName).tag(model)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .labelsHidden()
-                    .onChange(of: selectedWhisperModel) { _, new in
-                        Preferences.shared.selectedWhisperModel = new
-                        WhisperLib.shared.shutdown()
-                        modelManager.refreshStatus()
-                    }
-                }
-                row(label: "Status") {
-                    modelStatusView
-                }
-                .hoverableRow()
-                row(label: "Transcription engine") {
+            section(title: "Transcription") {
+                row(label: "Engine",
+                    description: "Parakeet runs on the Neural Engine — fastest. Whisper is the offline default.") {
                     Picker("", selection: $transcriptionEngine) {
                         ForEach(Preferences.TranscriptionEngine.allCases, id: \.self) { eng in
                             Text(eng.label).tag(eng)
@@ -415,9 +399,43 @@ struct SettingsView: View {
                     }
                     .pickerStyle(.menu)
                     .labelsHidden()
+                    .frame(width: DT.controlPickerWidth)
                     .onChange(of: transcriptionEngine) { _, new in
                         Preferences.shared.transcriptionEngine = new
+                        // Pre-fetch/warm Parakeet so the first dictation isn't
+                        // blocked on the model download/load.
+                        if new == .parakeet {
+                            Task { try? await ParakeetEngine.shared.ensureReady() }
+                        }
                     }
+                }
+                // Parakeet model status (download lives here, like Whisper's).
+                if transcriptionEngine == .parakeet {
+                    row(label: "Parakeet model") {
+                        parakeetStatusView
+                    }
+                    .hoverableRow()
+                }
+                // Whisper-only model controls.
+                if transcriptionEngine.isWhisper {
+                    row(label: "Whisper model") {
+                        Picker("", selection: $selectedWhisperModel) {
+                            ForEach(Preferences.WhisperModel.allCases, id: \.self) { model in
+                                Text(model.displayName).tag(model)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                        .onChange(of: selectedWhisperModel) { _, new in
+                            Preferences.shared.selectedWhisperModel = new
+                            WhisperLib.shared.shutdown()
+                            modelManager.refreshStatus()
+                        }
+                    }
+                    row(label: "Status") {
+                        modelStatusView
+                    }
+                    .hoverableRow()
                 }
                 row(label: "Accuracy") {
                     HStack(spacing: 10) {
@@ -462,6 +480,7 @@ struct SettingsView: View {
                     .animation(Motion.tabFade, value: transcriptionEngine)
                 }
             }
+            .animation(Motion.tabFade, value: transcriptionEngine)
 
             section(title: "On-Device Polish") {
                 row(label: "Cleanup engine",
@@ -682,6 +701,47 @@ struct SettingsView: View {
                     .foregroundStyle(DT.statusError)
                     .lineLimit(2)
                 Button("Retry") { llmManager.startDownload() }
+                    .buttonStyle(.pressable)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var parakeetStatusView: some View {
+        switch parakeet.status {
+        case .ready:
+            Text("Loaded ✓ (Neural Engine)")
+                .font(.system(size: 13))
+                .foregroundStyle(DT.statusSuccess)
+        case .missing:
+            HStack(spacing: 10) {
+                Text("Not downloaded (~600 MB)")
+                    .font(.system(size: 13))
+                    .foregroundStyle(DT.statusWarning)
+                Button("Download") { Task { try? await parakeet.ensureReady() } }
+                    .buttonStyle(.pressable)
+            }
+        case .downloading(let progress):
+            HStack(spacing: 10) {
+                ProgressView(value: progress)
+                    .progressViewStyle(.linear)
+                    .frame(width: 110)
+                Text("\(Int(progress * 100))%")
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+        case .loading:
+            HStack(spacing: 10) {
+                ProgressView().controlSize(.small)
+                Text("Loading model…").font(DT.caption).foregroundStyle(.secondary)
+            }
+        case .failed(let message):
+            HStack(spacing: 10) {
+                Text("⚠ \(message)")
+                    .font(.system(size: 13))
+                    .foregroundStyle(DT.statusError)
+                    .lineLimit(2)
+                Button("Retry") { Task { try? await parakeet.ensureReady() } }
                     .buttonStyle(.pressable)
             }
         }

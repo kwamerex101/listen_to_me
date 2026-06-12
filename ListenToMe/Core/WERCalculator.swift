@@ -6,9 +6,12 @@ import Foundation
 /// substitution/insertion/deletion is a real ASR error.
 enum WERCalculator {
 
-    /// Lowercase, strip punctuation, collapse whitespace, normalize the
-    /// digit forms our benchmark cards can elicit (engines differ on
-    /// "three" vs "3") so formatting choices don't count as errors.
+    /// Lowercase, strip punctuation, collapse whitespace, and normalize the
+    /// formatting choices that aren't real ASR errors: digit words ("3" vs
+    /// "three"), the a.m./p.m. abbreviation (which otherwise tokenizes as two
+    /// letters), and British vs US spellings. These are presentation
+    /// differences, not mishears — counting them as errors inflates WER (as
+    /// the first benchmark run showed).
     static func normalize(_ text: String) -> [String] {
         let digitWords: [String: String] = [
             "0": "zero", "1": "one", "2": "two", "3": "three", "4": "four",
@@ -16,9 +19,28 @@ enum WERCalculator {
             "10": "ten", "11": "eleven", "12": "twelve", "20": "twenty",
             "30": "thirty", "100": "hundred",
         ]
+        // British → US, applied per token so spelling variants don't count.
+        let spelling: [String: String] = [
+            "harbour": "harbor", "colour": "color", "favour": "favor",
+            "honour": "honor", "labour": "labor", "neighbour": "neighbor",
+            "behaviour": "behavior", "organise": "organize",
+            "organisation": "organization", "recognise": "recognize",
+            "analyse": "analyze", "centre": "center", "metre": "meter",
+            "litre": "liter", "theatre": "theater", "cancelled": "canceled",
+            "travelled": "traveled", "grey": "gray",
+        ]
+
+        // Pre-collapse a.m./p.m. (with or without periods/spaces) to single
+        // tokens before splitting, so "p.m." doesn't become ["p","m"].
+        var pre = text.lowercased()
+        for (pat, repl) in [("a.m.", " am "), ("p.m.", " pm "),
+                            ("a. m.", " am "), ("p. m.", " pm ")] {
+            pre = pre.replacingOccurrences(of: pat, with: repl)
+        }
+
         var words: [String] = []
         var current = ""
-        for ch in text.lowercased() {
+        for ch in pre {
             if ch.isLetter || ch.isNumber {
                 current.append(ch)
             } else if ch == "'" || ch == "\u{2019}" {
@@ -29,7 +51,7 @@ enum WERCalculator {
             }
         }
         if !current.isEmpty { words.append(current) }
-        return words.map { digitWords[$0] ?? $0 }
+        return words.map { spelling[$0] ?? digitWords[$0] ?? $0 }
     }
 
     /// Word-level Levenshtein distance / reference length. 0.0 = perfect.

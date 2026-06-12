@@ -212,14 +212,19 @@ final class Preferences {
     /// pipeline if the linked path has a model-load issue on a given
     /// machine; opt in via Settings → AI Cleanup → Transcription engine.
     enum TranscriptionEngine: String, CaseIterable {
-        case server, linked
+        case server, linked, parakeet
 
         var label: String {
             switch self {
-            case .server: return "Server (warm subprocess, default)"
-            case .linked: return "Linked (in-process, supports streaming)"
+            case .server:   return "Whisper · Server (warm subprocess, default)"
+            case .linked:   return "Whisper · Linked (in-process, streaming)"
+            case .parakeet: return "Parakeet (Neural Engine, fastest)"
             }
         }
+
+        /// Whisper-family engines share the bundled .bin model + support the
+        /// beam-search accuracy modes and live partials. Parakeet does not.
+        var isWhisper: Bool { self != .parakeet }
     }
 
     var transcriptionEngine: TranscriptionEngine {

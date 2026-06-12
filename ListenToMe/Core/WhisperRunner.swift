@@ -31,18 +31,36 @@ struct WhisperRunner {
     private static let maxPromptChars = 1024
 
     func transcribe(wav: URL, prompt: String? = nil) async throws -> String {
+        // Engine selection. Default .server (warm subprocess); .linked is
+        // opt-in (in-process, streaming); .parakeet is the Core ML / ANE
+        // engine (Wave 8). Any failure on the chosen engine falls back to the
+        // CLI subprocess so dictation never breaks.
+        let (engine, accuracy) = await MainActor.run {
+            (Preferences.shared.transcriptionEngine, Preferences.shared.transcriptionAccuracy)
+        }
+
+        // Parakeet path. One-shot Core ML / ANE; needs no whisper model or
+        // binary. On any failure, fall through to the whisper CLI below.
+        // No prompt biasing on this engine (the cleanup pass applies the user
+        // dictionary instead — see Wave 8 ADR).
+        if engine == .parakeet {
+            do {
+                let samples = try WhisperWAVReader.samples(at: wav)
+                let (text, _) = try await ParakeetEngine.shared.transcribe(samples: samples)
+                if text.isEmpty { throw WhisperError.noOutput }
+                try? FileManager.default.removeItem(at: wav)
+                return text
+            } catch {
+                NSLog("[ListenToMe] Parakeet failed (\(error)) — falling back to whisper CLI")
+                // fall through to whisper paths below
+            }
+        }
+
+        // Whisper engines + the CLI fallback require the bundled binary + model.
         guard let bin = binaryURL else { throw WhisperError.binaryNotFound }
         let model = Self.modelURL
         guard FileManager.default.fileExists(atPath: model.path) else {
             throw WhisperError.modelNotFound(path: model.path)
-        }
-
-        // Engine selection. Default .server (warm path that ships in
-        // 0.13.0); .linked is opt-in via Settings → AI Cleanup →
-        // Transcription engine. Any failure on the chosen engine
-        // falls back to the CLI subprocess so dictation never breaks.
-        let (engine, accuracy) = await MainActor.run {
-            (Preferences.shared.transcriptionEngine, Preferences.shared.transcriptionAccuracy)
         }
 
         if engine == .linked {

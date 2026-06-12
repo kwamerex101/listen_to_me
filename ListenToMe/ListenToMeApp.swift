@@ -142,6 +142,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             WhisperLib.shared.preload()
         }
 
+        // Warm Parakeet (Core ML / ANE) off-main when it's the active engine,
+        // so the first dictation doesn't pay the model download/load.
+        if Preferences.shared.transcriptionEngine == .parakeet {
+            Task { try? await ParakeetEngine.shared.ensureReady() }
+        }
+
         // Warm the on-device LLM too when local polish is selected and the
         // GGUF is present, so the first dictation doesn't pay the model load.
         if Preferences.shared.llmBackend == .local {
@@ -187,6 +193,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         WhisperServer.shared.shutdown()
         WhisperLib.shared.shutdown()
         LocalLLMEngine.shared.shutdown()
+        ParakeetEngine.shared.shutdown()
         Database.shared.close()
     }
 
