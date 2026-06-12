@@ -421,7 +421,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // user sees text within ~1.5s of release. Cleanup runs in
                 // the background and may swap in a polished version.
                 lastRawTranscript = raw
-                if Preferences.shared.cleanupMode.shouldClean(wordCount: words) {
+                if CleanupGate.shouldClean(text: expanded, wordCount: words,
+                                           mode: Preferences.shared.cleanupMode) {
                     state.lastTranscript = expanded
                     let token = Paster.pasteTracked(expanded)
                     lastPasteToken = token
