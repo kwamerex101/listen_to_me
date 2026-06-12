@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @State private var cleanupMode: CleanupMode = Preferences.shared.cleanupMode
+    @State private var cleanupIntensity: Preferences.CleanupIntensity = Preferences.shared.cleanupIntensity
     @State private var launchAtLogin: Bool = LaunchAtLogin.isEnabled
     @State private var accessibilityGranted: Bool = HotkeyMonitor.isAccessibilityGranted()
     @State private var hotkey: HotkeyBinding = Preferences.shared.hotkeyBinding
@@ -72,6 +73,19 @@ struct SettingsView: View {
                         .labelsHidden()
                         .onChange(of: cleanupMode) { _, new in
                             Preferences.shared.cleanupMode = new
+                        }
+                    }
+                    row(label: "Intensity") {
+                        Picker("", selection: $cleanupIntensity) {
+                            ForEach(Preferences.CleanupIntensity.allCases, id: \.self) { lvl in
+                                Text(lvl.label).tag(lvl)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                        .frame(width: DT.controlPickerWidth)
+                        .onChange(of: cleanupIntensity) { _, new in
+                            Preferences.shared.cleanupIntensity = new
                         }
                     }
                     row(label: "Backend") {
@@ -423,6 +437,7 @@ struct SettingsView: View {
             accessibilityGranted = HotkeyMonitor.isAccessibilityGranted()
             launchAtLogin = LaunchAtLogin.isEnabled
             cleanupMode = Preferences.shared.cleanupMode
+            cleanupIntensity = Preferences.shared.cleanupIntensity
             hotkey = Preferences.shared.hotkeyBinding
             soundEnabled = Preferences.shared.soundEnabled
             appearance = Preferences.shared.appearance

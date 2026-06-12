@@ -113,6 +113,7 @@ final class Preferences {
     private let kTranscriptionAccuracy = "wf.transcriptionAccuracy"
     private let kLLMBackend = "wf.llmBackend"
     private let kSelectedLocalLLMModel = "wf.selectedLocalLLMModel"
+    private let kCleanupIntensity = "wf.cleanupIntensity"
 
     /// Keychain account names (bundled here so call sites don't sprout
     /// stringly-typed names of their own).
@@ -306,6 +307,38 @@ final class Preferences {
             return WhisperModel(rawValue: raw) ?? .baseEn
         }
         set { defaults.set(newValue.rawValue, forKey: kSelectedWhisperModel) }
+    }
+
+    // MARK: - Cleanup intensity (how aggressive the polish is)
+
+    /// How aggressively the cleanup pass edits, orthogonal to CleanupMode
+    /// (which decides *whether* to run). `.light` is the safe, validated
+    /// default — structural only (fillers, punctuation, capitalization,
+    /// keep every content word). `.medium` also splits run-ons and tightens
+    /// phrasing. `.high` rewrites for concision. Higher levels relax the
+    /// MeaningGuard accordingly (a rewrite legitimately drops words).
+    ///
+    /// NOTE: only `.light` has been eval-measured. `.medium`/`.high` prompts
+    /// are conservative starting points pending eval calibration — surfaced
+    /// as opt-in so the default path stays the measured one.
+    enum CleanupIntensity: String, CaseIterable {
+        case light, medium, high
+
+        var label: String {
+            switch self {
+            case .light:  return "Light — fix only (default)"
+            case .medium: return "Medium — clarity edits"
+            case .high:   return "High — rewrite for concision"
+            }
+        }
+    }
+
+    var cleanupIntensity: CleanupIntensity {
+        get {
+            let raw = defaults.string(forKey: kCleanupIntensity) ?? CleanupIntensity.light.rawValue
+            return CleanupIntensity(rawValue: raw) ?? .light
+        }
+        set { defaults.set(newValue.rawValue, forKey: kCleanupIntensity) }
     }
 
     // MARK: - On-device LLM (text polish)
