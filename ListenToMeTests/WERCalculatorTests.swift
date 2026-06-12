@@ -49,4 +49,27 @@ final class WERCalculatorTests: XCTestCase {
     func test_total_miss_is_full_error() {
         XCTAssertEqual(WERCalculator.wer(reference: "alpha beta", hypothesis: "gamma delta"), 1.0)
     }
+
+    // MARK: - presentation normalization (benchmark artifacts)
+
+    func test_pm_abbreviation_not_an_error() {
+        // "3 p.m." must equal "three PM" — formatting, not a mishear.
+        XCTAssertEqual(WERCalculator.wer(
+            reference: "The meeting is scheduled for three PM on Tuesday afternoon.",
+            hypothesis: "The meeting is scheduled for 3 p.m. on Tuesday afternoon."), 0.0)
+    }
+
+    func test_british_spelling_not_an_error() {
+        XCTAssertEqual(WERCalculator.wer(
+            reference: "Their team knew the route through the harbor would take two hours.",
+            hypothesis: "Their team knew the route through the harbour would take two hours."), 0.0)
+    }
+
+    func test_real_error_still_counts_amid_spelling_normalization() {
+        // "routes" vs "route" is a real ASR slip → still 1 error of 12.
+        XCTAssertEqual(WERCalculator.wer(
+            reference: "Their team knew the route through the harbor would take two hours.",
+            hypothesis: "Their team knew the routes through the harbour would take two hours."),
+            1.0 / 12.0, accuracy: 0.0001)
+    }
 }
