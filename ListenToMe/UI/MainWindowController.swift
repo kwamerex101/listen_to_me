@@ -59,7 +59,16 @@ final class MainWindowController: NSObject {
             w.delegate = delegate
 
             w.isReleasedWhenClosed = false
-            w.backgroundColor = .windowBackgroundColor
+            // macOS 26 Liquid Glass: a clear, non-opaque window lets the
+            // behind-window visual-effect material (set in MainView) refract
+            // the desktop, so glass surfaces above it actually read. Older
+            // systems keep the solid window background.
+            if #available(macOS 26.0, *) {
+                w.isOpaque = false
+                w.backgroundColor = .clear
+            } else {
+                w.backgroundColor = .windowBackgroundColor
+            }
             w.setFrameAutosaveName("ListenToMeMainWindow")
 
             // If autosave restored a sub-min frame, snap to default.

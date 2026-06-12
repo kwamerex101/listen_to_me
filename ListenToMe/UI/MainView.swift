@@ -72,7 +72,7 @@ struct MainView: View {
             HStack(spacing: 0) {
                 SidebarView(selection: $selection, compact: isCompact)
                     .frame(width: isCompact ? DT.sidebarCompactWidth : DT.sidebarRegularWidth)
-                    .background(Color(.controlBackgroundColor))
+                    .glassWindowBackground(.sidebar, fallback: Color(.controlBackgroundColor))
                     .animation(.easeInOut(duration: 0.18), value: isCompact)
 
                 Divider()
@@ -91,7 +91,7 @@ struct MainView: View {
                 .transition(.opacity)
                 .animation(Motion.tabFade, value: selection)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color(.windowBackgroundColor))
+                .glassWindowBackground(.underWindowBackground, fallback: Color(.windowBackgroundColor))
             }
             // Push the window's measured width down so any descendant can
             // ask `@Environment(\.windowWidth)` and respond with explicit
