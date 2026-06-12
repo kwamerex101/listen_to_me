@@ -47,4 +47,35 @@ final class VoiceEditorTests: XCTestCase {
     func test_apply_passesThroughBenignText_capitalizingFirstLetter() {
         XCTAssertEqual(VoiceEditor.apply("plain text"), "Plain text")
     }
+
+    // MARK: - Spoken "dot" → "." (file names / domains / decimals)
+
+    func test_dot_gluesFilenameToExtension() {
+        XCTAssertEqual(VoiceEditor.apply("open the readme dot md"), "Open the readme.md")
+    }
+
+    func test_dot_determinerKeepsLeadingDotDetached() {
+        // "all the dot md files" → the article must NOT glue: "the .md files".
+        XCTAssertEqual(VoiceEditor.apply("all the dot md files"), "All the .md files")
+    }
+
+    func test_dot_bothPatternsInOneUtterance() {
+        // Mirrors the real failing transcript.
+        let out = VoiceEditor.apply(
+            "have we made sure all the dot md files are updated comma like the readme dot md question mark")
+        XCTAssertEqual(out, "Have we made sure all the .md files are updated, like the readme.md?")
+    }
+
+    func test_dot_domain() {
+        XCTAssertEqual(VoiceEditor.apply("go to example dot com"), "Go to example.com")
+    }
+
+    func test_dot_decimal() {
+        XCTAssertEqual(VoiceEditor.apply("version 3 dot 14"), "Version 3.14")
+    }
+
+    func test_dot_leavesProseDotAlone() {
+        // "dot product" / "dot matrix" are not extensions/TLDs — untouched.
+        XCTAssertEqual(VoiceEditor.apply("the dot product is zero"), "The dot product is zero")
+    }
 }

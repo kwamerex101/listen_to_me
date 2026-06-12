@@ -48,6 +48,12 @@ All notable user-facing changes per release. Format inspired by [Keep a Changelo
 
 - **Streaming partial transcripts** — the linked engine makes them possible, but the UX (avoiding hallucinations on sub-second chunks, reading a growing WAV, busy-gate coordination with the final transcribe) wants its own focused PR. Tracked as a follow-up.
 
+## [v0.14.4] — 2026-06-12
+
+### Added
+
+- **Spoken "dot" → "." for file names, domains, and decimals.** Dictating "readme dot md" now yields `readme.md`; "example dot com" → `example.com`; "3 dot 14" → `3.14`. High-precision (only known extensions/TLDs, so "the dot product" is untouched); determiner-aware so "all the dot md files" → "all the .md files" while "the readme dot md" → "the readme.md".
+
 ## [v0.14.3] — 2026-06-12
 
 User-facing arc since v0.13.0 (waves 5–8 plus polish). Bundle build 30.
