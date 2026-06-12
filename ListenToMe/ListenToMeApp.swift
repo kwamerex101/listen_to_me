@@ -385,8 +385,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     }
                 }
 
-                // Voice-command interception — runs BEFORE cleanup on the raw text
-                if let cmd = CommandRouter.parse(raw) {
+                // Voice-command interception — runs BEFORE cleanup on the raw
+                // text. Opt-in: "log today" writes to ~/Documents/daily and
+                // "shell" runs /bin/sh, so it's gated behind a Privacy toggle.
+                if Preferences.shared.voiceCommandsEnabled, let cmd = CommandRouter.parse(raw) {
                     do {
                         let summary = try await CommandRouter.execute(cmd)
                         Haptics.success()

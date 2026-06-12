@@ -97,6 +97,8 @@ final class Preferences {
     private let kMaxRecordingSec = "wf.maxRecordingSec"
     private let kCleanupTimeoutSec = "wf.cleanupTimeoutSec"
     private let kDiagnosticsEnabled = "wf.diagnosticsEnabled"
+    private let kContextAwareToneEnabled = "wf.contextAwareToneEnabled"
+    private let kVoiceCommandsEnabled = "wf.voiceCommandsEnabled"
     private let kCleanupBackend = "wf.cleanupBackend"
     private let kHistoryRetentionDays = "wf.historyRetentionDays"
     private let kHistoryEncryptionEnabled = "wf.historyEncryptionEnabled"
@@ -203,6 +205,25 @@ final class Preferences {
     var diagnosticsEnabled: Bool {
         get { defaults.bool(forKey: kDiagnosticsEnabled) }
         set { defaults.set(newValue, forKey: kDiagnosticsEnabled) }
+    }
+
+    /// When true, cleanup may read the frontmost browser's active-tab URL
+    /// (via Apple Events) to match tone to context. Off by default — this is
+    /// the only path that sends Apple Events to other apps for context, so it
+    /// drives the "control <browser>" automation prompts. With it off, tone
+    /// inference falls back to app identity (bundle id) alone.
+    var contextAwareToneEnabled: Bool {
+        get { defaults.bool(forKey: kContextAwareToneEnabled) }
+        set { defaults.set(newValue, forKey: kContextAwareToneEnabled) }
+    }
+
+    /// When true, spoken phrases like "log today: …" / "shell: …" / "open …"
+    /// are intercepted as commands instead of dictated text. Off by default —
+    /// "log today" writes to ~/Documents/daily (a protected-folder touch) and
+    /// "shell" runs an arbitrary /bin/sh one-liner, so this stays opt-in.
+    var voiceCommandsEnabled: Bool {
+        get { defaults.bool(forKey: kVoiceCommandsEnabled) }
+        set { defaults.set(newValue, forKey: kVoiceCommandsEnabled) }
     }
 
     /// Transcription engine selection. `.server` (default) keeps the

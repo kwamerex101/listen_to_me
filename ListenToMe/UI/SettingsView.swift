@@ -48,6 +48,8 @@ struct SettingsView: View {
     @State private var diagnosticsEnabled: Bool = Preferences.shared.diagnosticsEnabled
     @State private var historyRetentionDays: Double = Double(Preferences.shared.historyRetentionDays)
     @State private var historyEncryptionEnabled: Bool = Preferences.shared.historyEncryptionEnabled
+    @State private var contextAwareToneEnabled: Bool = Preferences.shared.contextAwareToneEnabled
+    @State private var voiceCommandsEnabled: Bool = Preferences.shared.voiceCommandsEnabled
     @State private var transcriptionEngine: Preferences.TranscriptionEngine = Preferences.shared.transcriptionEngine
     @State private var selectedWhisperModel: Preferences.WhisperModel = Preferences.shared.selectedWhisperModel
     @State private var transcriptionAccuracy: Preferences.TranscriptionAccuracy = Preferences.shared.transcriptionAccuracy
@@ -140,6 +142,8 @@ struct SettingsView: View {
             diagnosticsEnabled = Preferences.shared.diagnosticsEnabled
             historyRetentionDays = Double(Preferences.shared.historyRetentionDays)
             historyEncryptionEnabled = Preferences.shared.historyEncryptionEnabled
+            contextAwareToneEnabled = Preferences.shared.contextAwareToneEnabled
+            voiceCommandsEnabled = Preferences.shared.voiceCommandsEnabled
             transcriptionEngine = Preferences.shared.transcriptionEngine
             parakeetVocabBoost = Preferences.shared.parakeetVocabBoost
             streamingPartialsEnabled = Preferences.shared.streamingPartialsEnabled
@@ -637,6 +641,25 @@ struct SettingsView: View {
                             // histories; debounced via the existing
                             // saveTask path otherwise.
                             HistoryStore.shared.applyEncryptionPreference()
+                        }
+                }
+            }
+
+            section(title: "Permissions") {
+                row(label: "Context-aware tone",
+                    description: "Reads the active browser tab's URL to match cleanup tone to what you're writing. Sends an Apple Event to the browser, so macOS asks to \"control\" it. Off keeps tone based on the app alone.") {
+                    Toggle("", isOn: $contextAwareToneEnabled)
+                        .labelsHidden()
+                        .onChange(of: contextAwareToneEnabled) { _, new in
+                            Preferences.shared.contextAwareToneEnabled = new
+                        }
+                }
+                row(label: "Voice commands",
+                    description: "Recognize spoken commands like \"log today: …\", \"open …\", and \"shell: …\". \"Log today\" writes to your Documents folder and \"shell\" runs a terminal command, so this is off by default.") {
+                    Toggle("", isOn: $voiceCommandsEnabled)
+                        .labelsHidden()
+                        .onChange(of: voiceCommandsEnabled) { _, new in
+                            Preferences.shared.voiceCommandsEnabled = new
                         }
                 }
             }

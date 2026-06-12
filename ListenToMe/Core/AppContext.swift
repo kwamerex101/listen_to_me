@@ -39,7 +39,10 @@ struct AppContext: Equatable {
         let name = app?.localizedName
         let cat = category(for: bid)
         let url: String? = {
-            guard cat == .browser, let bid else { return nil }
+            // Opt-in only: reading the active-tab URL sends an Apple Event to
+            // the browser (drives the "control <browser>" automation prompt).
+            guard Preferences.shared.contextAwareToneEnabled,
+                  cat == .browser, let bid else { return nil }
             return frontBrowserURL(bundleId: bid)
         }()
         return AppContext(bundleId: bid, displayName: name, category: cat, url: url)
