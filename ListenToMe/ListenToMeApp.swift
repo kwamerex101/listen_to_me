@@ -71,11 +71,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         // One-shot probe of the `claude` CLI. Drives the menu-bar warning
-        // when cleanup is enabled but the binary isn't installed.
-        Task {
-            let available = await ClaudeClient.shared.isAvailable()
-            state.claudeAvailable = available
-            NotificationCenter.default.post(name: .phaseChanged, object: nil)
+        // when cleanup is enabled but the binary isn't installed. Only runs
+        // when cloud cleanup is actually selected — `which claude` stats every
+        // $PATH entry, which triggers a "network volume" TCC prompt if any
+        // PATH dir lives on a network mount. On-device users never use the
+        // CLI, so skipping the probe removes that prompt for them.
+        if Preferences.shared.cleanupMode != .off,
+           Preferences.shared.llmBackend == .cloud {
+            Task {
+                let available = await ClaudeClient.shared.isAvailable()
+                state.claudeAvailable = available
+                NotificationCenter.default.post(name: .phaseChanged, object: nil)
+            }
         }
 
         // Accessibility — show permission card animating out of the pill if not granted
