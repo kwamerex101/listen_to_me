@@ -232,6 +232,11 @@ struct SettingsView: View {
                     }
                 }
 
+                section(title: "Engine Benchmark (A/B)") {
+                    BenchmarkSection()
+                        .padding(.vertical, DT.space3)
+                }
+
                 section(title: "On-Device Polish") {
                     row(label: "Cleanup engine") {
                         Picker("", selection: $llmBackend) {
