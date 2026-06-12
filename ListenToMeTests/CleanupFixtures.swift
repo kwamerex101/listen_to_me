@@ -66,5 +66,15 @@ enum CleanupFixtures {
               ideal: "Do you think we should ship it now or wait until next week?",
               category: "messaging",
               note: "Question mark inference."),
+        .init(id: "homophone-steel-stale",
+              raw: "when the user hits retry we take their biometrics again so it doesn't use the steel biometrics and keep failing",
+              ideal: "When the user hits retry, we take their biometrics again so it doesn't use the stale biometrics and keep failing.",
+              category: "messaging",
+              note: "ASR homophone substitution: 'steel'→'stale'. Both are real words and "
+                  + "'steel biometrics' is grammatical, so only meaning-aware cleanup can catch "
+                  + "it — purely acoustic/grammar passes can't. STRETCH: current local prompt is "
+                  + "not expected to fix this; fixture exists to measure whether a meaning-aware "
+                  + "prompt catches it WITHOUT regressing recall on the anti-over-edit anchors. "
+                  + "Real slip captured from live dictation 2026-06-12."),
     ]
 }
