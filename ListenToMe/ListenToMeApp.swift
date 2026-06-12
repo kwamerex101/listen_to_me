@@ -417,6 +417,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 let durMs = recordingStartedAt.map { Int(Date().timeIntervalSince($0) * 1000) } ?? 0
                 recordingStartedAt = nil
 
+                // Secure-input guard. If a password field (or any secure-event-
+                // input context) has focus, never insert the transcript and
+                // never store it in history — doing either would leak a secret
+                // the user is plainly typing. Covers both cleanup branches below.
+                if SecureInput.isActive {
+                    lastRawTranscript = nil
+                    state.phase = .error(message: "Secure field — not inserted")
+                    autoReset()
+                    return
+                }
+
                 // Streaming preview: paste the raw transcript NOW so the
                 // user sees text within ~1.5s of release. Cleanup runs in
                 // the background and may swap in a polished version.
