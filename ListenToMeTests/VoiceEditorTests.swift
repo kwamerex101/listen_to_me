@@ -78,4 +78,26 @@ final class VoiceEditorTests: XCTestCase {
         // "dot product" / "dot matrix" are not extensions/TLDs — untouched.
         XCTAssertEqual(VoiceEditor.apply("the dot product is zero"), "The dot product is zero")
     }
+
+    // MARK: - Spoken "plus" → "+" (version build metadata / C++)
+
+    func test_plus_versionBuildMetadata() {
+        // Mirrors the real failing transcript.
+        XCTAssertEqual(
+            VoiceEditor.apply("let's create a new PR for release 1.0.29 plus 230"),
+            "Let's create a new PR for release 1.0.29+230")
+    }
+
+    func test_plus_cPlusPlusIdiom() {
+        XCTAssertEqual(VoiceEditor.apply("c plus plus is fast"), "C++ is fast")
+    }
+
+    func test_plus_leavesBareMathAlone() {
+        // No dotted version on the left → ambiguous, left as words.
+        XCTAssertEqual(VoiceEditor.apply("2 plus 2 equals 4"), "2 plus 2 equals 4")
+    }
+
+    func test_plus_leavesProsePlusAlone() {
+        XCTAssertEqual(VoiceEditor.apply("plus one to that"), "Plus one to that")
+    }
 }
