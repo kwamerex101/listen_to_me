@@ -17,7 +17,28 @@ enum VoiceEditor {
         // Runs AFTER tidy on purpose: tidy inserts a space after `.` before a
         // letter, which would re-split "readme.md" back into "readme. md".
         s = joinDottedTokens(s)
+        s = joinSpokenOperators(s)
         return s
+    }
+
+    // MARK: - Phase 6 — spoken operators ("plus" → "+")
+
+    /// Convert spoken "plus" into "+" only in unambiguous contexts, so prose
+    /// like "2 plus 2 more chairs" or "plus one" is left untouched:
+    ///   • semver build metadata: "1.0.29 plus 230" → "1.0.29+230"
+    ///     (left side must be a dotted version, so a bare "2 plus 2" is skipped)
+    ///   • the language idiom: "C plus plus" → "C++"
+    private static func joinSpokenOperators(_ s: String) -> String {
+        var out = s
+        // "C plus plus" → "C++" (before the version rule so the two "plus"
+        // tokens aren't half-consumed).
+        out = regexReplaceTemplate(out, "\\bc\\s+plus\\s+plus\\b", "C++")
+        // Dotted-version + build number: "<maj.min[.patch…]> plus <digits>".
+        out = regexReplaceTemplate(
+            out,
+            "\\b(\\d+\\.\\d+(?:\\.\\d+)*)\\s+plus\\s+(\\d+)\\b",
+            "$1+$2")
+        return out
     }
 
     // MARK: - Phase 5 — spoken "dot" in file names / domains / decimals

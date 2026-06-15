@@ -48,6 +48,12 @@ All notable user-facing changes per release. Format inspired by [Keep a Changelo
 
 - **Streaming partial transcripts** — the linked engine makes them possible, but the UX (avoiding hallucinations on sub-second chunks, reading a growing WAV, busy-gate coordination with the final transcribe) wants its own focused PR. Tracked as a follow-up.
 
+## [v0.14.5] — 2026-06-12
+
+### Added
+
+- **Spoken "plus" → "+" in version build metadata and the C++ idiom.** "release 1.0.29 plus 230" → `1.0.29+230`; "C plus plus" → `C++`. High-precision: the left side must be a dotted version, so ambiguous prose ("2 plus 2", "plus one") is left as words.
+
 ## [v0.14.4] — 2026-06-12
 
 ### Added
