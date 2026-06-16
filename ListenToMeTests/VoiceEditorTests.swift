@@ -100,4 +100,34 @@ final class VoiceEditorTests: XCTestCase {
     func test_plus_leavesProsePlusAlone() {
         XCTAssertEqual(VoiceEditor.apply("plus one to that"), "Plus one to that")
     }
+
+    // MARK: - Collapse stuttered repeats ("detector detector" → "detector")
+
+    func test_repeat_collapsesDoubledNoun() {
+        // The real failing transcript's headline error.
+        XCTAssertEqual(
+            VoiceEditor.apply("improve the gesture detector detector for these"),
+            "Improve the gesture detector for these")
+    }
+
+    func test_repeat_collapsesFunctionWordAndTriple() {
+        XCTAssertEqual(VoiceEditor.apply("the the cat sat"), "The cat sat")
+        XCTAssertEqual(VoiceEditor.apply("go go go now"), "Go now")
+    }
+
+    func test_repeat_preservesEmphaticAndGrammaticalDoubles() {
+        XCTAssertEqual(VoiceEditor.apply("it is very very important"), "It is very very important")
+        XCTAssertEqual(VoiceEditor.apply("i had had lunch"), "I had had lunch")
+    }
+
+    func test_repeat_preservesRepeatedDigits() {
+        // Dictating a number twice on purpose must survive.
+        XCTAssertEqual(VoiceEditor.apply("call 230 230 now"), "Call 230 230 now")
+    }
+
+    func test_repeat_doesNotCrossPunctuation() {
+        // "done. Done" is two sentences, not a stutter.
+        let out = VoiceEditor.apply("we are done period done deal")
+        XCTAssertEqual(out, "We are done. Done deal")
+    }
 }
