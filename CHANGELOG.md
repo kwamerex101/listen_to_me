@@ -48,6 +48,16 @@ All notable user-facing changes per release. Format inspired by [Keep a Changelo
 
 - **Streaming partial transcripts** — the linked engine makes them possible, but the UX (avoiding hallucinations on sub-second chunks, reading a growing WAV, busy-gate coordination with the final transcribe) wants its own focused PR. Tracked as a follow-up.
 
+## [v0.14.6] — 2026-06-12
+
+### Added
+
+- **Collapse stuttered repeated words.** Dictating "the gesture detector detector" now yields "the gesture detector". Runs before cleanup, engine-independent. Preserves emphatic/grammatical doubles ("very very", "had had", "no no"), repeated digits, and never collapses across punctuation.
+
+### Tests
+
+- New cleanup eval fixture (`doubled-word-and-garble`) measuring whether the cleanup model catches a doubled word + a spurious possessive ("there's"→"there") in isolation.
+
 ## [v0.14.5] — 2026-06-12
 
 ### Added

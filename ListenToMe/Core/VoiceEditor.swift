@@ -7,9 +7,10 @@ import Foundation
 /// and `ClaudeClient.clean`.
 enum VoiceEditor {
 
-    /// Apply all five phases. Pure function — no state, no I/O.
+    /// Apply all phases. Pure function — no state, no I/O.
     static func apply(_ text: String) -> String {
         var s = text
+        s = collapseRepeatedWords(s)
         s = applyPunctuation(s)
         s = resolveScratchThat(s)
         s = applyParagraphBreaks(s)
@@ -19,6 +20,47 @@ enum VoiceEditor {
         s = joinDottedTokens(s)
         s = joinSpokenOperators(s)
         return s
+    }
+
+    // MARK: - Phase 0 — collapse stuttered repeats ("detector detector" → "detector")
+
+    /// Words that are legitimately or emphatically doubled in normal speech —
+    /// never collapsed. Everything else, when immediately repeated, is treated
+    /// as a stutter ("the the" / "detector detector" / "and and").
+    private static let repeatPreserve: Set<String> = [
+        "had", "that", "very", "really", "so", "no", "night",
+        "bye", "yeah", "ha", "mm", "hmm", "blah",
+    ]
+
+    /// Collapse an immediately-repeated word (case-insensitive, space-separated
+    /// only — never across punctuation) down to its first occurrence. Keeps the
+    /// first token's casing. Skips the emphatic/grammatical doubles above and
+    /// pure-digit runs (e.g. dictating a number twice on purpose).
+    private static func collapseRepeatedWords(_ s: String) -> String {
+        guard let re = try? NSRegularExpression(
+            pattern: "\\b(\\w+)(?:[ \\t]+\\1\\b)+",
+            options: [.caseInsensitive]) else { return s }
+        let ns = s as NSString
+        let matches = re.matches(in: s, range: NSRange(location: 0, length: ns.length))
+        guard !matches.isEmpty else { return s }
+
+        var result = ""
+        var cursor = 0
+        for m in matches {
+            let whole = m.range
+            let first = ns.substring(with: m.range(at: 1))
+            result += ns.substring(with: NSRange(location: cursor, length: whole.location - cursor))
+            let lower = first.lowercased()
+            let isDigits = first.allSatisfy { $0.isNumber }
+            if repeatPreserve.contains(lower) || isDigits {
+                result += ns.substring(with: whole)   // keep the repeat
+            } else {
+                result += first                        // collapse to one
+            }
+            cursor = whole.location + whole.length
+        }
+        result += ns.substring(from: cursor)
+        return result
     }
 
     // MARK: - Phase 6 — spoken operators ("plus" → "+")

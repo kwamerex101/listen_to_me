@@ -76,5 +76,14 @@ enum CleanupFixtures {
                   + "not expected to fix this; fixture exists to measure whether a meaning-aware "
                   + "prompt catches it WITHOUT regressing recall on the anti-over-edit anchors. "
                   + "Real slip captured from live dictation 2026-06-12."),
+        .init(id: "doubled-word-and-garble",
+              raw: "then some padding around there's just in case a user has big fingers and let's improve the gesture detector detector",
+              ideal: "Then some padding around there, just in case a user has big fingers, and let's improve the gesture detector.",
+              category: "messaging",
+              note: "Two real cleanup misses from live dictation 2026-06-12 on Gemma E2B: a "
+                  + "stuttered doubled word ('detector detector'→'detector') and a spurious "
+                  + "possessive ('there's'→'there'). VoiceEditor now collapses the doubled word "
+                  + "deterministically BEFORE cleanup, but the eval harness feeds raw straight to "
+                  + "the model — so this measures whether the cleanup model alone catches both."),
     ]
 }
