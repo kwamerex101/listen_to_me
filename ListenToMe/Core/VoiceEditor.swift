@@ -9,11 +9,12 @@ enum VoiceEditor {
 
     /// Apply all phases. Pure function — no state, no I/O.
     ///
-    /// `acronyms` are canonical all-caps forms (e.g. "KYC", "API") that should
-    /// be force-uppercased wherever they appear; build it from the user's
-    /// dictionary via `acronyms(from:)`. Empty by default so callers that don't
-    /// care stay unchanged.
-    static func apply(_ text: String, acronyms: Set<String> = []) -> String {
+    /// `terms` are canonical-cased dictionary entries — acronyms ("KYC"),
+    /// mixed-case single words ("GitHub", "iPhone"), and multi-word proper
+    /// nouns ("Face ID") — that should be rewritten to their exact casing
+    /// wherever they appear. Build it via `canonicalTerms(from:)`. Empty by
+    /// default so callers that don't care stay unchanged.
+    static func apply(_ text: String, terms: [String] = []) -> String {
         var s = text
         s = collapseRepeatedWords(s)
         s = applyPunctuation(s)
@@ -25,48 +26,59 @@ enum VoiceEditor {
         s = joinDottedTokens(s)
         s = joinSpokenOperators(s)
         // Last: tidy's sentence-capitalization only touches first letters, so
-        // it can't undo a mid-word acronym like "KYC".
-        s = applyAcronyms(s, acronyms)
+        // it can't undo a canonical casing like "KYC" or "Face ID".
+        s = applyCanonicalCasing(s, terms)
         return s
     }
 
-    // MARK: - Phase 7 — dictionary-seeded acronyms ("kyc" → "KYC")
+    // MARK: - Phase 7 — dictionary-seeded canonical casing ("face id" → "Face ID")
 
-    /// Short English words that must never be force-uppercased even if a user
-    /// adds them as an all-caps dictionary entry — guards against "IT" turning
-    /// every "it" into "IT".
+    /// Short English words that must never be force-cased even if a user adds
+    /// them as an all-caps dictionary entry — guards against "IT" turning every
+    /// "it" into "IT". Only applies to single all-caps tokens; mixed-case and
+    /// multi-word terms can't collide with ordinary prose, so they skip it.
     private static let acronymStopwords: Set<String> = [
         "a", "i", "an", "as", "at", "am", "be", "by", "do", "go", "he", "if",
         "in", "is", "it", "me", "my", "no", "of", "ok", "on", "or", "so", "to",
         "up", "us", "we", "and",
     ]
 
-    /// Derive force-uppercase acronyms from dictionary words: entries that are
-    /// already all-caps letters (2–6 chars) and not a common English word.
-    /// Anything with a digit or lowercase letter is ignored (so "v2" / "OAuth"
-    /// are left to the model).
-    static func acronyms(from words: [String]) -> Set<String> {
-        var out: Set<String> = []
+    /// Derive canonical-casing terms from dictionary words: any entry that
+    /// carries an uppercase letter (the user deliberately cased it). A bare
+    /// single all-caps token (an acronym like "KYC") is length-capped and
+    /// stopword-guarded so it can't uppercase ordinary words; mixed-case and
+    /// multi-word terms ("GitHub", "Face ID") are exempt from those guards.
+    /// All-lowercase entries are ignored — there's no casing to enforce.
+    /// Returned longest-first so "Face ID" wins before a lone "ID".
+    static func canonicalTerms(from words: [String]) -> [String] {
+        var out: [String] = []
+        var seen = Set<String>()
         for w in words {
             let t = w.trimmingCharacters(in: .whitespaces)
-            guard (2...6).contains(t.count),
-                  t.allSatisfy({ $0.isLetter && $0.isUppercase }),
-                  !acronymStopwords.contains(t.lowercased())
-            else { continue }
-            out.insert(t)
+            guard t.count >= 2, t.contains(where: { $0.isUppercase }) else { continue }
+            let isSingleAllCaps = !t.contains(" ")
+                && t.allSatisfy { $0.isLetter && $0.isUppercase }
+            if isSingleAllCaps,
+               t.count > 6 || acronymStopwords.contains(t.lowercased()) {
+                continue
+            }
+            if seen.insert(t.lowercased()).inserted { out.append(t) }
         }
-        return out
+        return out.sorted { $0.count > $1.count }
     }
 
-    /// Replace any case-insensitive whole-word occurrence of each acronym with
-    /// its canonical all-caps form.
-    private static func applyAcronyms(_ s: String, _ acronyms: Set<String>) -> String {
-        guard !acronyms.isEmpty else { return s }
+    /// Rewrite each case-insensitive whole-phrase occurrence to the term's
+    /// exact casing. Multi-word terms match across flexible inter-word
+    /// whitespace ("face   id" → "Face ID").
+    private static func applyCanonicalCasing(_ s: String, _ terms: [String]) -> String {
+        guard !terms.isEmpty else { return s }
         var out = s
-        for acr in acronyms {
-            // acr is letters-only (validated in `acronyms(from:)`), so no regex
-            // metacharacter escaping is needed.
-            out = regexReplaceTemplate(out, "\\b\(acr)\\b", acr)
+        for term in terms {
+            let tokens = term.split(separator: " ")
+                .map { NSRegularExpression.escapedPattern(for: String($0)) }
+            guard !tokens.isEmpty else { continue }
+            let pattern = "\\b" + tokens.joined(separator: "\\s+") + "\\b"
+            out = regexReplaceTemplate(out, pattern, NSRegularExpression.escapedTemplate(for: term))
         }
         return out
     }

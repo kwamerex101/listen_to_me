@@ -118,7 +118,7 @@ private struct CorrectionView: View {
                     // contents.
                     let edited = VoiceEditor.apply(
                         raw,
-                        acronyms: VoiceEditor.acronyms(from: DictionaryStore.shared.entries.map(\.word)))
+                        terms: VoiceEditor.canonicalTerms(from: DictionaryStore.shared.entries.map(\.word)))
                     if !edited.isEmpty { text = edited }
                 } catch {
                     // Silent on error — user can still type to correct.
