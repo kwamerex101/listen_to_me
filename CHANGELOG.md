@@ -48,6 +48,16 @@ All notable user-facing changes per release. Format inspired by [Keep a Changelo
 
 - **Streaming partial transcripts** — the linked engine makes them possible, but the UX (avoiding hallucinations on sub-second chunks, reading a growing WAV, busy-gate coordination with the final transcribe) wants its own focused PR. Tracked as a follow-up.
 
+## [v0.14.8] — 2026-06-17
+
+### Changed
+
+- **Dictionary casing now covers multi-word and mixed-case terms, not just acronyms.** Any dictionary entry you've cased — "Face ID", "GitHub", "iPhone", "OAuth", "KYC" — is rewritten to that exact casing wherever it appears ("face id" → "Face ID"). Multi-word terms match across flexible whitespace; longest terms win first; all-caps acronyms keep their stopword/length guard.
+
+### Tests
+
+- New cleanup eval fixture (`false-start-restart`) measuring whether the model drops an abandoned self-correction ("it's recurring it's requiring" → "it's requiring").
+
 ## [v0.14.7] — 2026-06-17
 
 ### Added

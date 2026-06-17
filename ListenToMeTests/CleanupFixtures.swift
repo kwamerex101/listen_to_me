@@ -85,5 +85,15 @@ enum CleanupFixtures {
                   + "possessive ('there's'→'there'). VoiceEditor now collapses the doubled word "
                   + "deterministically BEFORE cleanup, but the eval harness feeds raw straight to "
                   + "the model — so this measures whether the cleanup model alone catches both."),
+        .init(id: "false-start-restart",
+              raw: "i see from here it's recurring it's requiring both camera and face id for the biometric",
+              ideal: "I see from here it's requiring both camera and Face ID for the biometric.",
+              category: "messaging",
+              note: "Self-correction / false start from live dictation 2026-06-17: the speaker "
+                  + "began 'it's re…', the ASR guessed 'recurring', then they restated 'it's "
+                  + "requiring'. The abandoned 'recurring' clause should be dropped — a semantic "
+                  + "call the deterministic collapse can't make (different words). Also expects "
+                  + "'face id'→'Face ID' (handled deterministically when the term is in the "
+                  + "dictionary; here it measures the model). STRETCH: E2B not expected to nail it."),
     ]
 }

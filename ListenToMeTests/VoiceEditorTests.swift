@@ -131,30 +131,37 @@ final class VoiceEditorTests: XCTestCase {
         XCTAssertEqual(out, "We are done. Done deal")
     }
 
-    // MARK: - Dictionary-seeded acronyms ("kyc" → "KYC")
+    // MARK: - Dictionary-seeded canonical casing ("face id" → "Face ID")
 
-    func test_acronyms_extractsAllCapsLettersOnly() {
-        let set = VoiceEditor.acronyms(from: ["KYC", "API", "v2", "OAuth", "Danquah", "IT", "S3"])
-        // v2/S3 have digits, OAuth/Danquah aren't all-caps, IT is a stopword.
-        XCTAssertEqual(set, ["KYC", "API"])
+    func test_canonical_extractsCasedTerms_longestFirst() {
+        let terms = VoiceEditor.canonicalTerms(
+            from: ["KYC", "Face ID", "GitHub", "iPhone", "v2", "IT", "danquah", "OAuth"])
+        // v2 has a digit, IT is a stopword acronym, danquah is all-lowercase.
+        XCTAssertEqual(terms, ["Face ID", "GitHub", "iPhone", "OAuth", "KYC"])
     }
 
-    func test_acronyms_forceUppercasesInTranscript() {
-        let out = VoiceEditor.apply("processing the v2 kyc process", acronyms: ["KYC"])
+    func test_canonical_acronymForceUppercases() {
+        let out = VoiceEditor.apply("processing the v2 kyc process", terms: ["KYC"])
         XCTAssertEqual(out, "Processing the v2 KYC process")
     }
 
-    func test_acronyms_handleMixedCaseAndSentenceStart() {
-        let out = VoiceEditor.apply("call the api then check the Sdk", acronyms: ["API", "SDK"])
-        XCTAssertEqual(out, "Call the API then check the SDK")
+    func test_canonical_multiWordProperNoun() {
+        let out = VoiceEditor.apply("both camera and face id for the biometric", terms: ["Face ID"])
+        XCTAssertEqual(out, "Both camera and Face ID for the biometric")
     }
 
-    func test_acronyms_doNotMatchInsideWords() {
-        let out = VoiceEditor.apply("the kyclayer is fine", acronyms: ["KYC"])
-        XCTAssertEqual(out, "The kyclayer is fine")
+    func test_canonical_mixedCaseSingleWords() {
+        let out = VoiceEditor.apply("push to github from my iphone", terms: ["GitHub", "iPhone"])
+        XCTAssertEqual(out, "Push to GitHub from my iPhone")
     }
 
-    func test_acronyms_emptyByDefaultLeavesTextUnchanged() {
+    func test_canonical_doesNotMatchInsideWords() {
+        // "Face ID" must not fire inside "identify".
+        let out = VoiceEditor.apply("identify the kyclayer", terms: ["Face ID", "KYC"])
+        XCTAssertEqual(out, "Identify the kyclayer")
+    }
+
+    func test_canonical_emptyByDefaultLeavesTextUnchanged() {
         XCTAssertEqual(VoiceEditor.apply("the kyc flow"), "The kyc flow")
     }
 }
