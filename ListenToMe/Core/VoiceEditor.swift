@@ -8,7 +8,12 @@ import Foundation
 enum VoiceEditor {
 
     /// Apply all phases. Pure function — no state, no I/O.
-    static func apply(_ text: String) -> String {
+    ///
+    /// `acronyms` are canonical all-caps forms (e.g. "KYC", "API") that should
+    /// be force-uppercased wherever they appear; build it from the user's
+    /// dictionary via `acronyms(from:)`. Empty by default so callers that don't
+    /// care stay unchanged.
+    static func apply(_ text: String, acronyms: Set<String> = []) -> String {
         var s = text
         s = collapseRepeatedWords(s)
         s = applyPunctuation(s)
@@ -19,7 +24,51 @@ enum VoiceEditor {
         // letter, which would re-split "readme.md" back into "readme. md".
         s = joinDottedTokens(s)
         s = joinSpokenOperators(s)
+        // Last: tidy's sentence-capitalization only touches first letters, so
+        // it can't undo a mid-word acronym like "KYC".
+        s = applyAcronyms(s, acronyms)
         return s
+    }
+
+    // MARK: - Phase 7 — dictionary-seeded acronyms ("kyc" → "KYC")
+
+    /// Short English words that must never be force-uppercased even if a user
+    /// adds them as an all-caps dictionary entry — guards against "IT" turning
+    /// every "it" into "IT".
+    private static let acronymStopwords: Set<String> = [
+        "a", "i", "an", "as", "at", "am", "be", "by", "do", "go", "he", "if",
+        "in", "is", "it", "me", "my", "no", "of", "ok", "on", "or", "so", "to",
+        "up", "us", "we", "and",
+    ]
+
+    /// Derive force-uppercase acronyms from dictionary words: entries that are
+    /// already all-caps letters (2–6 chars) and not a common English word.
+    /// Anything with a digit or lowercase letter is ignored (so "v2" / "OAuth"
+    /// are left to the model).
+    static func acronyms(from words: [String]) -> Set<String> {
+        var out: Set<String> = []
+        for w in words {
+            let t = w.trimmingCharacters(in: .whitespaces)
+            guard (2...6).contains(t.count),
+                  t.allSatisfy({ $0.isLetter && $0.isUppercase }),
+                  !acronymStopwords.contains(t.lowercased())
+            else { continue }
+            out.insert(t)
+        }
+        return out
+    }
+
+    /// Replace any case-insensitive whole-word occurrence of each acronym with
+    /// its canonical all-caps form.
+    private static func applyAcronyms(_ s: String, _ acronyms: Set<String>) -> String {
+        guard !acronyms.isEmpty else { return s }
+        var out = s
+        for acr in acronyms {
+            // acr is letters-only (validated in `acronyms(from:)`), so no regex
+            // metacharacter escaping is needed.
+            out = regexReplaceTemplate(out, "\\b\(acr)\\b", acr)
+        }
+        return out
     }
 
     // MARK: - Phase 0 — collapse stuttered repeats ("detector detector" → "detector")

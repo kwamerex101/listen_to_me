@@ -48,6 +48,12 @@ All notable user-facing changes per release. Format inspired by [Keep a Changelo
 
 - **Streaming partial transcripts** — the linked engine makes them possible, but the UX (avoiding hallucinations on sub-second chunks, reading a growing WAV, busy-gate coordination with the final transcribe) wants its own focused PR. Tracked as a follow-up.
 
+## [v0.14.7] — 2026-06-17
+
+### Added
+
+- **Dictionary-seeded acronym casing.** All-caps dictionary entries (e.g. `KYC`, `API`, `SDK`) are now force-uppercased wherever they appear in a transcript — "v2 kyc process" → "v2 KYC process". Deterministic and engine-independent. Guarded against digits/mixed-case entries and a stopword list so a stray all-caps "IT" can't uppercase every "it".
+
 ## [v0.14.6] — 2026-06-12
 
 ### Added
