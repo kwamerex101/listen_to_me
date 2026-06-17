@@ -130,4 +130,31 @@ final class VoiceEditorTests: XCTestCase {
         let out = VoiceEditor.apply("we are done period done deal")
         XCTAssertEqual(out, "We are done. Done deal")
     }
+
+    // MARK: - Dictionary-seeded acronyms ("kyc" → "KYC")
+
+    func test_acronyms_extractsAllCapsLettersOnly() {
+        let set = VoiceEditor.acronyms(from: ["KYC", "API", "v2", "OAuth", "Danquah", "IT", "S3"])
+        // v2/S3 have digits, OAuth/Danquah aren't all-caps, IT is a stopword.
+        XCTAssertEqual(set, ["KYC", "API"])
+    }
+
+    func test_acronyms_forceUppercasesInTranscript() {
+        let out = VoiceEditor.apply("processing the v2 kyc process", acronyms: ["KYC"])
+        XCTAssertEqual(out, "Processing the v2 KYC process")
+    }
+
+    func test_acronyms_handleMixedCaseAndSentenceStart() {
+        let out = VoiceEditor.apply("call the api then check the Sdk", acronyms: ["API", "SDK"])
+        XCTAssertEqual(out, "Call the API then check the SDK")
+    }
+
+    func test_acronyms_doNotMatchInsideWords() {
+        let out = VoiceEditor.apply("the kyclayer is fine", acronyms: ["KYC"])
+        XCTAssertEqual(out, "The kyclayer is fine")
+    }
+
+    func test_acronyms_emptyByDefaultLeavesTextUnchanged() {
+        XCTAssertEqual(VoiceEditor.apply("the kyc flow"), "The kyc flow")
+    }
 }

@@ -416,7 +416,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // paragraph) run on the raw transcript before snippets and
                 // cleanup. Pure transform; deterministic punctuation never
                 // depends on the LLM's mood.
-                let edited = VoiceEditor.apply(raw)
+                let edited = VoiceEditor.apply(
+                    raw,
+                    acronyms: VoiceEditor.acronyms(from: DictionaryStore.shared.entries.map(\.word)))
 
                 // Pure-undo edge case: user said only "scratch that" (or it
                 // resolved to empty). Skip paste, no history, brief feedback.

@@ -116,7 +116,9 @@ private struct CorrectionView: View {
                     // Apply the same voice-edit transforms the main flow uses
                     // (comma/period/scratch-that), then replace the popover
                     // contents.
-                    let edited = VoiceEditor.apply(raw)
+                    let edited = VoiceEditor.apply(
+                        raw,
+                        acronyms: VoiceEditor.acronyms(from: DictionaryStore.shared.entries.map(\.word)))
                     if !edited.isEmpty { text = edited }
                 } catch {
                     // Silent on error — user can still type to correct.
