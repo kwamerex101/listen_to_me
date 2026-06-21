@@ -158,8 +158,8 @@ The app is **not sandboxed** by design — sandboxing blocks `CGEvent.post(tap: 
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/rexdanquah/ListenToMe.git
-cd ListenToMe
+git clone https://github.com/kwamerex101/listen_to_me.git
+cd listen_to_me
 
 # 2. Build whisper.cpp (with Core ML) + llama.cpp, copy binaries/dylibs
 #    into ListenToMe/Resources/, and install xcodegen via Homebrew.
@@ -233,7 +233,7 @@ xcodebuild test \
   -destination 'platform=macOS'
 ```
 
-The current suite has 136 tests across 16 suites (VoiceEditor post-processing, NotesWriter AppleScript helpers, HistoryStore, dictionary casing, output routing, and more).
+The suite has ~276 tests (VoiceEditor post-processing, NotesWriter AppleScript helpers, HistoryStore, dictionary casing, output routing, and more). One known-failing test (`VoiceEditorTests.test_plus_cPlusPlusIdiom`) predates v0.15.0 and is unrelated to dictation output.
 
 ---
 
@@ -245,4 +245,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow, branching c
 
 ## License
 
-Released under the [MIT License](LICENSE). Copyright © 2024 Rex Danquah.
+Released under the [MIT License](LICENSE). Copyright © 2026 Rex Danquah.
