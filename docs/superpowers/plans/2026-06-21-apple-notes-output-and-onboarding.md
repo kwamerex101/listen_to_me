@@ -50,7 +50,9 @@
 | R4 | release.sh — Developer ID + notarization support | ✅ complete (df8d899) |
 | R5 | GitHub About (description + topics) | ✅ complete |
 | R6 | Open PR | ✅ complete — [#65](https://github.com/kwamerex101/listen_to_me/pull/65) |
-| R7 | Notarized DMG + tag v0.15.0 + GitHub release | ✅ DMG notarized (Accepted) + stapled; tagging + publishing |
+| R7 | Notarized DMG + tag v0.15.0 + GitHub release | ✅ complete — [release v0.15.0](https://github.com/kwamerex101/listen_to_me/releases/tag/v0.15.0), notarized DMG attached |
+
+**RELEASE SHIPPED.** v0.15.0 notarized DMG live. Tag `v0.15.0` → commit `706c6fb` (on branch `feat/notes-output-onboarding`). PR [#65](https://github.com/kwamerex101/listen_to_me/pull/65) still OPEN against `main` — merge it (regular merge, not squash, to keep the tagged commit in main's history) to bring v0.15.0 onto `main`. Pre-existing `test_plus_cPlusPlusIdiom` failure on `main` still open (separate fix).
 
 Decisions: version 0.15.0/37; signing = Developer ID (cert not yet on machine → R7 blocked); About = "Private, fully on-device dictation for macOS. Nothing leaves your machine."
 
