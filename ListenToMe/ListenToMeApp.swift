@@ -527,6 +527,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// the dashboard/History still reflect the dictation.
     private func deliverToNotes(raw: String, expanded: String,
                                 words: Int, durMs: Int) async {
+        // No paste target on this path — clear any stale token so a later
+        // "actually, …" backtrack can't revise into a previous active-app paste.
+        lastPasteToken = nil
+
         state.phase = .polishing(rawPreview: String(expanded.prefix(40)))
         PillWindow.shared.setInteractive(true)
 
@@ -566,6 +570,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// user pastes when they're ready. No replace, no correction popover.
     private func deliverToClipboard(raw: String, expanded: String,
                                     words: Int, durMs: Int) async {
+        // No paste target on this path — clear any stale token so a later
+        // "actually, …" backtrack can't revise into a previous active-app paste.
+        lastPasteToken = nil
+
         state.phase = .polishing(rawPreview: String(expanded.prefix(40)))
         PillWindow.shared.setInteractive(true)
 
