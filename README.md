@@ -85,6 +85,7 @@ A five-screen walkthrough on first launch: practice dictation, speech-model down
 - **Voice commands (opt-in, default off)** — `open`, `shell`, and `log to today` commands.
 - **In-app A/B benchmark** — read-aloud cards scoring WER + latency for Whisper vs Parakeet (Settings → Models → Engine Benchmark).
 - **Diagnostics log (opt-in, default off)** — `retype-debug.log`, rotated at 1 MB. Never includes transcript content.
+- **In-app uninstall** — Settings → Privacy → "Uninstall & delete all data" removes all local data and the app in one step. See [Uninstalling](#uninstalling).
 
 ---
 
@@ -219,7 +220,7 @@ Open Settings with ⌘, or via the menu bar icon → Open ListenToMe….
 | **General** | Hotkey binding (Fn+⌘ / Fn+⌥ / ⌃+⌘ / ⌃+⌥), appearance (Light/Dark/System), pill position reset, launch at login |
 | **Dictation** | Microphone device, max recording duration (30–600 s, default 120), AI cleanup mode and intensity, cloud vs on-device backend, Anthropic API key, cleanup timeout (5–60 s), output destination and Notes mode/folder/title |
 | **Models** | Transcription engine (Whisper Server / Whisper Linked / Parakeet ANE), Whisper model download and deletion, Parakeet model download and deletion, Parakeet dictionary boost toggle, on-device LLM (Gemma E2B or 12B) download and deletion, Engine Benchmark (A/B WER + latency) |
-| **Privacy** | History retention (0–365 days, default 90), encrypt history at rest (AES-GCM), context-aware tone toggle (default off), voice commands toggle (default off), diagnostics log toggle (default off) |
+| **Privacy** | History retention (0–365 days, default 90), encrypt history at rest (AES-GCM), context-aware tone toggle (default off), voice commands toggle (default off), diagnostics log toggle (default off), **Uninstall & delete all data** |
 | **About** | Version and build number, on-device processing note |
 
 ---
@@ -240,6 +241,19 @@ The suite has ~276 tests (VoiceEditor post-processing, NotesWriter AppleScript h
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow, branching conventions, and PR checklist.
+
+---
+
+## Uninstalling
+
+ListenToMe includes a built-in uninstall flow that removes all local data in one step.
+
+1. Open **Settings** (⌘,) → **Privacy** → scroll to the bottom → click **Uninstall & delete all data…**.
+2. A confirm dialog summarises what will be deleted: all downloaded Whisper / Parakeet / Gemma models, your dictation history, custom dictionary, snippets, settings, and the Anthropic API key + history-encryption key from the macOS Keychain.
+3. Optionally tick **Also delete my daily notes (`~/Documents/daily`)** if you want those removed too (off by default).
+4. Click **Remove everything** — the app deletes all data, then moves itself to the Trash via `NSWorkspace.recycle` (reversible if you change your mind), and quits.
+
+**macOS permission grants (Microphone, Accessibility, Automation) cannot be removed by the app** — they live in the system privacy database. After uninstalling, open **System Settings → Privacy & Security** and remove ListenToMe from each permission category manually. The app opens the Privacy pane for you as its last action before quitting.
 
 ---
 
