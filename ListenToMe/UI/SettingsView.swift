@@ -797,11 +797,11 @@ struct SettingsView: View {
             HStack {
                 Spacer()
                 Button("Cancel") { showUninstallSheet = false }
+                    .keyboardShortcut(.cancelAction)
                 Button("Remove everything") {
                     showUninstallSheet = false
                     Uninstaller.performUninstall(includeDailyNotes: uninstallIncludesDailyNotes)
                 }
-                .keyboardShortcut(.defaultAction)
                 .foregroundStyle(DT.statusError)
             }
         }
