@@ -284,7 +284,7 @@ struct HistoryView: View {
                 .font(.system(size: 24))
                 .foregroundStyle(.tertiary)
             Text(query.isEmpty && appFilter == nil
-                 ? "No dictations yet. Hold Fn + ⌘ anywhere to start."
+                 ? "No dictations yet. Hold \(Preferences.shared.hotkeyBinding.label) anywhere to start."
                  : "No transcripts match.")
                 .font(DT.body)
                 .foregroundStyle(.secondary)

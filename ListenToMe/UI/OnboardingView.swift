@@ -17,6 +17,7 @@ struct OnboardingView: View {
     @ObservedObject private var appState = AppState.shared
 
     // Live config the user can set inline.
+    @State private var userNameDraft: String = Preferences.shared.userName
     @State private var hotkey: HotkeyBinding = Preferences.shared.hotkeyBinding
     @State private var inputDeviceUID: String = Preferences.shared.inputDeviceUID ?? ""
     @State private var availableInputs: [AudioInputDevice] = []
@@ -112,6 +113,16 @@ struct OnboardingView: View {
                 }
                 .padding(.top, DT.space1)
             }
+
+            VStack(alignment: .leading, spacing: DT.space2) {
+                Text("Your name (optional)")
+                    .font(DT.bodyStrong)
+                TextField("What should we call you?", text: $userNameDraft)
+                    .textFieldStyle(.roundedBorder)
+                    .onChange(of: userNameDraft) { _, new in Preferences.shared.userName = new }
+            }
+            .padding(DT.space4)
+            .card()
         }
     }
 

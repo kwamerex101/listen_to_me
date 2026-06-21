@@ -2,6 +2,13 @@
 
 All notable user-facing changes per release. Format inspired by [Keep a Changelog](https://keepachangelog.com/), version numbers follow [SemVer](https://semver.org/) at the bundle level.
 
+## 0.18.0 (build 40)
+
+### Added
+
+- **Make it yours** — set your name and ListenToMe greets you by it on the Home screen. Add it during the first-run welcome or anytime in Settings → General.
+- **Refreshed the Home screen** — the top card is now a personalized, at-a-glance panel (your greeting, your real hotkey, a one-tap Dictate now, and today's word count) instead of a static banner.
+
 ## 0.17.0 (build 39)
 
 ### Added
