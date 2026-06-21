@@ -29,7 +29,7 @@
 
 | Task | Title | Status |
 |------|-------|--------|
-| 1 | Output destination & note-mode model | 🟡 in progress |
+| 1 | Output destination & note-mode model | ✅ complete |
 | 2 | NotesWriter pure helpers | ⬜ not started |
 | 3 | NotesWriter executor | ⬜ not started |
 | 4 | OutputRouter + pipeline wiring (paste/clipboard/notes) | ⬜ not started |
@@ -46,7 +46,9 @@ Status legend: ⬜ not started · 🟡 in progress · 🔵 in review · ✅ comp
 
 _Issues found during build are appended here (task, severity, description, resolution)._
 
-- (none yet)
+- **Task 1 (Important, resolved):** `OutputDestinationTests` class comment falsely claimed a throwaway UserDefaults suite; tests touch only enum statics. Corrected comment (commit `05e3d0f`).
+- **Task 1 (⚠️, resolved/not-a-gap):** reviewer flagged `project.yml` absent from diff. Verified test target uses directory glob (`path: ListenToMeTests`) and `.xcodeproj` is gitignored/generated → new test files auto-included by `xcodegen generate`; no `project.yml` change needed.
+- **Task 1 (Minor, deferred):** no `Preferences.shared` UserDefaults round-trip coverage (brief didn't require it). Candidate for future hardening with an injected `UserDefaults(suiteName:)`.
 
 ---
 
