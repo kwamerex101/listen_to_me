@@ -30,10 +30,10 @@
 | Task | Title | Status |
 |------|-------|--------|
 | 1 | Output destination & note-mode model | ✅ complete |
-| 2 | NotesWriter pure helpers | ⬜ not started |
-| 3 | NotesWriter executor | ⬜ not started |
-| 4 | OutputRouter + pipeline wiring (paste/clipboard/notes) | ⬜ not started |
-| 5 | Settings Output section | ⬜ not started |
+| 2 | NotesWriter pure helpers | ✅ complete |
+| 3 | NotesWriter executor | ✅ complete |
+| 4 | OutputRouter + pipeline wiring (paste/clipboard/notes) | ✅ complete |
+| 5 | Settings Output section | 🟡 in progress |
 | 6 | OnboardingWindow | ⬜ not started |
 | 7 | OnboardingView — 5 screens | ⬜ not started |
 | 8 | Present onboarding on first launch | ⬜ not started |
@@ -41,6 +41,16 @@
 | — | Final whole-branch review | ⬜ not started |
 
 Status legend: ⬜ not started · 🟡 in progress · 🔵 in review · ✅ complete · 🔴 blocked
+
+### Issues Log (deferred — for final review)
+
+- **PRE-EXISTING (not ours):** `VoiceEditorTests.test_plus_cPlusPlusIdiom` FAILS on the branch base `6af80c2` (main) — verified in a throwaway worktree. Unrelated to this feature (C++ "plus" rule, PR #61 area). `main` is shipping a failing test. Recommend a separate fix; this feature's suite gate treats it as green modulo this one.
+- **Task 4 (Minor, adjudicated down from Important):** `deliverToNotes` calls explicit `setInteractive(false)` at end; `deliverToClipboard` relies on `autoReset`. Both end non-interactive; neither sets a `PasteToken` so `handlePillTap` no-ops → inert. Optional symmetry cleanup later.
+- **Task 3 (Important, deferred — codebase-wide):** `NotesWriter.write` writes `runResult` on a background queue and reads it on the caller thread across a `DispatchSemaphore`. Safe at runtime (signal-before-wait ordering) and identical to the shipped `AppContext.frontBrowserURL` idiom, but a TSan/Swift-6 strict-concurrency data race. If the project adopts strict concurrency, fix `AppContext` AND `NotesWriter` together (e.g. `nonisolated(unsafe)`), not one in isolation. Project is Swift 5.9 today.
+
+
+- **Task 2 (Minor):** `bodyParagraph` HTML-escapes the timestamp unnecessarily (always `HH:mm`). Harmless.
+- **Task 2 (Minor):** test `test_createScript_embeds_escaped_folder_and_title` uses plain ASCII inputs — name promises "escaped" but escaping is covered by the quote-escaping test; rename or add a special-char assertion.
 
 ### Issues Log
 
