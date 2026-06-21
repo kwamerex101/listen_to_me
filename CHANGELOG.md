@@ -2,6 +2,12 @@
 
 All notable user-facing changes per release. Format inspired by [Keep a Changelog](https://keepachangelog.com/), version numbers follow [SemVer](https://semver.org/) at the bundle level.
 
+## 0.16.0 (build 38)
+
+### Added
+
+- **Uninstall** — Settings → Privacy → "Uninstall & delete all data". A confirm dialog deletes all downloaded models, dictation history, your custom dictionary, settings, and the API + history-encryption keys from the Keychain, then moves the app to the Trash. Optional toggle to also delete your daily notes (`~/Documents/daily`). macOS permission grants (Microphone / Accessibility / Automation) must be removed manually in System Settings — the app opens the Privacy pane for you.
+
 ## 0.15.0 (build 37)
 
 ### Added
