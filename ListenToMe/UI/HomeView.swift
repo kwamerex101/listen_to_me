@@ -14,7 +14,9 @@ struct HomeView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: DT.space7) {
-                Text("Welcome back, Rex")
+                Text(Preferences.shared.userName.isEmpty
+                     ? "Welcome back"
+                     : "Welcome back, \(Preferences.shared.userName)")
                     .font(DT.pageTitle)
 
                 heroCard
@@ -77,21 +79,29 @@ struct HomeView: View {
                 .transition(.opacity)
             }
 
-            VStack(alignment: .leading, spacing: DT.space4) {
-                Text("Speak once, ship clean text.")
+            VStack(alignment: .leading, spacing: DT.space3) {
+                Text("Ready when you are.")
                     .font(DT.heroDisplay)
                     .italic()
                     .foregroundStyle(.white)
-                    .lineLimit(2)
+                    .lineLimit(1)
                     .minimumScaleFactor(0.85)
-                Text("Hold Fn + ⌘ anywhere and dictate. AI cleans up automatically.")
+
+                Text("Hold \(Preferences.shared.hotkeyBinding.label) anywhere to dictate — or:")
                     .font(DT.body)
-                    .foregroundStyle(.white.opacity(0.65))
-                    .lineLimit(2)
+                    .foregroundStyle(.white.opacity(0.70))
+                    .lineLimit(1)
                     .minimumScaleFactor(0.9)
 
                 heroCTA
                     .padding(.top, DT.space2)
+
+                if let todayWords = history.dailyMetrics(lastDays: 1).first?.words, todayWords > 0 {
+                    Text("\(todayWords) words dictated today")
+                        .font(DT.caption)
+                        .foregroundStyle(.white.opacity(0.50))
+                        .padding(.top, DT.space1)
+                }
             }
             .padding(DT.space7)
         }
@@ -477,7 +487,7 @@ struct HomeView: View {
             Image(systemName: "waveform")
                 .font(.system(size: 13))
                 .foregroundStyle(DT.accent)
-            Text("Nothing yet today. Hold Fn + ⌘ anywhere to dictate.")
+            Text("Nothing yet today. Hold \(Preferences.shared.hotkeyBinding.label) anywhere to dictate.")
                 .font(DT.body)
                 .foregroundStyle(.secondary)
         }
