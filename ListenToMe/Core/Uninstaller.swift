@@ -58,10 +58,12 @@ enum Uninstaller {
         //    Then open System Settings → Privacy and quit from the completion.
         let appURL = Bundle.main.bundleURL
         NSWorkspace.shared.recycle([appURL]) { _, _ in
-            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy") {
-                NSWorkspace.shared.open(url)
+            DispatchQueue.main.async {
+                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy") {
+                    NSWorkspace.shared.open(url)
+                }
+                NSApp.terminate(nil)
             }
-            NSApp.terminate(nil)
         }
     }
 }

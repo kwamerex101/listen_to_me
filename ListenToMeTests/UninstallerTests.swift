@@ -18,6 +18,7 @@ final class UninstallerTests: XCTestCase {
     }
 
     func test_removalPlan_includes_daily_notes_only_when_present_and_opted_in() {
+        // The positive (inclusion) branch is only exercised on machines that actually have ~/Documents/daily; on a fresh machine this asserts the non-inclusion branch.
         // dailyNotes is included only if it exists on disk AND the flag is set.
         let plan = Uninstaller.removalPlan(includeDailyNotes: true)
         let exists = FileManager.default.fileExists(atPath: Uninstaller.dailyNotesURL.path)
