@@ -44,12 +44,12 @@
 
 | Task | Title | Status |
 |------|-------|--------|
-| R1 | Lazy keygen — encryption key only when encrypt-at-rest on | 🟡 in progress |
-| R2 | Version → 0.15.0 / build 37 + CHANGELOG | 🟡 in progress |
-| R3 | README full rewrite | ⬜ not started |
-| R4 | release.sh — Developer ID + notarization support | ⬜ not started |
-| R5 | GitHub About (description + topics) | ⬜ not started |
-| R6 | Open PR | ⬜ not started |
+| R1 | Lazy keygen — encryption key only when encrypt-at-rest on | ✅ complete (6d85ae7) |
+| R2 | Version → 0.15.0 / build 37 + CHANGELOG | ✅ complete (63b1223) |
+| R3 | README full rewrite | ✅ complete (9765911 + fixes 0a547a3) |
+| R4 | release.sh — Developer ID + notarization support | ✅ complete (df8d899) |
+| R5 | GitHub About (description + topics) | 🟡 in progress |
+| R6 | Open PR | 🟡 in progress |
 | R7 | Notarized DMG + tag v0.15.0 + GitHub release | ⛔ blocked — needs Developer ID cert on this machine |
 
 Decisions: version 0.15.0/37; signing = Developer ID (cert not yet on machine → R7 blocked); About = "Private, fully on-device dictation for macOS. Nothing leaves your machine."
