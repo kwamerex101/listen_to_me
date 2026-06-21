@@ -66,6 +66,7 @@ struct SettingsView: View {
     @State private var noteMode: NoteMode = Preferences.shared.noteMode
     @State private var noteTitleDraft: String = Preferences.shared.noteTitle
     @State private var noteFolderDraft: String = Preferences.shared.noteFolder
+    @State private var userNameDraft: String = Preferences.shared.userName
 
     /// Which downloaded model the user has asked to delete. Non-nil drives the
     /// confirmation dialog; deletion only runs once they confirm.
@@ -156,6 +157,7 @@ struct SettingsView: View {
             noteMode = Preferences.shared.noteMode
             noteTitleDraft = Preferences.shared.noteTitle
             noteFolderDraft = Preferences.shared.noteFolder
+            userNameDraft = Preferences.shared.userName
             streamingPartialsEnabled = Preferences.shared.streamingPartialsEnabled
             selectedWhisperModel = Preferences.shared.selectedWhisperModel
             transcriptionAccuracy = Preferences.shared.transcriptionAccuracy
@@ -238,6 +240,17 @@ struct SettingsView: View {
 
     private var generalTab: some View {
         VStack(alignment: .leading, spacing: DT.space6) {
+            section(title: "You") {
+                row(label: "Your name",
+                    description: "Used to greet you on the Home screen.") {
+                    TextField("", text: $userNameDraft)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 220)
+                        .onChange(of: userNameDraft) { _, new in Preferences.shared.userName = new }
+                        .onSubmit { Preferences.shared.userName = userNameDraft }
+                }
+            }
+
             section(title: "Shortcuts") {
                 row(label: "Dictation hotkey",
                     description: "Hold to dictate into any app.") {

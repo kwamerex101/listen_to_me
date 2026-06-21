@@ -154,6 +154,7 @@ final class Preferences {
     private let kNoteTitle = "wf.noteTitle"
     private let kNoteFolder = "wf.noteFolder"
     private let kHasCompletedOnboarding = "wf.hasCompletedOnboarding"
+    private let kUserName = "wf.userName"
 
     /// Keychain account names (bundled here so call sites don't sprout
     /// stringly-typed names of their own).
@@ -457,6 +458,19 @@ final class Preferences {
     var hasCompletedOnboarding: Bool {
         get { defaults.bool(forKey: kHasCompletedOnboarding) }
         set { defaults.set(newValue, forKey: kHasCompletedOnboarding) }
+    }
+
+    /// Display name the user wants to be called. Empty string means not set.
+    /// Trimmed on read; stored as-is (empty when blanked).
+    var userName: String {
+        get {
+            let v = defaults.string(forKey: kUserName) ?? ""
+            return v.trimmingCharacters(in: .whitespaces)
+        }
+        set {
+            let trimmed = newValue.trimmingCharacters(in: .whitespaces)
+            defaults.set(trimmed, forKey: kUserName)
+        }
     }
 
     // MARK: - On-device LLM (text polish)
