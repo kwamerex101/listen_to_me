@@ -450,37 +450,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     return
                 }
 
-                // Streaming preview: paste the raw transcript NOW so the
-                // user sees text within ~1.5s of release. Cleanup runs in
-                // the background and may swap in a polished version.
                 lastRawTranscript = raw
-                if CleanupGate.shouldClean(text: expanded, wordCount: words,
-                                           mode: Preferences.shared.cleanupMode) {
-                    state.lastTranscript = expanded
-                    let token = Paster.pasteTracked(expanded)
-                    lastPasteToken = token
-                    Haptics.success()
-                    SoundCue.success()
-                    state.phase = .polishing(rawPreview: String(expanded.prefix(40)))
-                    PillWindow.shared.setInteractive(true)
-                    startCleanupTask(raw: raw, expanded: expanded, durMs: durMs, token: token)
-                } else {
-                    // No-cleanup mode: still paste-tracked so the user can
-                    // open the correction popover; we just never call replace.
-                    state.lastTranscript = expanded
-                    let token = Paster.pasteTracked(expanded)
-                    lastPasteToken = token
-                    scheduleRetypeDetection(token: token)
-                    recordStyleSample(token: token, cleaned: expanded)
-                    Haptics.success()
-                    SoundCue.success()
-                    HistoryStore.shared.add(rawText: raw, finalText: expanded,
-                                             durationMs: durMs, bundleId: token.bundleId)
-                    state.phase = .success(preview: String(expanded.prefix(30)))
-                    PillWindow.shared.setInteractive(true)
-                    // Longer success window so the user has time to click the
-                    // pill if they want to correct.
-                    autoReset(after: 3.0)
+
+                // Route on the user's output destination. .activeApp keeps the
+                // streaming paste → background-cleanup → replace pipeline; the
+                // Apple Notes path cleans to completion (Notes has no
+                // undo-replace) then writes the note off-main.
+                switch Preferences.shared.outputDestination {
+                case .appleNotes:
+                    await self.deliverToNotes(raw: raw, expanded: expanded,
+                                              words: words, durMs: durMs)
+
+                case .clipboard:
+                    await self.deliverToClipboard(raw: raw, expanded: expanded,
+                                                  words: words, durMs: durMs)
+
+                case .activeApp:
+                    // Streaming preview: paste the raw transcript NOW so the
+                    // user sees text within ~1.5s of release. Cleanup runs in
+                    // the background and may swap in a polished version.
+                    if CleanupGate.shouldClean(text: expanded, wordCount: words,
+                                               mode: Preferences.shared.cleanupMode) {
+                        state.lastTranscript = expanded
+                        let token = Paster.pasteTracked(expanded)
+                        lastPasteToken = token
+                        Haptics.success()
+                        SoundCue.success()
+                        state.phase = .polishing(rawPreview: String(expanded.prefix(40)))
+                        PillWindow.shared.setInteractive(true)
+                        startCleanupTask(raw: raw, expanded: expanded, durMs: durMs, token: token)
+                    } else {
+                        // No-cleanup mode: still paste-tracked so the user can
+                        // open the correction popover; we just never call replace.
+                        state.lastTranscript = expanded
+                        let token = Paster.pasteTracked(expanded)
+                        lastPasteToken = token
+                        scheduleRetypeDetection(token: token)
+                        recordStyleSample(token: token, cleaned: expanded)
+                        Haptics.success()
+                        SoundCue.success()
+                        HistoryStore.shared.add(rawText: raw, finalText: expanded,
+                                                 durationMs: durMs, bundleId: token.bundleId)
+                        state.phase = .success(preview: String(expanded.prefix(30)))
+                        PillWindow.shared.setInteractive(true)
+                        // Longer success window so the user has time to click the
+                        // pill if they want to correct.
+                        autoReset(after: 3.0)
+                    }
                 }
             } catch WhisperError.modelNotFound(let path) {
                 NSLog("[ListenToMe] model not found: \(path)")
@@ -492,6 +508,80 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 autoReset()
             }
         }
+    }
+
+    /// Apple Notes destination: clean to completion (subject to the gate),
+    /// then write the polished text into Notes. No paste, no replace, no
+    /// correction popover — Notes is a one-shot sink. History is recorded so
+    /// the dashboard/History still reflect the dictation.
+    private func deliverToNotes(raw: String, expanded: String,
+                                words: Int, durMs: Int) async {
+        state.phase = .polishing(rawPreview: String(expanded.prefix(40)))
+        PillWindow.shared.setInteractive(true)
+
+        var finalText = expanded
+        if CleanupGate.shouldClean(text: expanded, wordCount: words,
+                                   mode: Preferences.shared.cleanupMode) {
+            do {
+                let timeout = TimeInterval(Preferences.shared.cleanupTimeoutSec)
+                finalText = try await ClaudeClient.shared.clean(
+                    expanded, bundleId: nil, timeout: timeout)
+            } catch {
+                NSLog("[ListenToMe] notes cleanup failed, raw stands: \(error)")
+                finalText = expanded
+            }
+        }
+
+        let result = await OutputRouter.deliverToNotes(text: finalText)
+        switch result {
+        case .success:
+            state.lastTranscript = finalText
+            HistoryStore.shared.add(rawText: raw, finalText: finalText,
+                                     durationMs: durMs, bundleId: "com.apple.Notes")
+            Haptics.success()
+            SoundCue.success()
+            state.phase = .success(preview: "Saved to Notes")
+            autoReset(after: 2.0)
+        case .failure(let err):
+            NSLog("[ListenToMe] notes write failed: \(err)")
+            state.phase = .error(message: "Notes write failed")
+            autoReset()
+        }
+        PillWindow.shared.setInteractive(false)
+    }
+
+    /// Clipboard destination: clean to completion (subject to the gate), copy
+    /// to the pasteboard WITHOUT simulating Cmd+V, and record history. The
+    /// user pastes when they're ready. No replace, no correction popover.
+    private func deliverToClipboard(raw: String, expanded: String,
+                                    words: Int, durMs: Int) async {
+        state.phase = .polishing(rawPreview: String(expanded.prefix(40)))
+        PillWindow.shared.setInteractive(true)
+
+        var finalText = expanded
+        if CleanupGate.shouldClean(text: expanded, wordCount: words,
+                                   mode: Preferences.shared.cleanupMode) {
+            do {
+                let timeout = TimeInterval(Preferences.shared.cleanupTimeoutSec)
+                finalText = try await ClaudeClient.shared.clean(
+                    expanded, bundleId: nil, timeout: timeout)
+            } catch {
+                NSLog("[ListenToMe] clipboard cleanup failed, raw stands: \(error)")
+                finalText = expanded
+            }
+        }
+
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(finalText, forType: .string)
+
+        state.lastTranscript = finalText
+        HistoryStore.shared.add(rawText: raw, finalText: finalText,
+                                 durationMs: durMs, bundleId: nil)
+        Haptics.success()
+        SoundCue.success()
+        state.phase = .success(preview: "Copied to clipboard")
+        autoReset(after: 2.0)
     }
 
     /// Run cleanup in the background while the raw transcript already sits
