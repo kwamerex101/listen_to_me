@@ -33,18 +33,21 @@
 | 2 | NotesWriter pure helpers | ✅ complete |
 | 3 | NotesWriter executor | ✅ complete |
 | 4 | OutputRouter + pipeline wiring (paste/clipboard/notes) | ✅ complete |
-| 5 | Settings Output section | 🟡 in progress |
-| 6 | OnboardingWindow | ⬜ not started |
-| 7 | OnboardingView — 5 screens | ⬜ not started |
-| 8 | Present onboarding on first launch | ⬜ not started |
-| 9 | Info.plist + version bump + docs | ⬜ not started |
-| — | Final whole-branch review | ⬜ not started |
+| 5 | Settings Output section | ✅ complete |
+| 6 | OnboardingWindow | ✅ complete (with 7) |
+| 7 | OnboardingView — 5 screens | ✅ complete (with 6) |
+| 8 | Present onboarding on first launch | ✅ complete |
+| 9 | Info.plist + version bump + docs | ✅ complete |
+| — | Final whole-branch review | 🟡 in progress |
 
 Status legend: ⬜ not started · 🟡 in progress · 🔵 in review · ✅ complete · 🔴 blocked
 
 ### Issues Log (deferred — for final review)
 
+- **Task 9 (Minor):** SECURITY.md says the paste-target activation "requires no TCC prompt" — accurate for activate-frontmost (CGEvent), but prose could mislead; optional parenthetical clarification. Pre-existing CHANGELOG `[Unreleased]` stub sits between 0.14.9 and older entries (cosmetic, not ours).
 - **PRE-EXISTING (not ours):** `VoiceEditorTests.test_plus_cPlusPlusIdiom` FAILS on the branch base `6af80c2` (main) — verified in a throwaway worktree. Unrelated to this feature (C++ "plus" rule, PR #61 area). `main` is shipping a failing test. Recommend a separate fix; this feature's suite gate treats it as green modulo this one.
+- **Task 6/7 (Minor, deferred):** `accessibilityGranted` in OnboardingView is a `@State` snapshot refreshed on the permissions step's `onAppear` (consistent with `SettingsView`'s re-poll pattern) — won't live-update if Accessibility is granted while that step is already visible. `micGranted` was fixed to observe `AppState`; Accessibility has no equivalent observable, so left as-is. Low impact.
+- **Task 6/7 (Minor, deferred):** outer `.onAppear` calls `modelManager.refreshStatus()` redundantly with the model step's own `onAppear`; harmless. And `inputDeviceUID == ""` sentinel ("System default") is implicit.
 - **Task 4 (Minor, adjudicated down from Important):** `deliverToNotes` calls explicit `setInteractive(false)` at end; `deliverToClipboard` relies on `autoReset`. Both end non-interactive; neither sets a `PasteToken` so `handlePillTap` no-ops → inert. Optional symmetry cleanup later.
 - **Task 3 (Important, deferred — codebase-wide):** `NotesWriter.write` writes `runResult` on a background queue and reads it on the caller thread across a `DispatchSemaphore`. Safe at runtime (signal-before-wait ordering) and identical to the shipped `AppContext.frontBrowserURL` idiom, but a TSan/Swift-6 strict-concurrency data race. If the project adopts strict concurrency, fix `AppContext` AND `NotesWriter` together (e.g. `nonisolated(unsafe)`), not one in isolation. Project is Swift 5.9 today.
 
