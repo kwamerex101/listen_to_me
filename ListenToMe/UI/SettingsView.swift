@@ -594,6 +594,7 @@ struct SettingsView: View {
                         TextField("ListenToMe", text: $noteTitleDraft)
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 220)
+                            .onChange(of: noteTitleDraft) { _, new in Preferences.shared.noteTitle = new }
                             .onSubmit { Preferences.shared.noteTitle = noteTitleDraft }
                     }
                     .hoverableRow()
@@ -603,6 +604,7 @@ struct SettingsView: View {
                     TextField("ListenToMe", text: $noteFolderDraft)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 220)
+                        .onChange(of: noteFolderDraft) { _, new in Preferences.shared.noteFolder = new }
                         .onSubmit { Preferences.shared.noteFolder = noteFolderDraft }
                 }
                 .hoverableRow()
