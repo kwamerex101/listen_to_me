@@ -40,6 +40,20 @@
 | 9 | Info.plist + version bump + docs | ✅ complete |
 | — | Final whole-branch review | ✅ complete — **Ready to merge: YES** |
 
+### Release Prep (added 2026-06-21, post-feature)
+
+| Task | Title | Status |
+|------|-------|--------|
+| R1 | Lazy keygen — encryption key only when encrypt-at-rest on | 🟡 in progress |
+| R2 | Version → 0.15.0 / build 37 + CHANGELOG | 🟡 in progress |
+| R3 | README full rewrite | ⬜ not started |
+| R4 | release.sh — Developer ID + notarization support | ⬜ not started |
+| R5 | GitHub About (description + topics) | ⬜ not started |
+| R6 | Open PR | ⬜ not started |
+| R7 | Notarized DMG + tag v0.15.0 + GitHub release | ⛔ blocked — needs Developer ID cert on this machine |
+
+Decisions: version 0.15.0/37; signing = Developer ID (cert not yet on machine → R7 blocked); About = "Private, fully on-device dictation for macOS. Nothing leaves your machine."
+
 **STATUS: FEATURE COMPLETE.** Branch `feat/notes-output-onboarding` @ `c04273d`, 17 commits ahead of `main`. All 9 tasks built + task-reviewed; final opus whole-branch review returned **Ready to merge: Yes** (no Critical/Important). Full suite: 275 tests, only the pre-existing `test_plus_cPlusPlusIdiom` fails (unrelated, fails on `main` too). Not yet merged — awaiting user decision (merge / PR / leave).
 
 Status legend: ⬜ not started · 🟡 in progress · 🔵 in review · ✅ complete · 🔴 blocked
