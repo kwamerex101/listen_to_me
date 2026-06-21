@@ -92,6 +92,13 @@ final class VoiceEditorTests: XCTestCase {
         XCTAssertEqual(VoiceEditor.apply("c plus plus is fast"), "C++ is fast")
     }
 
+    func test_plus_plus_notCollapsedByStutterPass() {
+        // Guard: "plus" is in repeatPreserve so the stutter-collapse pass
+        // can't eat one "plus" before the C++ idiom rule runs. A bare
+        // "plus plus" (no leading "c") stays two words rather than collapsing.
+        XCTAssertTrue(VoiceEditor.apply("plus plus more").lowercased().contains("plus plus"))
+    }
+
     func test_plus_leavesBareMathAlone() {
         // No dotted version on the left → ambiguous, left as words.
         XCTAssertEqual(VoiceEditor.apply("2 plus 2 equals 4"), "2 plus 2 equals 4")
