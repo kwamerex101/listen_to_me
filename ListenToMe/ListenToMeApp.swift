@@ -195,6 +195,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // path (mic, record, transcribe, command, cleanup) gets it.
                 if case .error = phase { Haptics.error() }
             }
+
+        // First-run onboarding. Deferred one runloop tick so the menu bar +
+        // pill are installed before the panel takes key focus. Shown once;
+        // completing it (or closing) sets the flag.
+        if !Preferences.shared.hasCompletedOnboarding {
+            DispatchQueue.main.async {
+                OnboardingWindow.shared.present {
+                    Preferences.shared.hasCompletedOnboarding = true
+                }
+            }
+        }
     }
 
     /// Tear down long-lived subprocesses cleanly on quit so we don't
