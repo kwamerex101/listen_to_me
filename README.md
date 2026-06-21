@@ -59,6 +59,8 @@ global hotkey behave like first-class macOS citizens.
 | **Hands-free voice activation** (always-listening) | ✅ | ❌ — would defeat 0 % idle CPU |
 | **Idle resource footprint** | ~800 MB RAM, ~8 % CPU | **~25 MB RSS, 0.0 % CPU** |
 | **Works offline** | no | yes (transcription always; cleanup with local Gemma) |
+| **Apple Notes output destination** | — | ✅ (append / new note / daily note; local Apple Events only) |
+| **First-run onboarding** (5-screen walkthrough + model download) | — | ✅ |
 
 ## Setup
 
@@ -244,6 +246,7 @@ Settings is organized into five tabs (chip bar):
 | | Cloud backend | Auto / CLI subprocess / Direct Anthropic API |
 | | Anthropic API key | Stored in macOS Keychain |
 | | Cleanup timeout | 5–60 s (default 20) |
+| | Output destination | Active app (paste, default) / Apple Notes (append / new note / daily note) / Clipboard |
 | **Models** | Transcription engine | Whisper Server (default) / Whisper Linked / Parakeet (ANE) |
 | | Whisper model | Status + download (base 148 MB … large-turbo 1.6 GB), SHA-256 verified |
 | | Accuracy / Live partials | Whisper Linked only (beam search, streaming) |

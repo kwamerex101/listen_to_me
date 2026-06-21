@@ -2,6 +2,15 @@
 
 All notable user-facing changes per release. Format inspired by [Keep a Changelog](https://keepachangelog.com/), version numbers follow [SemVer](https://semver.org/) at the bundle level.
 
+## 0.14.9 (build 36)
+
+### Added
+- **Apple Notes output destination.** Settings → Dictation → Output lets you send dictations to Apple Notes instead of pasting into the active app. Three modes: append to one note, a new note each time, or a daily note. Note name and folder are configurable.
+- **First-run onboarding.** A five-screen walkthrough (practice, speech-model download, permissions, hotkey & microphone, output) shown once on first launch. The speech-model screen downloads Whisper Base in the background so the app is ready to transcribe.
+
+### Notes
+- Choosing the Apple Notes destination triggers a one-time macOS prompt to allow ListenToMe to control Notes. Text is written locally via Apple Events — nothing leaves your Mac.
+
 ## [Unreleased]
 
 ### Added — SQLite storage foundation (M6, partial)

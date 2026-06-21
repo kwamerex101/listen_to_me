@@ -35,8 +35,17 @@ If cleanup is set to "Never" in Settings, no transcripts leave the device under 
 | Permission | Why |
 |---|---|
 | Microphone (`com.apple.security.device.audio-input`) | AVAudioEngine capture |
-| Apple Events (`com.apple.security.automation.apple-events`) | Activate the paste-target app before posting Cmd+V; also the opt-in browser active-tab-URL read (Settings → Privacy → Permissions → Context-aware tone, default off) |
+| Apple Events (`com.apple.security.automation.apple-events`) | Two surfaces: (1) activate the paste-target app before posting Cmd+V (always); (2) write dictations to Apple Notes when the Notes output destination is selected (user-initiated, never on launch) |
 | Accessibility (runtime) | `CGEventTap` for the global hotkey + `CGEvent.post` for the paste keystroke |
+
+### Apple Events / Automation grants
+
+ListenToMe holds the `com.apple.security.automation.apple-events` entitlement for two purposes:
+
+1. **Paste-target activation** — the app sends an Apple Event to the frontmost app to ensure it is ready to receive Cmd+V. This happens on every dictation and requires no TCC prompt.
+2. **Apple Notes output** (Settings → Dictation → Output → Apple Notes) — when this destination is selected, ListenToMe sends Apple Events to `com.apple.Notes` to create or append to notes. macOS shows a one-time Automation prompt ("ListenToMe wants to control Notes") the first time a dictation is delivered via this path. **This prompt is never triggered on launch** and never appears when the destination is set to "Active app (paste)" or "Clipboard". Text is written locally; nothing leaves the device.
+
+This is the **second** Automation grant the user may see. The first is the opt-in browser-URL probe (Settings → Privacy → Permissions → Context-aware tone, default off), which reads the active tab URL from Safari or Chrome to inform the cleanup tone. The Notes grant is independent — selecting the Notes destination does not activate the browser probe, and vice versa.
 
 **Media / Photos prompts are not requested by the app.** macOS may surface
 one-time "Apple Music / media library / Photos" prompts; these are AVFoundation
