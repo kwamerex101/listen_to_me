@@ -2,6 +2,16 @@
 
 All notable user-facing changes per release. Format inspired by [Keep a Changelog](https://keepachangelog.com/), version numbers follow [SemVer](https://semver.org/) at the bundle level.
 
+## 0.17.0 (build 39)
+
+### Added
+
+- **Clear all history** — a one-click button on the History page (with confirm) wipes your entire dictation history.
+
+### Changed
+
+- **Redesigned the first-run onboarding** — a cleaner five-step flow (welcome → voice-engine download → permissions → hotkey and microphone → a live practice screen where you actually try a dictation before finishing), matching the rest of the app's look. Output-destination setup moved into Settings to keep first-run simple. All motion respects Reduce Motion; permissions update live as you grant them.
+
 ## 0.16.0 (build 38)
 
 ### Added
