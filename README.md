@@ -135,10 +135,10 @@ The app is **not sandboxed** by design — sandboxing blocks `CGEvent.post(tap: 
 
 1. Download `ListenToMe.dmg` from the [Releases](../../releases) page.
 2. Open the DMG and drag `ListenToMe.app` to `/Applications`.
-3. **First launch — Gatekeeper:** Builds are signed with a stable Developer ID or Apple Development identity when one is present in the keychain at build time; otherwise they are ad-hoc signed. If macOS shows "can't be opened because it is from an unidentified developer", right-click the app → **Open**, then click **Open** in the dialog. This is a one-time step.
+3. **Launch it.** Official release DMGs are signed with **Developer ID** and **notarized by Apple**, so they open with a normal double-click — no Gatekeeper warning.
 4. The five-screen onboarding walkthrough appears. Follow the prompts to grant Accessibility permission and download the Whisper Base model.
 
-> **Note:** ListenToMe is not notarized. The right-click → Open step is required once for any build that triggers Gatekeeper.
+> **Note:** Only locally built / ad-hoc DMGs are unsigned. For those, macOS Gatekeeper requires a one-time right-click the app → **Open**. Notarized release downloads do not need this.
 
 ---
 
