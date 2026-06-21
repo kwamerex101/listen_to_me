@@ -322,7 +322,13 @@ final class HistoryStore: ObservableObject {
             // Auto-detect encrypted vs plaintext lines per-line so a
             // partial migration from a previous launch survives a crash
             // mid-rewrite without losing data.
-            let key = (try? HistoryCipher.keyOrCreate())
+            // Only fetch the key when encryption is actually enabled, and never
+            // CREATE one here — key creation happens only when the user turns on
+            // encrypt-at-rest (the write/migration paths). This keeps fresh installs
+            // from touching the Keychain at all when encryption was never enabled.
+            let key = Preferences.shared.historyEncryptionEnabled
+                ? ((try? HistoryCipher.existingKey()) ?? nil)
+                : nil
             records = Self.parseNDJSON(data, key: key).reversed()
             return
         }

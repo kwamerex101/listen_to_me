@@ -43,6 +43,17 @@ enum HistoryCipher {
         return fresh
     }
 
+    /// Fetch the existing symmetric key, or nil if none is stored. Unlike
+    /// `keyOrCreate()`, this NEVER generates/persists a key — used by the
+    /// read/load path so opening history can't silently create a key (and
+    /// touch the Keychain) when the user never enabled encryption.
+    static func existingKey() throws -> SymmetricKey? {
+        guard let raw = try Keychain.get(account: keychainAccount),
+              let data = Data(base64Encoded: raw),
+              data.count == 32 else { return nil }
+        return SymmetricKey(data: data)
+    }
+
     /// Remove the persisted key. Used by the "disable encryption"
     /// migration path AFTER the file has been rewritten to plaintext —
     /// otherwise a partial migration would lock the user out of their

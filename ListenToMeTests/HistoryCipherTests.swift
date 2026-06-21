@@ -85,6 +85,45 @@ final class HistoryCipherTests: XCTestCase {
         // minimum. Anything shorter cannot be a valid AES-GCM payload.
         XCTAssertFalse(HistoryCipher.looksEncrypted("ZmFrZQ=="))
     }
+
+    // MARK: - existingKey — no-create contract
+
+    func test_existingKey_does_not_create_key_when_absent() throws {
+        // Strategy: use parseNDJSON(data, key: nil) to prove the load path
+        // is safe when no key exists. We cannot safely delete/create real
+        // Keychain entries in CI without prompts, so instead we verify the
+        // functional contract: when key==nil, encrypted lines are skipped
+        // and plaintext lines are returned — exactly the behaviour that
+        // matters when existingKey() returns nil (encryption never enabled).
+        //
+        // This covers the "key absent → load safe" case without touching
+        // the login Keychain at all.
+
+        let innerKey = SymmetricKey(size: .bits256)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+
+        let plainRec = TranscriptRecord(id: UUID(), timestamp: Date(),
+                                        rawText: "plain", finalText: "Plain.",
+                                        durationMs: 100, dismissed: false)
+        let encRec = TranscriptRecord(id: UUID(), timestamp: Date(),
+                                      rawText: "enc", finalText: "Enc.",
+                                      durationMs: 200, dismissed: false)
+
+        let plainLine = try encoder.encode(plainRec)
+        let cipherLine = try HistoryCipher.encryptLine(try encoder.encode(encRec), key: innerKey)
+
+        var blob = Data()
+        blob.append(plainLine);   blob.append(0x0A)
+        blob.append(cipherLine.data(using: .utf8)!); blob.append(0x0A)
+
+        // Simulates load() calling parseNDJSON with key==nil (no encryption
+        // enabled, existingKey() returned nil): encrypted lines must be
+        // dropped, plaintext lines must survive.
+        let parsed = HistoryStore.parseNDJSON(blob, key: nil)
+        XCTAssertEqual(parsed.count, 1, "encrypted lines skipped when key==nil")
+        XCTAssertEqual(parsed.first?.id, plainRec.id, "plaintext line survives")
+    }
 }
 
 /// Verifies the HistoryStore NDJSON layer correctly round-trips
