@@ -38,7 +38,9 @@
 | 7 | OnboardingView — 5 screens | ✅ complete (with 6) |
 | 8 | Present onboarding on first launch | ✅ complete |
 | 9 | Info.plist + version bump + docs | ✅ complete |
-| — | Final whole-branch review | 🟡 in progress |
+| — | Final whole-branch review | ✅ complete — **Ready to merge: YES** |
+
+**STATUS: FEATURE COMPLETE.** Branch `feat/notes-output-onboarding` @ `c04273d`, 17 commits ahead of `main`. All 9 tasks built + task-reviewed; final opus whole-branch review returned **Ready to merge: Yes** (no Critical/Important). Full suite: 275 tests, only the pre-existing `test_plus_cPlusPlusIdiom` fails (unrelated, fails on `main` too). Not yet merged — awaiting user decision (merge / PR / leave).
 
 Status legend: ⬜ not started · 🟡 in progress · 🔵 in review · ✅ complete · 🔴 blocked
 
