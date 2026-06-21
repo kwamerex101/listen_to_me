@@ -39,12 +39,15 @@ enum Uninstaller {
 
         // 1. Delete data directories (models, history, dictionary, SQLite, logs).
         for url in removalPlan(includeDailyNotes: includeDailyNotes) {
-            try? fm.removeItem(at: url)
+            do { try fm.removeItem(at: url) }
+            catch { NSLog("[ListenToMe] uninstall: failed to remove \(url.path): \(error)") }
         }
 
         // 2. Keychain — drop both stored secrets.
-        try? Keychain.delete(account: Preferences.anthropicAPIKeyAccount)
-        try? Keychain.delete(account: HistoryCipher.keychainAccount)
+        do { try Keychain.delete(account: Preferences.anthropicAPIKeyAccount) }
+        catch { NSLog("[ListenToMe] uninstall: failed to delete API key from Keychain: \(error)") }
+        do { try Keychain.delete(account: HistoryCipher.keychainAccount) }
+        catch { NSLog("[ListenToMe] uninstall: failed to delete encryption key from Keychain: \(error)") }
 
         // 3. UserDefaults — clear the whole persistent domain.
         if let bundleId = Bundle.main.bundleIdentifier {

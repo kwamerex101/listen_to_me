@@ -796,7 +796,10 @@ struct SettingsView: View {
                 .fixedSize(horizontal: false, vertical: true)
             HStack {
                 Spacer()
-                Button("Cancel") { showUninstallSheet = false }
+                Button("Cancel") {
+                    showUninstallSheet = false
+                    uninstallIncludesDailyNotes = false
+                }
                     .keyboardShortcut(.cancelAction)
                 Button("Remove everything") {
                     showUninstallSheet = false
