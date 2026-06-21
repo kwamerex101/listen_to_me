@@ -29,7 +29,7 @@
 
 | Task | Title | Status |
 |------|-------|--------|
-| 1 | Output destination & note-mode model | ⬜ not started |
+| 1 | Output destination & note-mode model | 🟡 in progress |
 | 2 | NotesWriter pure helpers | ⬜ not started |
 | 3 | NotesWriter executor | ⬜ not started |
 | 4 | OutputRouter + pipeline wiring (paste/clipboard/notes) | ⬜ not started |

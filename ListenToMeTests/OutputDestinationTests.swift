@@ -2,7 +2,7 @@ import XCTest
 @testable import ListenToMe
 
 /// Round-trip + default tests for the output-destination preferences.
-/// Uses a throwaway UserDefaults suite so we never touch the real domain.
+/// Tests enum static properties only; no UserDefaults access.
 final class OutputDestinationTests: XCTestCase {
 
     func test_outputDestination_defaults_to_activeApp() {
