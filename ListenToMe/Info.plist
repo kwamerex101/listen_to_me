@@ -17,13 +17,13 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.13.0</string>
+	<string>0.15.0</string>
 	<key>CFBundleVersion</key>
-	<string>15</string>
+	<string>37</string>
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>ListenToMe uses Apple Events to paste transcripts into the active app.</string>
+	<string>ListenToMe uses Apple Events to paste transcripts into the active app and, when you choose the Apple Notes destination, to save dictations to Notes.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSHumanReadableCopyright</key>

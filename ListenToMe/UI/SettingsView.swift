@@ -62,6 +62,10 @@ struct SettingsView: View {
     @ObservedObject private var llmManager = LLMModelManager.shared
     @ObservedObject private var parakeet = ParakeetEngine.shared
     @State private var parakeetVocabBoost: Bool = Preferences.shared.parakeetVocabBoost
+    @State private var outputDestination: OutputDestination = Preferences.shared.outputDestination
+    @State private var noteMode: NoteMode = Preferences.shared.noteMode
+    @State private var noteTitleDraft: String = Preferences.shared.noteTitle
+    @State private var noteFolderDraft: String = Preferences.shared.noteFolder
 
     /// Which downloaded model the user has asked to delete. Non-nil drives the
     /// confirmation dialog; deletion only runs once they confirm.
@@ -146,6 +150,10 @@ struct SettingsView: View {
             voiceCommandsEnabled = Preferences.shared.voiceCommandsEnabled
             transcriptionEngine = Preferences.shared.transcriptionEngine
             parakeetVocabBoost = Preferences.shared.parakeetVocabBoost
+            outputDestination = Preferences.shared.outputDestination
+            noteMode = Preferences.shared.noteMode
+            noteTitleDraft = Preferences.shared.noteTitle
+            noteFolderDraft = Preferences.shared.noteFolder
             streamingPartialsEnabled = Preferences.shared.streamingPartialsEnabled
             selectedWhisperModel = Preferences.shared.selectedWhisperModel
             transcriptionAccuracy = Preferences.shared.transcriptionAccuracy
@@ -357,6 +365,8 @@ struct SettingsView: View {
                 }
             }
 
+            outputSection
+
             section(title: "AI Cleanup") {
                 row(label: "Mode",
                     description: "When the polish pass runs after transcription.") {
@@ -543,6 +553,68 @@ struct SettingsView: View {
             }
             .animation(Motion.tabFade, value: transcriptionEngine)
         }
+    }
+
+    /// Where finished dictations land. Apple Notes reveals mode/title/folder
+    /// controls and an Automation-permission note.
+    private var outputSection: some View {
+        section(title: "Output") {
+            row(label: "Destination",
+                description: "Where dictated text goes when you finish speaking.") {
+                Picker("", selection: $outputDestination) {
+                    ForEach(OutputDestination.allCases, id: \.self) { dest in
+                        Text(dest.label).tag(dest)
+                    }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .frame(width: DT.controlPickerWidth)
+                .onChange(of: outputDestination) { _, new in
+                    Preferences.shared.outputDestination = new
+                }
+            }
+            if outputDestination == .appleNotes {
+                row(label: "Note mode",
+                    description: "Append to one note, start a new note each time, or keep a daily note.") {
+                    Picker("", selection: $noteMode) {
+                        ForEach(NoteMode.allCases, id: \.self) { mode in
+                            Text(mode.label).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .frame(width: DT.controlPickerWidth)
+                    .onChange(of: noteMode) { _, new in
+                        Preferences.shared.noteMode = new
+                    }
+                }
+                if noteMode == .appendToDefault {
+                    row(label: "Note name",
+                        description: "The note your dictations are appended to.") {
+                        TextField("ListenToMe", text: $noteTitleDraft)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 220)
+                            .onChange(of: noteTitleDraft) { _, new in Preferences.shared.noteTitle = new }
+                            .onSubmit { Preferences.shared.noteTitle = noteTitleDraft }
+                    }
+                    .hoverableRow()
+                }
+                row(label: "Folder",
+                    description: "Apple Notes folder to write into. Created if it doesn't exist.") {
+                    TextField("ListenToMe", text: $noteFolderDraft)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 220)
+                        .onChange(of: noteFolderDraft) { _, new in Preferences.shared.noteFolder = new }
+                        .onSubmit { Preferences.shared.noteFolder = noteFolderDraft }
+                }
+                .hoverableRow()
+                row(label: "Permission",
+                    description: "Writing to Notes asks macOS once to let ListenToMe control Notes. Nothing leaves your Mac.") {
+                    EmptyView()
+                }
+            }
+        }
+        .animation(Motion.tabFade, value: outputDestination)
     }
 
     /// On-Device Polish — lives on the Dictation tab next to AI Cleanup

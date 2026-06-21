@@ -45,6 +45,10 @@ CLAUDE.local.md
 GEMINI.md
 AGENTS.md
 
+# Internal planning / working docs — local-only, not for the public repo
+docs/plans/
+docs/superpowers/
+
 # Editor / IDE
 .idea/
 .vscode/

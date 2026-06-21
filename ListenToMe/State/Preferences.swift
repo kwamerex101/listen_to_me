@@ -85,6 +85,38 @@ enum AppearanceMode: String, CaseIterable {
     }
 }
 
+/// Where a finished dictation is delivered. `.activeApp` (default) keeps the
+/// existing paste-tracked → cleanup → replace pipeline. `.appleNotes` routes
+/// the cleaned text into Apple Notes via NotesWriter instead of pasting.
+enum OutputDestination: String, CaseIterable {
+    case activeApp
+    case clipboard
+    case appleNotes
+
+    var label: String {
+        switch self {
+        case .activeApp:  return "Active app (paste)"
+        case .clipboard:  return "Clipboard (copy only)"
+        case .appleNotes: return "Apple Notes"
+        }
+    }
+}
+
+/// How a dictation lands when the destination is Apple Notes.
+enum NoteMode: String, CaseIterable {
+    case appendToDefault   // append to one running note (noteTitle)
+    case newEachTime       // create a fresh note per dictation
+    case dailyNote         // append to a note titled with today's date
+
+    var label: String {
+        switch self {
+        case .appendToDefault: return "Append to one note"
+        case .newEachTime:     return "New note each time"
+        case .dailyNote:       return "Append to a daily note"
+        }
+    }
+}
+
 /// User preferences persisted in UserDefaults.
 final class Preferences {
     static let shared = Preferences()
@@ -117,6 +149,11 @@ final class Preferences {
     private let kLLMBackend = "wf.llmBackend"
     private let kSelectedLocalLLMModel = "wf.selectedLocalLLMModel"
     private let kCleanupIntensity = "wf.cleanupIntensity"
+    private let kOutputDestination = "wf.outputDestination"
+    private let kNoteMode = "wf.noteMode"
+    private let kNoteTitle = "wf.noteTitle"
+    private let kNoteFolder = "wf.noteFolder"
+    private let kHasCompletedOnboarding = "wf.hasCompletedOnboarding"
 
     /// Keychain account names (bundled here so call sites don't sprout
     /// stringly-typed names of their own).
@@ -376,6 +413,50 @@ final class Preferences {
             return CleanupIntensity(rawValue: raw) ?? .light
         }
         set { defaults.set(newValue.rawValue, forKey: kCleanupIntensity) }
+    }
+
+    // MARK: - Output destination (where dictations land)
+
+    var outputDestination: OutputDestination {
+        get {
+            let raw = defaults.string(forKey: kOutputDestination) ?? OutputDestination.activeApp.rawValue
+            return OutputDestination(rawValue: raw) ?? .activeApp
+        }
+        set { defaults.set(newValue.rawValue, forKey: kOutputDestination) }
+    }
+
+    var noteMode: NoteMode {
+        get {
+            let raw = defaults.string(forKey: kNoteMode) ?? NoteMode.appendToDefault.rawValue
+            return NoteMode(rawValue: raw) ?? .appendToDefault
+        }
+        set { defaults.set(newValue.rawValue, forKey: kNoteMode) }
+    }
+
+    /// Title of the running/default note (used by .appendToDefault). Falls back
+    /// to "ListenToMe" when unset or blanked.
+    var noteTitle: String {
+        get {
+            let v = defaults.string(forKey: kNoteTitle) ?? ""
+            return v.isEmpty ? "ListenToMe" : v
+        }
+        set { defaults.set(newValue, forKey: kNoteTitle) }
+    }
+
+    /// Notes folder the app writes into. Defaults to "ListenToMe" (created on
+    /// first write if absent).
+    var noteFolder: String {
+        get {
+            let v = defaults.string(forKey: kNoteFolder) ?? ""
+            return v.isEmpty ? "ListenToMe" : v
+        }
+        set { defaults.set(newValue, forKey: kNoteFolder) }
+    }
+
+    /// True once the user has finished (or skipped) the first-run onboarding.
+    var hasCompletedOnboarding: Bool {
+        get { defaults.bool(forKey: kHasCompletedOnboarding) }
+        set { defaults.set(newValue, forKey: kHasCompletedOnboarding) }
     }
 
     // MARK: - On-device LLM (text polish)
