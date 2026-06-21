@@ -15,6 +15,7 @@ struct HistoryView: View {
     /// the user scrolls so a large history isn't all built into the view
     /// tree at once. Reset to one page whenever the filter changes.
     @State private var visibleCount = Self.pageSize
+    @State private var showClearConfirm = false
 
     private static let pageSize = 50
 
@@ -61,6 +62,18 @@ struct HistoryView: View {
         // few records would still report a stale large visibleCount.
         .onChange(of: query) { _, _ in visibleCount = Self.pageSize }
         .onChange(of: appFilter) { _, _ in visibleCount = Self.pageSize }
+        .confirmationDialog(
+            "Clear all history?",
+            isPresented: $showClearConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Clear all", role: .destructive) {
+                HistoryStore.shared.clearAll()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This permanently deletes every dictation record. This can't be undone.")
+        }
     }
 
     /// Bottom sentinel: auto-loads the next page when it scrolls into view
@@ -169,6 +182,17 @@ struct HistoryView: View {
             Text("\(matchCount) of \(total)")
                 .font(DT.monoCaption)
                 .foregroundStyle(.tertiary)
+
+            if total > 0 {
+                Button {
+                    showClearConfirm = true
+                } label: {
+                    Text("Clear all")
+                        .font(DT.captionStrong)
+                        .foregroundStyle(DT.statusError)
+                }
+                .buttonStyle(.pressable)
+            }
         }
         .animation(Motion.tabFade, value: query.isEmpty)
     }

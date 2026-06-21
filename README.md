@@ -71,10 +71,11 @@ VoiceOver reads each phase aloud; reduce-motion suppresses the idle breath anima
 - NDJSON-based history with O(1) append. Paginated/infinite-scroll History view.
 - Configurable retention: 0–365 days (default 90; 0 = never purge). Purge applies immediately.
 - Optional AES-GCM encryption at rest — 256-bit key stored in the macOS Keychain, applied per line. The Keychain is never touched unless you enable encryption in Settings → Privacy (lazy key creation added in v0.15.0).
+- **Clear all history** — clear your entire history in one click from the History page (with confirm).
 
 ### First-run onboarding
 
-A five-screen walkthrough on first launch: practice dictation, speech-model download (Whisper Base downloads in the background), permissions, hotkey and microphone, and output destination. Each screen is skippable.
+A five-step walkthrough on first launch: welcome → voice-engine download (Whisper Base in the background) → permissions (update live as you grant them) → hotkey and microphone → a live practice screen where you try a real dictation before finishing. All motion respects Reduce Motion. Output-destination setup is in Settings, not onboarding, to keep first-run simple.
 
 ### Other
 
@@ -137,7 +138,7 @@ The app is **not sandboxed** by design — sandboxing blocks `CGEvent.post(tap: 
 1. Download `ListenToMe.dmg` from the [Releases](../../releases) page.
 2. Open the DMG and drag `ListenToMe.app` to `/Applications`.
 3. **Launch it.** Official release DMGs are signed with **Developer ID** and **notarized by Apple**, so they open with a normal double-click — no Gatekeeper warning.
-4. The five-screen onboarding walkthrough appears. Follow the prompts to grant Accessibility permission and download the Whisper Base model.
+4. The onboarding walkthrough appears. Follow the five steps to grant permissions and download the Whisper Base model — the live practice screen at the end lets you try a dictation before finishing setup.
 
 > **Note:** Only locally built / ad-hoc DMGs are unsigned. For those, macOS Gatekeeper requires a one-time right-click the app → **Open**. Notarized release downloads do not need this.
 
