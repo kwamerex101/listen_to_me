@@ -14,6 +14,23 @@ Privacy-first, fully on-device dictation for macOS — speak into any app, relea
 
 ## Features
 
+At a glance:
+
+- **On-device transcription** with Whisper (warm server or in-process) or Parakeet on the Apple Neural Engine.
+- **Optional on-device cleanup** with a local Gemma model. Cloud Claude is strictly opt-in.
+- **Flexible output**: paste into the active app, copy to the clipboard, or save to Apple Notes (three modes).
+- **Smart text post-processing**: custom dictionary and casing, repeated-word collapse, spoken operators, auto-promoted corrections.
+- **Dictation history** that is searchable, retention-controlled, optionally encrypted at rest, and clearable in one click.
+- **Personalized Home** with a greeting by name and today's stats.
+- **Guided first-run onboarding** that ends with a live practice dictation.
+- **Floating pill UI** that shows dictation state at a glance and drags anywhere.
+- **Private by default**: nothing leaves your Mac unless you opt in, plus a one-click in-app uninstall.
+- **Configurable**: hotkey presets, microphone selection, opt-in voice commands, and an in-app engine A/B benchmark.
+
+Full details below.
+
+---
+
 ### Transcription engines
 
 - **Whisper server (default)** — bundled `whisper-server` binary keeps the model warm between dictations. First dictation loads the model (~1–8 s on a cold cache); every subsequent one is HTTP-only. Falls back to `whisper-cli` on error.
