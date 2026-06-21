@@ -75,13 +75,18 @@ VoiceOver reads each phase aloud; reduce-motion suppresses the idle breath anima
 
 ### First-run onboarding
 
-A five-step walkthrough on first launch: welcome → voice-engine download (Whisper Base in the background) → permissions (update live as you grant them) → hotkey and microphone → a live practice screen where you try a real dictation before finishing. All motion respects Reduce Motion. Output-destination setup is in Settings, not onboarding, to keep first-run simple.
+A five-step walkthrough on first launch: welcome (where you can set your name) → voice-engine download (Whisper Base in the background) → permissions (update live as you grant them) → hotkey and microphone → a live practice screen where you try a real dictation before finishing. All motion respects Reduce Motion. Output-destination setup is in Settings, not onboarding, to keep first-run simple.
+
+### Personalized Home screen
+
+The top card on the Home screen greets you by name, shows your configured hotkey, includes a one-tap **Dictate now** button, and displays today's word count — all at a glance. Set your name during onboarding or anytime in Settings → General.
 
 ### Other
 
 - **Menu bar icon** — open the main window (⌘,) or quit from the menu bar.
 - **Launch at login** — managed via `SMAppService`.
 - **Configurable hotkey** — default Fn+⌘. Alternatives: Fn+⌥, ⌃+⌘, ⌃+⌥.
+- **Set your name** (onboarding or Settings → General) for a personalized Home greeting.
 - **Context-aware tone (opt-in, default off)** — reads the active browser tab URL to infer cleanup tone. Requires granting Apple Events access to the browser.
 - **Voice commands (opt-in, default off)** — `open`, `shell`, and `log to today` commands.
 - **In-app A/B benchmark** — read-aloud cards scoring WER + latency for Whisper vs Parakeet (Settings → Models → Engine Benchmark).
