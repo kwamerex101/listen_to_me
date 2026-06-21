@@ -97,7 +97,9 @@ else
 fi
 
 echo "==> Verifying signature..."
-codesign -dv "$APP_PATH" 2>&1 | head -5
+# `| head` would SIGPIPE codesign under `set -o pipefail` and abort the run;
+# sed consumes the whole stream, and `|| true` keeps this purely informational.
+codesign -dv "$APP_PATH" 2>&1 | sed -n '1,5p' || true
 
 # ---- Package DMG -------------------------------------------------------------
 echo "==> Creating DMG..."
