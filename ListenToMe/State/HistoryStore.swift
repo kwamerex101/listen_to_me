@@ -97,6 +97,17 @@ final class HistoryStore: ObservableObject {
         save()
     }
 
+    /// Wipe every record from memory and truncate the on-disk NDJSON file.
+    /// Cancels any pending debounced save so the empty state is written
+    /// immediately via an atomic zero-byte write rather than a stale
+    /// snapshot winning the race.
+    func clearAll() {
+        saveTask?.cancel()
+        saveTask = nil
+        records = []
+        Self.writeAll([], to: url)
+    }
+
     func add(rawText: String, finalText: String, durationMs: Int,
              dismissed: Bool = false, bundleId: String? = nil) {
         let r = TranscriptRecord(
