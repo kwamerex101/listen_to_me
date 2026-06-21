@@ -88,9 +88,14 @@ enum VoiceEditor {
     /// Words that are legitimately or emphatically doubled in normal speech —
     /// never collapsed. Everything else, when immediately repeated, is treated
     /// as a stutter ("the the" / "detector detector" / "and and").
+    ///
+    /// "plus" is here because "plus plus" is the meaningful C++ idiom: Phase 6
+    /// rewrites "c plus plus" → "C++". Without this guard, Phase 0 collapses
+    /// "plus plus" → "plus" first, so Phase 6 never matches (the C++ idiom
+    /// regressed when stutter-collapse landed).
     private static let repeatPreserve: Set<String> = [
         "had", "that", "very", "really", "so", "no", "night",
-        "bye", "yeah", "ha", "mm", "hmm", "blah",
+        "bye", "yeah", "ha", "mm", "hmm", "blah", "plus",
     ]
 
     /// Collapse an immediately-repeated word (case-insensitive, space-separated
