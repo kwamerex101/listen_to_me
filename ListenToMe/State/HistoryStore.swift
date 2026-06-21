@@ -61,18 +61,9 @@ final class HistoryStore: ObservableObject {
     /// every dictation; NDJSON lets `add(...)` do a constant-time
     /// single-line append. Legacy `history.json` is migrated on first
     /// load and renamed `.json.bak` once.
-    private let url: URL = {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let dir = base.appendingPathComponent("ListenToMe", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("history.ndjson")
-    }()
+    private let url: URL
 
-    private let legacyURL: URL = {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let dir = base.appendingPathComponent("ListenToMe", isDirectory: true)
-        return dir.appendingPathComponent("history.json")
-    }()
+    private let legacyURL: URL
 
     /// JSONEncoder / JSONDecoder are not Sendable, so we can't share a
     /// single instance across the off-main detached tasks under Swift
@@ -90,7 +81,23 @@ final class HistoryStore: ObservableObject {
         return d
     }
 
-    private init() { load() }
+    private init() {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let dir = base.appendingPathComponent("ListenToMe", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        self.url = dir.appendingPathComponent("history.ndjson")
+        self.legacyURL = dir.appendingPathComponent("history.json")
+        load()
+    }
+
+    /// Test-only: build an isolated store backed by `url` instead of the
+    /// shared Application Support file. Never used in app code.
+    internal init(url: URL) {
+        self.url = url
+        self.legacyURL = url.deletingLastPathComponent()
+            .appendingPathComponent("history-legacy-\(UUID().uuidString).json")
+        load()
+    }
 
     func remove(id: UUID) {
         records.removeAll { $0.id == id }
@@ -105,7 +112,10 @@ final class HistoryStore: ObservableObject {
         saveTask?.cancel()
         saveTask = nil
         records = []
-        Self.writeAll([], to: url)
+        let key: SymmetricKey? = Preferences.shared.historyEncryptionEnabled
+            ? (try? HistoryCipher.keyOrCreate())
+            : nil
+        Self.writeAll([], to: url, key: key)
     }
 
     func add(rawText: String, finalText: String, durationMs: Int,

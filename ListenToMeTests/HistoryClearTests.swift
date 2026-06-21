@@ -63,20 +63,27 @@ final class HistoryClearTests: XCTestCase {
         XCTAssertEqual(restored.map(\.id), fresh.map(\.id))
     }
 
-    // MARK: - Singleton clearAll() wipes in-memory records
+    // MARK: - Injected store: clearAll() wipes in-memory records + truncates temp file
 
-    func test_clearAll_empties_singleton_records() async throws {
-        // Note: this mutates the live singleton, which writes to the real
-        // Application Support history file. We call clearAll() and verify
-        // the @Published records array reaches [] — we do NOT restore
-        // previous state, because the singleton was already loaded with
-        // whatever the current user's history contains. Acceptable for a
-        // dev/CI environment where the user's real history is ephemeral.
+    func test_clearAll_empties_injected_store() async throws {
+        // Seed the temp file with NDJSON records so the store loads them.
+        let records = makeRecords(count: 3)
+        HistoryStore.writeAll(records, to: tmpURL)
+
+        // Build an isolated store backed by the temp URL — never touches
+        // HistoryStore.shared or ~/Library/Application Support/ListenToMe/.
+        let store = await MainActor.run { HistoryStore(url: tmpURL) }
+
         await MainActor.run {
-            HistoryStore.shared.clearAll()
-            XCTAssertTrue(HistoryStore.shared.records.isEmpty,
+            XCTAssertEqual(store.records.count, 3, "precondition: store loaded seeded records")
+            store.clearAll()
+            XCTAssertTrue(store.records.isEmpty,
                           "clearAll() must empty the in-memory records array")
         }
+
+        // On-disk file must also be empty (zero bytes or no records).
+        let after = try Data(contentsOf: tmpURL)
+        XCTAssertEqual(after.count, 0, "clearAll() must truncate the backing file to zero bytes")
     }
 
     // MARK: - Helpers
