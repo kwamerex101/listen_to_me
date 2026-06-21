@@ -186,7 +186,14 @@ open ListenToMe.xcodeproj
 # Outputs: dist/ListenToMe.dmg
 ```
 
-`release.sh` runs `xcodegen generate`, builds a Release configuration with `CODE_SIGN_IDENTITY="-"` (ad-hoc), and packages a DMG with `hdiutil`. To get a stable signing identity so macOS TCC remembers your permission grants between launches, run `scripts/resign-stable.sh` after building — it re-signs with Developer ID Application (or Apple Development) if one is in your keychain.
+`release.sh` runs `xcodegen generate`, builds the Release configuration, and packages a DMG with `hdiutil`. It auto-detects signing: if a **Developer ID Application** cert is in your keychain it deep-signs (hardened runtime + secure timestamp) and, when a `notarytool` keychain profile named `ListenToMe` exists, **notarizes and staples** the DMG so it installs with a normal double-click. Without a Developer ID cert it falls back to ad-hoc / `scripts/resign-stable.sh` (Gatekeeper then needs a one-time right-click → **Open**). Override the identity with `SIGN_IDENTITY=…`, or Developer-ID-sign without notarizing via `SKIP_NOTARIZE=1`.
+
+Set up notarization once:
+
+```bash
+xcrun notarytool store-credentials ListenToMe \
+  --apple-id <you> --team-id <TEAMID> --password <app-specific-password>
+```
 
 ### First launch after a local build
 
@@ -234,7 +241,7 @@ xcodebuild test \
   -destination 'platform=macOS'
 ```
 
-The suite has ~276 tests (VoiceEditor post-processing, NotesWriter AppleScript helpers, HistoryStore, dictionary casing, output routing, and more). One known-failing test (`VoiceEditorTests.test_plus_cPlusPlusIdiom`) predates v0.15.0 and is unrelated to dictation output.
+The suite has ~280 tests (VoiceEditor post-processing, NotesWriter AppleScript helpers, HistoryStore, dictionary casing, output routing, uninstall plan, and more) — all passing.
 
 ---
 
