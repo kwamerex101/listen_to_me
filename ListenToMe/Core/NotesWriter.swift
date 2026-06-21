@@ -93,4 +93,61 @@ enum NotesWriter {
         end tell
         """
     }
+
+    // MARK: - Executor (talks to Notes.app — NOT unit-tested)
+
+    enum NotesError: Error {
+        case scriptError(String)
+        case timedOut
+    }
+
+    /// Resolve the target title + script for the mode, then run it with a 5s
+    /// timeout off the main thread. Returns .success on a clean run.
+    ///
+    /// SIDE EFFECT: sends Apple Events to Notes — triggers the Automation TCC
+    /// prompt on first use. Callers MUST only invoke this when the user chose
+    /// an Apple Notes destination.
+    @discardableResult
+    static func write(text: String, mode: NoteMode,
+                      folder: String, defaultTitle: String) -> Result<Void, NotesError> {
+        let dateFmt = DateFormatter()
+        dateFmt.dateFormat = "yyyy-MM-dd"
+        let timeFmt = DateFormatter()
+        timeFmt.dateFormat = "HH:mm"
+        let now = Date()
+
+        let title = noteTitle(mode: mode, defaultTitle: defaultTitle,
+                              text: text, dateString: dateFmt.string(from: now))
+        let body = bodyParagraph(timestamp: timeFmt.string(from: now), text: text)
+
+        // newEachTime always creates; the append modes append (self-healing).
+        let source = (mode == .newEachTime)
+            ? createScript(folder: folder, title: title, bodyHTML: body)
+            : appendScript(folder: folder, title: title, bodyHTML: body)
+
+        let sem = DispatchSemaphore(value: 0)
+        var runResult: Result<Void, NotesError> = .failure(.timedOut)
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            var errInfo: NSDictionary?
+            if let osa = NSAppleScript(source: source) {
+                _ = osa.executeAndReturnError(&errInfo)
+                if let errInfo, let msg = errInfo[NSAppleScript.errorMessage] as? String {
+                    runResult = .failure(.scriptError(msg))
+                } else if errInfo != nil {
+                    runResult = .failure(.scriptError("unknown AppleScript error"))
+                } else {
+                    runResult = .success(())
+                }
+            } else {
+                runResult = .failure(.scriptError("failed to compile AppleScript"))
+            }
+            sem.signal()
+        }
+
+        if sem.wait(timeout: .now() + 5.0) == .timedOut {
+            return .failure(.timedOut)
+        }
+        return runResult
+    }
 }
