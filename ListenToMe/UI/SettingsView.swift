@@ -70,6 +70,8 @@ struct SettingsView: View {
     /// Which downloaded model the user has asked to delete. Non-nil drives the
     /// confirmation dialog; deletion only runs once they confirm.
     @State private var pendingDelete: DeletableModel?
+    @State private var showUninstallSheet = false
+    @State private var uninstallIncludesDailyNotes = false
 
     /// The on-disk models a user can reclaim space from.
     private enum DeletableModel: String, Identifiable {
@@ -764,7 +766,47 @@ struct SettingsView: View {
                 BenchmarkSection()
                     .padding(.vertical, DT.space3)
             }
+
+            section(title: "Remove ListenToMe") {
+                row(label: "Uninstall & delete all data",
+                    description: "Removes downloaded models, history, dictionary, settings, and stored keys, and moves the app to the Trash.") {
+                    Button("Remove…") { showUninstallSheet = true }
+                        .buttonStyle(.pressable)
+                        .foregroundStyle(DT.statusError)
+                }
+                .hoverableRow()
+            }
         }
+        .sheet(isPresented: $showUninstallSheet) { uninstallSheet }
+    }
+
+    // MARK: - Uninstall sheet
+
+    private var uninstallSheet: some View {
+        VStack(alignment: .leading, spacing: DT.space4) {
+            Text("Remove ListenToMe?")
+                .font(.system(size: 17, weight: .semibold))
+            Text("This permanently deletes all downloaded models, your dictation history, your custom dictionary, settings, and the API/encryption keys stored in your Keychain. The app is moved to the Trash. This cannot be undone (history is not recoverable).")
+                .font(.system(size: 13)).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Toggle("Also delete my daily notes (~/Documents/daily)", isOn: $uninstallIncludesDailyNotes)
+                .font(.system(size: 13))
+            Text("macOS permission grants (Microphone, Accessibility, Automation) can't be removed automatically — we'll open System Settings so you can clear them.")
+                .font(.system(size: 12)).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Spacer()
+                Button("Cancel") { showUninstallSheet = false }
+                Button("Remove everything") {
+                    showUninstallSheet = false
+                    Uninstaller.performUninstall(includeDailyNotes: uninstallIncludesDailyNotes)
+                }
+                .keyboardShortcut(.defaultAction)
+                .foregroundStyle(DT.statusError)
+            }
+        }
+        .padding(20)
+        .frame(width: 440)
     }
 
     // MARK: - About
