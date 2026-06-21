@@ -10,13 +10,13 @@ struct OnboardingView: View {
     private let stepCount = 5
 
     @ObservedObject private var modelManager = WhisperModelManager.shared
+    @ObservedObject private var appState = AppState.shared
 
     // Live config the user can set inline.
     @State private var hotkey: HotkeyBinding = Preferences.shared.hotkeyBinding
     @State private var inputDeviceUID: String = Preferences.shared.inputDeviceUID ?? ""
     @State private var availableInputs: [AudioInputDevice] = []
     @State private var accessibilityGranted = HotkeyMonitor.isAccessibilityGranted()
-    @State private var micGranted = AppState.shared.micGranted
     @State private var outputDestination: OutputDestination = Preferences.shared.outputDestination
     @State private var noteMode: NoteMode = Preferences.shared.noteMode
 
@@ -32,7 +32,6 @@ struct OnboardingView: View {
         .onAppear {
             availableInputs = AudioInputDevices.available()
             accessibilityGranted = HotkeyMonitor.isAccessibilityGranted()
-            micGranted = AppState.shared.micGranted
             modelManager.refreshStatus()
         }
     }
@@ -123,8 +122,12 @@ struct OnboardingView: View {
             permissionRow(
                 title: "Microphone",
                 detail: "Lets ListenToMe capture your voice for transcription.",
-                granted: micGranted,
-                action: nil)
+                granted: appState.micGranted,
+                action: appState.micGranted ? nil : {
+                    if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
+                        NSWorkspace.shared.open(url)
+                    }
+                })
             permissionRow(
                 title: "Accessibility",
                 detail: "Lets ListenToMe paste into the focused app. Without it, text is copied to your clipboard.",

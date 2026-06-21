@@ -32,6 +32,13 @@ final class OnboardingWindow: NSPanel {
     func present(onFinish: @escaping () -> Void) {
         self.onFinish = onFinish
 
+        // Guard: if already presented, just bring it forward without rebuilding.
+        if contentView != nil && isVisible {
+            NSApp.activate(ignoringOtherApps: true)
+            makeKeyAndOrderFront(nil)
+            return
+        }
+
         let view = OnboardingView(
             onFinish: { [weak self] in
                 self?.onFinish?()
