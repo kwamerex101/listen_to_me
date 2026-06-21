@@ -48,9 +48,9 @@
 | R2 | Version → 0.15.0 / build 37 + CHANGELOG | ✅ complete (63b1223) |
 | R3 | README full rewrite | ✅ complete (9765911 + fixes 0a547a3) |
 | R4 | release.sh — Developer ID + notarization support | ✅ complete (df8d899) |
-| R5 | GitHub About (description + topics) | 🟡 in progress |
-| R6 | Open PR | 🟡 in progress |
-| R7 | Notarized DMG + tag v0.15.0 + GitHub release | ⛔ blocked — needs Developer ID cert on this machine |
+| R5 | GitHub About (description + topics) | ✅ complete |
+| R6 | Open PR | ✅ complete — [#65](https://github.com/kwamerex101/listen_to_me/pull/65) |
+| R7 | Notarized DMG + tag v0.15.0 + GitHub release | ⛔ blocked — needs Developer ID Application cert on this machine (only Apple Development certs installed) |
 
 Decisions: version 0.15.0/37; signing = Developer ID (cert not yet on machine → R7 blocked); About = "Private, fully on-device dictation for macOS. Nothing leaves your machine."
 
