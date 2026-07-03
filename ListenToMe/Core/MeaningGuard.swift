@@ -67,6 +67,17 @@ enum MeaningGuard {
         // surface checks already had their say).
         if CleanupMetrics.contentWords(original).isEmpty { return .accept }
 
+        // Interrogative preservation: a cleanup must not turn a question into
+        // a statement. When the original ends with '?' the candidate must too
+        // — otherwise the intent (a question/request) was silently inverted,
+        // a failure the content-word metrics below can't see because nearly
+        // every word survives (observed live: "Can we get X?" → "I can get X.").
+        let originalTrimmed = original.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanedTrimmed = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+        if originalTrimmed.hasSuffix("?") && !cleanedTrimmed.hasSuffix("?") {
+            return .reject(reason: "interrogative flattened to declarative")
+        }
+
         let recall = CleanupMetrics.contentWordRecall(candidate: cleaned, reference: original)
         if recall < t.minRecall {
             return .reject(reason: "recall \(fmt(recall)) < \(fmt(t.minRecall))")
