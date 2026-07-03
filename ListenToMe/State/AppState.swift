@@ -13,6 +13,10 @@ enum Phase: Equatable {
     case polishing(rawPreview: String)
     case success(preview: String)
     case error(message: String)
+    /// Recording captured no speech — silence, or only non-speech markers
+    /// like "[BLANK_AUDIO]". Distinct from `.error` so the pill shows a calm,
+    /// non-alarming cue and nothing is pasted.
+    case noSpeech
     /// Inline correction popover is open — user is editing the just-pasted
     /// text. Pill goes neutral; the actual UI lives in `CorrectionWindow`.
     case correcting

@@ -161,7 +161,7 @@ struct PillView: View {
             // Only exhale if we're returning from a meaningful phase, not on
             // app launch (where pill starts in idle).
             triggerExhale()
-        case .transcribing, .cleaning, .polishing, .correcting, .suggestion:
+        case .transcribing, .cleaning, .polishing, .correcting, .suggestion, .noSpeech:
             cancelExhale()
         }
     }
@@ -380,6 +380,7 @@ struct PillView: View {
         case .polishing:    return "ListenToMe — polishing transcript"
         case .success:      return "ListenToMe — success"
         case .error(let m): return "ListenToMe — error: \(m)"
+        case .noSpeech:     return "ListenToMe — no speech detected"
         case .correcting:   return "ListenToMe — editing transcript"
         case .suggestion:   return "ListenToMe — style suggestion available"
         }
@@ -462,6 +463,7 @@ struct PillView: View {
         case .error: return 5
         case .correcting: return 7
         case .suggestion: return 8
+        case .noSpeech: return 9
         }
     }
 
@@ -606,6 +608,19 @@ struct PillView: View {
                     .foregroundStyle(.white.opacity(0.92))
                     .lineLimit(1)
                     .truncationMode(.tail)
+                Spacer(minLength: 0)
+            }
+
+        case .noSpeech:
+            // Calm, non-alarming cue — no orange/red, no shake. Blank audio
+            // isn't a failure, just nothing to paste.
+            HStack(spacing: 10) {
+                Image(systemName: "waveform.slash")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.white.opacity(0.55))
+                Text("No speech")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.6))
                 Spacer(minLength: 0)
             }
 

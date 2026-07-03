@@ -42,6 +42,7 @@ enum PillMetrics {
         case .polishing:    return 200
         case .success:      return 60
         case .error:        return 280
+        case .noSpeech:     return 150
         case .correcting:   return 48
         case .suggestion:   return 400
         }
