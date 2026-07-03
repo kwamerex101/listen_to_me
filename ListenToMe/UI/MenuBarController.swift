@@ -129,6 +129,7 @@ final class MenuBarController {
         case .polishing: statusLabel?.title = "ListenToMe — Polishing"
         case .success: statusLabel?.title = "ListenToMe — Done"
         case .error(let m): statusLabel?.title = "ListenToMe — Error: \(m)"
+        case .noSpeech: statusLabel?.title = "ListenToMe — No speech"
         case .correcting: statusLabel?.title = "ListenToMe — Correcting"
         case .suggestion(_, let tone): statusLabel?.title = "ListenToMe — Suggesting \(tone.displayLabel) tone"
         }

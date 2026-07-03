@@ -359,8 +359,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // the literal marker into the target app and History.
                 let raw = TranscriptHygiene.stripNonSpeechMarkers(transcribed)
                 if raw.isEmpty {
-                    state.phase = .error(message: "Empty transcript")
-                    autoReset()
+                    // Silence or a pure non-speech marker: paste nothing and
+                    // show a calm cue rather than a red error — this wasn't a
+                    // failure, there was just nothing to type.
+                    PillWindow.shared.setInteractive(false)
+                    state.phase = .noSpeech
+                    autoReset(after: 0.8)
                     return
                 }
 
