@@ -239,9 +239,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func handlePress() {
         // Allow press from any non-recording phase. If a previous cleanup
-        // is still running we cancel it — its replace would target an old
-        // app/text and shouldn't execute. Also dismiss any open correction
-        // popover so the new dictation has a clean slate.
+        // is still running we cancel it — its deferred paste would land in an
+        // old app/context and shouldn't execute. Also dismiss any open
+        // correction popover so the new dictation has a clean slate.
         if case .recording = state.phase { return }
         cleanupTask?.cancel()
         cleanupTask = nil
@@ -311,15 +311,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             PillWindow.shared.setInteractive(false)
             state.phase = .idle
         case .polishing:
-            // Raw transcript is already pasted into the target app;
-            // cleanup task may still be running. Cancel it; the
-            // catch-CancellationError branch in startCleanupTask
-            // finalizes the pasteboard cleanly.
+            // Clean-first: cleanup is still running and nothing has been
+            // pasted yet. Cancel it; the task's CancellationError branch bails
+            // without pasting or recording, so the dictation is simply dropped.
             cleanupTask?.cancel()
             cleanupTask = nil
             PillWindow.shared.setInteractive(false)
-            state.phase = .success(preview: String(state.lastTranscript.prefix(30)))
-            autoReset(after: 1.0)
+            state.phase = .idle
+            autoReset(after: 0.6)
         default:
             return
         }
@@ -351,10 +350,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         transcribeTask?.cancel()
         transcribeTask = Task { @MainActor in
             do {
-                let raw = try await WhisperRunner.shared.transcribe(wav: wav, prompt: whisperPrompt)
+                let transcribed = try await WhisperRunner.shared.transcribe(wav: wav, prompt: whisperPrompt)
                 // User aborted via the cancel button while we were waiting
                 // on whisper — bail before mutating any pipeline state.
                 if Task.isCancelled { return }
+                // Drop engine-emitted non-speech markers ("[BLANK_AUDIO]" etc.)
+                // so a silent recording is treated as empty rather than pasting
+                // the literal marker into the target app and History.
+                let raw = TranscriptHygiene.stripNonSpeechMarkers(transcribed)
                 if raw.isEmpty {
                     state.phase = .error(message: "Empty transcript")
                     autoReset()
@@ -477,19 +480,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                                   words: words, durMs: durMs)
 
                 case .activeApp:
-                    // Streaming preview: paste the raw transcript NOW so the
-                    // user sees text within ~1.5s of release. Cleanup runs in
-                    // the background and may swap in a polished version.
+                    // Clean FIRST, then paste exactly once. The old flow pasted
+                    // the raw transcript immediately and later swapped in the
+                    // polished version via Cmd+Z (undo) + Cmd+V — but in apps
+                    // where Cmd+Z isn't text-undo (terminals), the undo no-op'd
+                    // and the cleaned text landed *after* the raw, duplicating
+                    // the dictation. Pasting once, after cleanup, has nothing to
+                    // undo. Trade-off: text appears after cleanup rather than
+                    // streaming in raw first.
                     if CleanupGate.shouldClean(text: expanded, wordCount: words,
                                                mode: Preferences.shared.cleanupMode) {
-                        state.lastTranscript = expanded
-                        let token = Paster.pasteTracked(expanded)
-                        lastPasteToken = token
-                        Haptics.success()
-                        SoundCue.success()
+                        // Capture the focused app now for context-aware tone; we
+                        // paste into it once cleanup returns.
+                        let bundleId = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
                         state.phase = .polishing(rawPreview: String(expanded.prefix(40)))
                         PillWindow.shared.setInteractive(true)
-                        startCleanupTask(raw: raw, expanded: expanded, durMs: durMs, token: token)
+                        startCleanupTask(raw: raw, expanded: expanded,
+                                         durMs: durMs, bundleId: bundleId)
                     } else {
                         // No-cleanup mode: still paste-tracked so the user can
                         // open the correction popover; we just never call replace.
@@ -603,64 +610,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         autoReset(after: 2.0)
     }
 
-    /// Run cleanup in the background while the raw transcript already sits
-    /// in the user's target app. On success, swap the raw for the polished
-    /// version (subject to validation gates in `Paster.replace`). On any
-    /// failure we keep the raw and just record history.
+    /// Run cleanup, then paste the polished text into the focused app exactly
+    /// once. Nothing is pasted until cleanup returns, so there is no earlier
+    /// paste to undo — this replaces the old stream-raw-then-Cmd+Z-replace
+    /// flow, which duplicated text in apps where Cmd+Z isn't text-undo
+    /// (terminals). On cleanup failure the raw (`expanded`) is pasted instead.
+    /// Cancellation (new dictation / user bail) aborts before any paste.
     private func startCleanupTask(raw: String,
                                   expanded: String,
                                   durMs: Int,
-                                  token: PasteToken) {
+                                  bundleId: String?) {
         cleanupTask?.cancel()
         cleanupTask = Task { [weak self] in
+            var finalText = expanded
             do {
                 let timeout = TimeInterval(Preferences.shared.cleanupTimeoutSec)
-                let cleaned = try await ClaudeClient.shared.clean(
+                finalText = try await ClaudeClient.shared.clean(
                     expanded,
-                    bundleId: token.bundleId,
+                    bundleId: bundleId,
                     timeout: timeout
                 )
                 try Task.checkCancellation()
-                await MainActor.run {
-                    guard let self else { return }
-                    if let newToken = Paster.replace(with: cleaned, token: token) {
-                        // Successful replace — bookkeep the new token so the
-                        // correction popover sees the cleaned text.
-                        self.lastPasteToken = newToken
-                        self.state.lastTranscript = cleaned
-                        self.scheduleRetypeDetection(token: newToken)
-                        self.recordStyleSample(token: newToken, cleaned: cleaned)
-                        HistoryStore.shared.add(rawText: raw, finalText: cleaned,
-                                                 durationMs: durMs, bundleId: newToken.bundleId)
-                    } else {
-                        // Validation failed (focus changed, clipboard touched,
-                        // user opened the correction popover, etc.). Raw stays.
-                        self.state.lastTranscript = expanded
-                        HistoryStore.shared.add(rawText: raw, finalText: expanded,
-                                                 durationMs: durMs, bundleId: token.bundleId)
-                    }
-                    if self.isStillPolishing(token: token) {
-                        let preview = self.state.lastTranscript.prefix(30)
-                        self.state.phase = .success(preview: String(preview))
-                        self.autoReset(after: 3.0)
-                    }
-                }
             } catch is CancellationError {
-                // New dictation started OR user opened the correction popover.
-                // Leave raw in place; the new flow / correction will record
-                // its own history.
-                await MainActor.run { Paster.finalize(token: token) }
+                // New dictation started OR the user bailed. Nothing has been
+                // pasted yet, so there is nothing to undo or record.
+                return
             } catch {
                 NSLog("[ListenToMe] cleanup failed, raw stands: \(error)")
-                await MainActor.run {
-                    guard let self else { return }
-                    Paster.finalize(token: token)
-                    HistoryStore.shared.add(rawText: raw, finalText: expanded,
-                                             durationMs: durMs, bundleId: token.bundleId)
-                    if self.isStillPolishing(token: token) {
-                        self.state.phase = .success(preview: String(expanded.prefix(30)))
-                        self.autoReset(after: 3.0)
-                    }
+                finalText = expanded
+            }
+            await MainActor.run {
+                guard let self, !Task.isCancelled else { return }
+                let token = Paster.pasteTracked(finalText)
+                self.lastPasteToken = token
+                self.state.lastTranscript = finalText
+                self.scheduleRetypeDetection(token: token)
+                self.recordStyleSample(token: token, cleaned: finalText)
+                HistoryStore.shared.add(rawText: raw, finalText: finalText,
+                                         durationMs: durMs, bundleId: token.bundleId)
+                if self.isStillPolishing(token: token) {
+                    self.state.phase = .success(preview: String(finalText.prefix(30)))
+                    self.autoReset(after: 3.0)
                 }
             }
         }

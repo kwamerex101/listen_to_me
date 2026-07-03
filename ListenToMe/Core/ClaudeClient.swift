@@ -660,6 +660,16 @@ struct ClaudeClient {
             }
         }
 
+        // Strip stray chat-template control tokens. The on-device Gemma model
+        // occasionally emits its turn delimiter ("<end_of_turn>") — and, more
+        // rarely, the surrounding <bos>/<eos>/<start_of_turn> markers — into
+        // the response body instead of stopping cleanly. Cloud models never
+        // produce these, so removing them unconditionally is safe.
+        for token in ["<end_of_turn>", "<start_of_turn>", "<eos>", "<bos>"] {
+            text = text.replacingOccurrences(of: token, with: "")
+        }
+        text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+
         // Reject if starts with a known preamble — fall back to original
         let preambles = [
             "here is", "here's", "sure,", "sure!", "certainly", "of course",

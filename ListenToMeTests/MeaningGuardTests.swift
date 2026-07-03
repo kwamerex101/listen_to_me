@@ -46,6 +46,35 @@ final class MeaningGuardTests: XCTestCase {
         XCTAssertTrue(MeaningGuard.evaluate(cleaned: "anything", original: "   ").isAccept)
     }
 
+    // MARK: - Interrogative preservation
+
+    func test_rejects_question_flattened_to_statement() {
+        // Real failure from live data: a dictated question was silently
+        // rewritten into a declarative claim. Content words survive, so the
+        // recall/hallucination/length checks all pass — only the lost '?'
+        // reveals the inverted intent.
+        let d = MeaningGuard.evaluate(
+            cleaned: "I can get all three options in a tabulated form so we can compare and contrast.",
+            original: "Can we get all three options in a tabulated form, so we can compare and contrast?")
+        XCTAssertFalse(d.isAccept, "\(d)")
+    }
+
+    func test_accepts_question_that_stays_a_question() {
+        let d = MeaningGuard.evaluate(
+            cleaned: "Can we get all three options in a tabulated form?",
+            original: "can we get all three options in a tabulated form?")
+        XCTAssertTrue(d.isAccept, "\(d)")
+    }
+
+    func test_accepts_statement_that_stays_a_statement() {
+        // No question mark in the original → the interrogative guard must not
+        // fire; a normal declarative cleanup still passes.
+        let d = MeaningGuard.evaluate(
+            cleaned: "We ship Monday.",
+            original: "um we ship monday")
+        XCTAssertTrue(d.isAccept, "\(d)")
+    }
+
     func test_identical_text_accepts() {
         let d = MeaningGuard.evaluate(cleaned: "ship the report monday",
                                       original: "ship the report monday")

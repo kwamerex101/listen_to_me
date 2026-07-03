@@ -91,6 +91,29 @@ final class ClaudeClientSanitizeTests: XCTestCase {
         XCTAssertEqual(out, "Hello, world.")
     }
 
+    // MARK: - Gemma chat-template token leak
+
+    func test_strips_trailing_end_of_turn_token() {
+        // The on-device Gemma model sometimes emits its turn delimiter into
+        // the response body instead of stopping cleanly. It must never reach
+        // the pasted text or History.
+        let out = ClaudeClient.sanitize(
+            cleaned: "Hello world.<end_of_turn>", original: "hello world")
+        XCTAssertEqual(out, "Hello world.")
+    }
+
+    func test_strips_end_of_turn_token_with_whitespace() {
+        let out = ClaudeClient.sanitize(
+            cleaned: "Hello world.\n<end_of_turn>", original: "hello world")
+        XCTAssertEqual(out, "Hello world.")
+    }
+
+    func test_strips_start_of_turn_and_bos_eos_tokens() {
+        let out = ClaudeClient.sanitize(
+            cleaned: "<bos>Hello world.<eos>", original: "hello world")
+        XCTAssertEqual(out, "Hello world.")
+    }
+
     // MARK: - Empty rejection
 
     func test_empty_cleaned_returns_original() {
