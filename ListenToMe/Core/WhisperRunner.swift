@@ -55,9 +55,13 @@ struct WhisperRunner {
                 }
                 let (text, _) = try await ParakeetEngine.shared.transcribe(
                     samples: samples, biasTerms: biasTerms)
-                if text.isEmpty { throw WhisperError.noOutput }
                 try? FileManager.default.removeItem(at: wav)
-                return text
+                // A successful-but-empty result is SILENCE, not a failure —
+                // return it as "no speech" rather than cascading to whisper,
+                // which would only hallucinate "[BLANK_AUDIO]" on the same
+                // silence (and needlessly spawn whisper-server). Markers are
+                // stripped centrally so no engine ever surfaces one as text.
+                return TranscriptHygiene.stripNonSpeechMarkers(text)
             } catch {
                 NSLog("[ListenToMe] Parakeet failed (\(error)) — falling back to whisper CLI")
                 // fall through to whisper paths below
@@ -78,8 +82,9 @@ struct WhisperRunner {
                                                                   paragraphBreaks: true,
                                                                   beamSize: accuracy.beamSize)
                 try? FileManager.default.removeItem(at: wav)
-                if text.isEmpty { throw WhisperError.noOutput }
-                return text
+                // Empty = silence (see Parakeet note above): return "no speech"
+                // instead of cascading to the CLI, which hallucinates markers.
+                return TranscriptHygiene.stripNonSpeechMarkers(text)
             } catch {
                 NSLog("[ListenToMe] WhisperLib failed (\(error)) — falling back to CLI")
                 // Don't tear down the linked context — the model load
@@ -95,8 +100,9 @@ struct WhisperRunner {
                 do {
                     let text = try await server.transcribe(wav: wav, prompt: prompt)
                     try? FileManager.default.removeItem(at: wav)
-                    if text.isEmpty { throw WhisperError.noOutput }
-                    return text
+                    // Empty = silence (see Parakeet note above): return "no
+                    // speech" instead of cascading to the CLI marker path.
+                    return TranscriptHygiene.stripNonSpeechMarkers(text)
                 } catch {
                     NSLog("[ListenToMe] whisper-server failed (\(error)) — falling back to CLI")
                     await MainActor.run { server.shutdown() }
@@ -169,7 +175,10 @@ struct WhisperRunner {
                    let str = String(data: data, encoding: .utf8) {
                     try? FileManager.default.removeItem(at: txtURL)
                     try? FileManager.default.removeItem(at: wav)
-                    cont.resume(returning: str.trimmingCharacters(in: .whitespacesAndNewlines))
+                    // Strip non-speech markers ("[BLANK_AUDIO]" etc.) that the
+                    // whisper CLI emits as literal text on silence — the last
+                    // place a marker could leak through as a transcript.
+                    cont.resume(returning: TranscriptHygiene.stripNonSpeechMarkers(str))
                 } else {
                     cont.resume(throwing: WhisperError.noOutput)
                 }
