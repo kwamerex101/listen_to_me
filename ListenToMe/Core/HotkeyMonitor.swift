@@ -106,8 +106,13 @@ final class HotkeyMonitor {
     }
 
     /// Modifier-combo detection driven by the user-selected binding.
-    /// Tracks press timestamp so a release within `shortTapWindow` can
-    /// dispatch `onShortTap` instead of (or in addition to) `onRelease`.
+    /// Tracks press timestamp so a release within `shortTapWindow` fires
+    /// `onShortTap` INSTEAD OF `onRelease`, not in addition to it. Firing
+    /// both used to send `onRelease` first, which moved AppDelegate into
+    /// `.transcribing` on the ~200ms of blank audio a tap records, so by
+    /// the time `onShortTap` ran the phase was already past the one it
+    /// needed to inspect. AppDelegate's `handleShortTap` now owns discarding
+    /// that short recording itself.
     private func handle(event: CGEvent) {
         let combo = Preferences.shared.hotkeyBinding.matches(flags: event.flags)
 
@@ -119,9 +124,10 @@ final class HotkeyMonitor {
             isDown = false
             let pressed = pressedAt
             pressedAt = nil
-            onRelease?()
             if let pressed, Date().timeIntervalSince(pressed) <= shortTapWindow {
                 onShortTap?()
+            } else {
+                onRelease?()
             }
         }
     }

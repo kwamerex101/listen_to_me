@@ -62,6 +62,22 @@ enum CommandRouter {
         }
     }
 
+    /// True when a failed command should silently fall back to the normal
+    /// dictation pipeline (paste the raw words) rather than surface an
+    /// error. Only `.openApp` qualifies: "Open the PR and merge it" parses
+    /// as `.openApp(name: "the PR and merge it")` purely because it starts
+    /// with "open " — that's ordinary English, not a command the user
+    /// meant, so failing to launch an app by that name shouldn't eat the
+    /// dictation behind a "Command failed" cue. `.logToday` and `.shell`
+    /// are unambiguous, deliberate commands, so their failures still
+    /// surface as errors.
+    static func fallsBackToDictation(on command: WfCommand) -> Bool {
+        switch command {
+        case .openApp: return true
+        case .logToday, .shell: return false
+        }
+    }
+
     private static func appendToDailyNote(_ text: String) throws -> String {
         let df = DateFormatter()
         df.dateFormat = "yyyy-MM-dd"
@@ -120,7 +136,8 @@ enum CommandRouter {
             url: URL(fileURLWithPath: "/bin/sh"),
             args: ["-c", body],
             workingDir: FileManager.default.homeDirectoryForCurrentUser,
-            captureStdout: true
+            captureStdout: true,
+            timeout: 30
         )
         if result.exitCode != 0 {
             throw NSError(
@@ -135,19 +152,73 @@ enum CommandRouter {
 
     // MARK: - Async subprocess helper
 
-    private struct ProcessResult {
+    struct ProcessResult {
         let exitCode: Int32
         let stdout: String
         let stderr: String
     }
 
+    enum ProcessError: Error, LocalizedError {
+        case timedOut(TimeInterval)
+
+        var errorDescription: String? {
+            switch self {
+            case .timedOut(let seconds): return "Command timed out after \(Int(seconds))s"
+            }
+        }
+    }
+
+    /// Thread-safe append-only byte buffer. `readabilityHandler` fires on a
+    /// GCD dispatch-I/O thread, not the caller's — this is the only state
+    /// that thread and the resume path both touch.
+    private final class PipeBuffer {
+        private let lock = NSLock()
+        private var data = Data()
+        func append(_ chunk: Data) {
+            lock.lock(); data.append(chunk); lock.unlock()
+        }
+        func snapshot() -> Data {
+            lock.lock(); defer { lock.unlock() }
+            return data
+        }
+    }
+
+    /// Makes sure the continuation is resumed exactly once even though the
+    /// termination handler and the timeout watchdog both race to resume it.
+    private final class ResumeOnce {
+        private let lock = NSLock()
+        private var done = false
+        /// Returns true the first time it's called; false on every call after.
+        func claim() -> Bool {
+            lock.lock(); defer { lock.unlock() }
+            if done { return false }
+            done = true
+            return true
+        }
+    }
+
     /// Runs a subprocess to completion without blocking the caller. Mirrors
     /// the `Process` + `Pipe` + `terminationHandler` pattern used by
-    /// `WhisperRunner` and `ClaudeClient`.
-    private static func runProcess(url: URL,
-                                   args: [String],
-                                   workingDir: URL? = nil,
-                                   captureStdout: Bool) async throws -> ProcessResult {
+    /// `WhisperRunner` and `ClaudeClient`, with two additions:
+    ///
+    /// - Both pipes are drained continuously via `readabilityHandler`
+    ///   instead of `readDataToEndOfFile()` in the termination handler. A
+    ///   child that writes more than the pipe's 64KB kernel buffer before
+    ///   exiting would otherwise block forever on a full pipe, and the
+    ///   whole dictation pipeline (the pill sits in "transcribing") along
+    ///   with it.
+    /// - A timeout terminates a runaway child: `terminate()` (SIGTERM),
+    ///   then SIGKILL half a second later if it's still alive. Cancelling
+    ///   the enclosing `Task` does the same via
+    ///   `withTaskCancellationHandler`, so a cancelled command never
+    ///   orphans a `/bin/sh`.
+    ///
+    /// `internal` (not `private`) so tests can call it directly.
+    static func runProcess(url: URL,
+                           args: [String],
+                           workingDir: URL? = nil,
+                           captureStdout: Bool,
+                           timeout: TimeInterval = 15) async throws -> ProcessResult {
         let proc = Process()
         proc.executableURL = url
         proc.arguments = args
@@ -159,23 +230,74 @@ enum CommandRouter {
         proc.standardError = stderrPipe
         proc.standardInput = FileHandle.nullDevice
 
-        return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<ProcessResult, Error>) in
-            proc.terminationHandler = { p in
-                let outData = captureStdout
-                    ? stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-                    : Data()
-                let errData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-                cont.resume(returning: ProcessResult(
-                    exitCode: p.terminationStatus,
-                    stdout: String(data: outData, encoding: .utf8) ?? "",
-                    stderr: String(data: errData, encoding: .utf8) ?? ""
-                ))
-            }
-            do {
-                try proc.run()
-            } catch {
-                cont.resume(throwing: error)
+        let outBuffer = PipeBuffer()
+        let errBuffer = PipeBuffer()
+
+        if captureStdout {
+            stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
+                let chunk = handle.availableData
+                if chunk.isEmpty {
+                    handle.readabilityHandler = nil
+                } else {
+                    outBuffer.append(chunk)
+                }
             }
         }
+        stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            if chunk.isEmpty {
+                handle.readabilityHandler = nil
+            } else {
+                errBuffer.append(chunk)
+            }
+        }
+
+        let resumeOnce = ResumeOnce()
+
+        return try await withTaskCancellationHandler(operation: {
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<ProcessResult, Error>) in
+                let timeoutWork = DispatchWorkItem {
+                    guard resumeOnce.claim() else { return }
+                    proc.terminate()
+                    DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) {
+                        if proc.isRunning { kill(proc.processIdentifier, SIGKILL) }
+                    }
+                    cont.resume(throwing: ProcessError.timedOut(timeout))
+                }
+                DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timeoutWork)
+
+                proc.terminationHandler = { p in
+                    timeoutWork.cancel()
+                    guard resumeOnce.claim() else { return }
+                    // Stop the async handlers before the final synchronous
+                    // read: FileHandle must not be read both ways at once.
+                    stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                    stderrPipe.fileHandleForReading.readabilityHandler = nil
+                    // Flush any last bytes that landed after the final
+                    // readabilityHandler call but before exit.
+                    let tailOut = captureStdout
+                        ? stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+                        : Data()
+                    let tailErr = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                    if !tailOut.isEmpty { outBuffer.append(tailOut) }
+                    if !tailErr.isEmpty { errBuffer.append(tailErr) }
+                    cont.resume(returning: ProcessResult(
+                        exitCode: p.terminationStatus,
+                        stdout: String(data: outBuffer.snapshot(), encoding: .utf8) ?? "",
+                        stderr: String(data: errBuffer.snapshot(), encoding: .utf8) ?? ""
+                    ))
+                }
+                do {
+                    try proc.run()
+                } catch {
+                    timeoutWork.cancel()
+                    if resumeOnce.claim() {
+                        cont.resume(throwing: error)
+                    }
+                }
+            }
+        }, onCancel: {
+            if proc.isRunning { proc.terminate() }
+        })
     }
 }

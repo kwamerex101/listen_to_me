@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import ApplicationServices
 import Combine
+import AVFoundation
 
 @main
 struct ListenToMeApp: App {
@@ -67,6 +68,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// older dictation can't clobber a newer one.
     private func isCurrent(_ id: Int) -> Bool { id == dictationID }
 
+    /// Phase snapshotted at the very start of `handlePress`, before the
+    /// gate check or anything else can change it. A short tap needs this:
+    /// by the time its decision runs, `state.phase` reflects the tap's own
+    /// just-discarded recording, not the dictation that came before it.
+    private var phaseAtPress: Phase = .idle
+
+    /// True once `handlePress` has actually started a recording for the
+    /// press currently in flight. False when the gate refused the press
+    /// (already `.recording` / `.transcribing`) or mic access was denied —
+    /// `handleShortTap` uses this to know whether there's a just-started
+    /// recording to discard at all.
+    private var pressStartedRecording = false
+
+    /// Snapshot of the pending clean-first cleanup's inputs (Item 2b). Set
+    /// when `startCleanupTask` begins, cleared when it finishes — either
+    /// normally, or because the caller (a pre-empting `handlePress`, or an
+    /// explicit `handleCancel`) is about to cancel it. Lets a pre-empting
+    /// press record the discarded dictation to History instead of losing
+    /// it silently, while a user-initiated cancel still discards it.
+    private var pendingCleanupRecord: (raw: String, expanded: String, durMs: Int)?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
 
@@ -123,6 +145,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // dropping the audio.
         AudioRecorder.shared.onMaxDurationReached = { [weak self] in
             guard case .recording = self?.state.phase else { return }
+            self?.handleRelease()
+        }
+        // Item 4: AirPods disconnecting (or any input-device change) mid-
+        // recording stops the engine silently — without this the rest of
+        // the speech is just gone. Treat it like the watchdog: finish the
+        // dictation with whatever was captured so far instead of losing it.
+        AudioRecorder.shared.onInputInterrupted = { [weak self] in
+            guard case .recording = self?.state.phase else { return }
+            NSLog("[ListenToMe] input device changed mid-recording")
             self?.handleRelease()
         }
 
@@ -253,6 +284,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Hotkey handlers
 
     private func handlePress() {
+        // Snapshot BEFORE anything (even the gate check) can change the
+        // phase. `handleShortTap` needs the phase this press interrupted,
+        // not the phase left behind by the short recording it starts.
+        phaseAtPress = state.phase
+        pressStartedRecording = false
+
         // Ignore a press while recording (already live) or transcribing
         // (short, ~1s; starting a second recording here used to strand the
         // mic once the old transcribeTask finished and overwrote
@@ -261,6 +298,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // shouldn't execute. Also dismiss any open correction popover so
         // the new dictation has a clean slate.
         guard DictationGate.acceptsPress(in: state.phase) else { return }
+        // Item 2b: a press pre-empting a still-running clean-first cleanup
+        // (phase == .polishing) is about to cancel it below. Nothing has
+        // pasted yet, but the words are real — record them to History
+        // before the cancel, instead of the cleanup's CancellationError
+        // branch silently dropping them.
+        if let pending = pendingCleanupRecord {
+            HistoryStore.shared.add(rawText: pending.raw, finalText: pending.expanded,
+                                     durationMs: pending.durMs, bundleId: nil)
+            NSLog("[ListenToMe] pre-empted pending cleanup, recorded to history")
+            pendingCleanupRecord = nil
+        }
         cleanupTask?.cancel()
         cleanupTask = nil
         retypeTask?.cancel()
@@ -275,6 +323,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             CorrectionWindow.shared.dismiss()
         }
 
+        // Mic permission is cached at launch; if the user grants it later
+        // in System Settings, re-read the live status now rather than
+        // showing "Mic permission needed" on every press until relaunch.
+        if AVCaptureDevice.authorizationStatus(for: .audio) == .authorized {
+            state.micGranted = true
+        }
         guard state.micGranted else {
             state.phase = .error(message: "Mic permission needed")
             autoReset()
@@ -292,6 +346,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // so a failed start below doesn't orphan the previous dictation's
             // still-in-flight background work.
             dictationID &+= 1
+            pressStartedRecording = true
             recordingStartedAt = Date()
             PillWindow.shared.repositionToActiveScreen()
             state.phase = .recording
@@ -348,6 +403,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Bumping dictationID too so any check further down the
             // pipeline treats this dictation as stale.
             dictationID &+= 1
+            // Explicit discard (the X, not a pre-empting press): drop the
+            // pending record rather than adding it to History.
+            pendingCleanupRecord = nil
             cleanupTask?.cancel()
             cleanupTask = nil
             transcribeTask?.cancel()
@@ -472,6 +530,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // text. Opt-in: "log today" writes to ~/Documents/daily and
                 // "shell" runs /bin/sh, so it's gated behind a Privacy toggle.
                 if Preferences.shared.voiceCommandsEnabled, let cmd = CommandRouter.parse(raw) {
+                    // Nothing set the phase before this point (transcribe
+                    // ended in `.transcribing`), so without this the pill
+                    // sits on "transcribing" for however long the command
+                    // takes to run.
+                    if self.isCurrent(id) {
+                        self.state.phase = .polishing(rawPreview: "running…")
+                        PillWindow.shared.setInteractive(true)
+                    }
                     do {
                         let summary = try await CommandRouter.execute(cmd)
                         if Task.isCancelled { return }
@@ -482,14 +548,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                             self.state.phase = .success(preview: summary)
                             self.autoReset(after: 1.0)
                         }
+                        return
                     } catch {
-                        NSLog("[ListenToMe] command failed: \(error)")
-                        if self.isCurrent(id) {
-                            self.state.phase = .error(message: "Command failed")
-                            self.autoReset()
+                        if Task.isCancelled { return }
+                        if CommandRouter.fallsBackToDictation(on: cmd) {
+                            // "Open the PR and merge it" parses as .openApp
+                            // because it starts with "open " — when `open -a`
+                            // fails, that was never really an app-launch
+                            // command, so fall through to the normal
+                            // dictation pipeline instead of eating the words
+                            // behind "Command failed".
+                            NSLog("[ListenToMe] command failed, falling back to dictation: \(error)")
+                        } else {
+                            NSLog("[ListenToMe] command failed: \(error)")
+                            if self.isCurrent(id) {
+                                self.state.phase = .error(message: "Command failed")
+                                self.autoReset()
+                            }
+                            return
                         }
                     }
-                    return
                 }
 
                 // Voice-editing commands (comma, period, scratch that, new
@@ -722,6 +800,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                   durMs: Int,
                                   bundleId: String?) {
         cleanupTask?.cancel()
+        // Item 2b: remember these inputs so a pre-empting press can record
+        // the dictation to History if it cancels us before we paste.
+        // Cleared below once we actually finish (paste, copy, or block) —
+        // by then the caller no longer needs it.
+        pendingCleanupRecord = (raw: raw, expanded: expanded, durMs: durMs)
         cleanupTask = Task { [weak self] in
             var finalText = expanded
             do {
@@ -733,8 +816,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 )
                 try Task.checkCancellation()
             } catch is CancellationError {
-                // New dictation started OR the user bailed. Nothing has been
-                // pasted yet, so there is nothing to undo or record.
+                // New dictation started OR the user bailed. Whoever
+                // cancelled us already recorded (or deliberately dropped)
+                // pendingCleanupRecord, so there's nothing left to do here.
                 return
             } catch {
                 NSLog("[ListenToMe] cleanup failed, raw stands: \(error)")
@@ -742,6 +826,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             await MainActor.run {
                 guard let self, !Task.isCancelled else { return }
+                self.pendingCleanupRecord = nil
 
                 // Cleanup can take seconds; re-check the target now rather
                 // than trusting the bundleId captured before cleanup
@@ -956,30 +1041,55 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Inline correction popover
 
-    /// CORR-01: alias for `handlePillTap` so a short-tap of the hotkey
-    /// opens the correction popover from the same eligible phases. The
-    /// recording-start that fires on press is balanced by the release —
-    /// AudioRecorder.cancel() in handlePillTap's cleanup task chain
-    /// keeps things tidy. We just re-enter the same gate.
+    /// CORR-01: a short tap of the hotkey opens the correction popover.
+    /// The press half of the tap already started a recording (there's no
+    /// way to know it's a tap, not a hold, until the release); discard that
+    /// recording silently — no history row, nothing pasted — then decide
+    /// whether to open correction from `phaseAtPress`, the phase the tap
+    /// interrupted, NOT `state.phase` (which by now just reflects the
+    /// tap's own discarded recording).
     private func handleShortTap() {
-        // If we're in `.recording` here, it means a recording was
-        // *already* started by the press half of this tap — abort it
-        // so we don't paste an empty recording.
-        if case .recording = state.phase {
-            handleCancel()
+        guard pressStartedRecording else {
+            // The press half of this tap never actually started a
+            // recording (the gate refused it, or mic access was denied),
+            // so there's nothing to discard and no new context to weigh in.
+            return
         }
-        handlePillTap()
+        pressStartedRecording = false
+
+        PartialTranscriber.shared.stop()
+        state.partialText = ""
+        AudioRecorder.shared.cancel()
+        Haptics.stop()
+        PillWindow.shared.setInteractive(false)
+        recordingStartedAt = nil
+        state.level = 0
+        dictationID &+= 1
+
+        let hasToken = lastPasteToken.map { !$0.pastedText.isEmpty } ?? false
+        if ShortTapPolicy.opensCorrection(phaseAtPress: phaseAtPress, hasPasteToken: hasToken),
+           let token = lastPasteToken {
+            openCorrection(token: token)
+        } else {
+            state.phase = .idle
+        }
     }
 
+    /// Clicking the pill opens the correction popover. Only offered right
+    /// after a paste actually landed (`.success`) — during `.polishing`
+    /// (clean-first) nothing has pasted yet, so tapping there used to open
+    /// correction on the PREVIOUS dictation's token. Keep in sync with
+    /// `PillView.isPillTappable`.
     private func handlePillTap() {
-        // Only open the correction popover if the user is in a state that
-        // logically followed a paste, and we still have a token pointing at it.
         switch state.phase {
-        case .success, .polishing: break
+        case .success: break
         default: return
         }
         guard let token = lastPasteToken, !token.pastedText.isEmpty else { return }
+        openCorrection(token: token)
+    }
 
+    private func openCorrection(token: PasteToken) {
         // The user is taking manual control — abandon any in-flight cleanup.
         cleanupTask?.cancel()
         cleanupTask = nil
