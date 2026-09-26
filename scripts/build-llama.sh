@@ -52,7 +52,7 @@ fi
 echo "==> 3. Build the llama library target only"
 # The `app/` target needs a generated build-info.h and is irrelevant to us;
 # building --target llama produces libllama + its ggml deps and skips it.
-cmake --build "$BUILD_DIR" --config Release --target llama -j
+cmake --build "$BUILD_DIR" --config Release --target llama -j "$BUILD_JOBS"
 
 BIN="$BUILD_DIR/bin"
 INC="$PROJECT_ROOT/ListenToMe/CLlama/include"
