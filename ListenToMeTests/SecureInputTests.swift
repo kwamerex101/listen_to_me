@@ -57,7 +57,7 @@ final class SecureInputTests: XCTestCase {
             bundleId: "com.example.app",
             changeCountAtPaste: NSPasteboard.general.changeCount,
             pastedText: "original",
-            priorPasteboardString: nil,
+            priorPasteboard: PasteboardSnapshot(items: []),
             timestamp: Date(),
             selection: nil
         )

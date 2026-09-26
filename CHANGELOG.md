@@ -2,6 +2,27 @@
 
 All notable user-facing changes per release. Format inspired by [Keep a Changelog](https://keepachangelog.com/), version numbers follow [SemVer](https://semver.org/) at the bundle level.
 
+## 0.18.1 (build 43)
+
+### Fixed
+
+- On-device cleanup is now the default. Cloud cleanup (Claude) is used only if you choose it in Settings; Backtrack and History transforms now respect that choice too.
+- Your clipboard is restored after every dictation, including images, files and rich text.
+- Pressing the hotkey again right after a dictation no longer leaves the microphone on or drops the next dictation.
+- "Actually, ..." revisions no longer replace your sentence with the correction phrase, and a failed revision no longer leaves the pill stuck on "revising...".
+
+## 0.18.0 (build 42)
+
+### Fixed
+
+- Silence is treated as no speech on every engine, so the literal "[BLANK_AUDIO]" is never pasted.
+
+## 0.18.0 (build 41)
+
+### Fixed
+
+- Silent recordings show a calm cue instead of a red error.
+
 ## 0.18.0 (build 40)
 
 ### Added

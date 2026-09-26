@@ -52,6 +52,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// silently push state forward when the result eventually arrives.
     private var transcribeTask: Task<Void, Never>?
 
+    /// Identity of the current dictation. Bumped whenever a press actually
+    /// starts a new recording, or a cancel discards a `.transcribing` /
+    /// `.polishing` one. A background task captures the id it was started
+    /// with; once `dictationID` moves past it, the task knows it's stale
+    /// (see `isCurrent`) and stops touching phase/pastes it no longer owns,
+    /// while still finishing writes (History, Notes, clipboard) that
+    /// shouldn't be lost.
+    private var dictationID = 0
+
+    /// True when `id` is still the in-flight dictation. Callers use this to
+    /// gate UI-visible side effects (phase, autoReset, PillWindow
+    /// interactivity, Haptics/SoundCue) so a slow background task from an
+    /// older dictation can't clobber a newer one.
+    private func isCurrent(_ id: Int) -> Bool { id == dictationID }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
 
@@ -238,15 +253,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Hotkey handlers
 
     private func handlePress() {
-        // Allow press from any non-recording phase. If a previous cleanup
-        // is still running we cancel it — its deferred paste would land in an
-        // old app/context and shouldn't execute. Also dismiss any open
-        // correction popover so the new dictation has a clean slate.
-        if case .recording = state.phase { return }
+        // Ignore a press while recording (already live) or transcribing
+        // (short, ~1s; starting a second recording here used to strand the
+        // mic once the old transcribeTask finished and overwrote
+        // state.phase). If a previous cleanup is still running we cancel
+        // it: its deferred paste would land in an old app/context and
+        // shouldn't execute. Also dismiss any open correction popover so
+        // the new dictation has a clean slate.
+        guard DictationGate.acceptsPress(in: state.phase) else { return }
         cleanupTask?.cancel()
         cleanupTask = nil
         retypeTask?.cancel()
         retypeTask = nil
+        // Cancel any pending auto-reset. Without this, dictating again
+        // shortly after a previous dictation let its autoReset(after:) fire
+        // mid-recording and set .idle, so the eventual release was ignored
+        // and the mic stayed on.
+        autoResetTask?.cancel()
+        autoResetTask = nil
         if case .correcting = state.phase {
             CorrectionWindow.shared.dismiss()
         }
@@ -264,6 +288,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let streamPartials = Preferences.shared.streamingPartialsEnabled
                 && Preferences.shared.transcriptionEngine == .linked
             _ = try AudioRecorder.shared.start(accumulateSamples: streamPartials)
+            // Only bump the dictation id once the recorder actually started,
+            // so a failed start below doesn't orphan the previous dictation's
+            // still-in-flight background work.
+            dictationID &+= 1
             recordingStartedAt = Date()
             PillWindow.shared.repositionToActiveScreen()
             state.phase = .recording
@@ -303,6 +331,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             state.level = 0   // clear stale tail so a fast re-entry starts cold
             state.phase = .idle
         case .transcribing:
+            dictationID &+= 1
             transcribeTask?.cancel()
             transcribeTask = nil
             // Don't shut down WhisperServer — the model load is shared
@@ -312,10 +341,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             state.phase = .idle
         case .polishing:
             // Clean-first: cleanup is still running and nothing has been
-            // pasted yet. Cancel it; the task's CancellationError branch bails
-            // without pasting or recording, so the dictation is simply dropped.
+            // pasted yet. Cancel BOTH cleanupTask and transcribeTask:
+            // Notes, Clipboard, and Backtrack delivery all run inside
+            // transcribeTask itself, so cancelling only cleanupTask let
+            // them finish and write anyway after the user hit cancel.
+            // Bumping dictationID too so any check further down the
+            // pipeline treats this dictation as stale.
+            dictationID &+= 1
             cleanupTask?.cancel()
             cleanupTask = nil
+            transcribeTask?.cancel()
+            transcribeTask = nil
             PillWindow.shared.setInteractive(false)
             state.phase = .idle
             autoReset(after: 0.6)
@@ -347,12 +383,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         state.phase = .transcribing
 
         let whisperPrompt = DictionaryStore.shared.whisperPrompt
+        // Snapshot this dictation's identity and start time before the task
+        // begins, and clear recordingStartedAt right away. Without the local
+        // copy, an old task reading recordingStartedAt after a new press
+        // started the next recording would compute that NEXT recording's
+        // duration instead of its own.
+        let id = dictationID
+        let startedAt = recordingStartedAt
+        recordingStartedAt = nil
         transcribeTask?.cancel()
         transcribeTask = Task { @MainActor in
             do {
                 let transcribed = try await WhisperRunner.shared.transcribe(wav: wav, prompt: whisperPrompt)
                 // User aborted via the cancel button while we were waiting
-                // on whisper — bail before mutating any pipeline state.
+                // on whisper: bail before mutating any pipeline state.
                 if Task.isCancelled { return }
                 // Drop engine-emitted non-speech markers ("[BLANK_AUDIO]" etc.)
                 // so a silent recording is treated as empty rather than pasting
@@ -362,9 +406,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     // Silence or a pure non-speech marker: paste nothing and
                     // show a calm cue rather than a red error — this wasn't a
                     // failure, there was just nothing to type.
-                    PillWindow.shared.setInteractive(false)
-                    state.phase = .noSpeech
-                    autoReset(after: 0.8)
+                    if self.isCurrent(id) {
+                        PillWindow.shared.setInteractive(false)
+                        self.state.phase = .noSpeech
+                        self.autoReset(after: 0.8)
+                    }
                     return
                 }
 
@@ -374,28 +420,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // Claude to revise the prior paste in place rather than
                 // pasting new text.
                 if let bt = Backtrack.parse(raw),
-                   let token = lastPasteToken,
+                   let token = self.lastPasteToken,
                    !token.pastedText.isEmpty {
                     do {
-                        PillWindow.shared.setInteractive(true)
-                        state.phase = .polishing(rawPreview: "revising…")
+                        if self.isCurrent(id) {
+                            PillWindow.shared.setInteractive(true)
+                            self.state.phase = .polishing(rawPreview: "revising…")
+                        }
                         let revised = try await ClaudeClient.shared.rewrite(
                             original: token.pastedText,
                             revision: bt.revision,
                             timeout: TimeInterval(Preferences.shared.cleanupTimeoutSec)
                         )
-                        if let newToken = Paster.replace(with: revised, token: token) {
-                            lastPasteToken = newToken
-                            state.lastTranscript = revised
+                        if Task.isCancelled { return }
+                        if !self.isCurrent(id) {
+                            // A newer dictation is already recording. Don't
+                            // send Cmd+Z/Cmd+V into it, and don't fall through
+                            // either: the normal pipeline would paste too. Keep
+                            // the utterance in History so nothing is lost.
+                            NSLog("[ListenToMe] backtrack: superseded by a newer dictation, not applied")
+                            let durMs = startedAt.map { Int(Date().timeIntervalSince($0) * 1000) } ?? 0
+                            HistoryStore.shared.add(rawText: raw, finalText: raw,
+                                                     durationMs: durMs, dismissed: true)
+                            return
+                        } else if let newToken = Paster.replace(with: revised, token: token) {
+                            self.lastPasteToken = newToken
+                            self.state.lastTranscript = revised
                             HistoryStore.shared.updateLast(finalText: revised)
-                            let durMs = recordingStartedAt.map { Int(Date().timeIntervalSince($0) * 1000) } ?? 0
-                            recordingStartedAt = nil
+                            let durMs = startedAt.map { Int(Date().timeIntervalSince($0) * 1000) } ?? 0
                             HistoryStore.shared.add(rawText: raw, finalText: "[backtrack]",
                                                      durationMs: durMs, dismissed: true,
                                                      bundleId: newToken.bundleId)
                             Haptics.success()
-                            state.phase = .success(preview: String(revised.prefix(30)))
-                            autoReset(after: 1.5)
+                            self.state.phase = .success(preview: String(revised.prefix(30)))
+                            self.autoReset(after: 1.5)
+                            return
                         } else {
                             // Validation gate failed — pasteboard moved on,
                             // user switched apps, etc. Fall through to
@@ -403,9 +462,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                             // reaches the user as a normal dictation.
                             NSLog("[ListenToMe] backtrack: replace gate failed, falling back to normal pipeline")
                         }
-                        return
                     } catch {
-                        NSLog("[ListenToMe] backtrack rewrite failed: \(error) — falling back to normal pipeline")
+                        NSLog("[ListenToMe] backtrack rewrite failed: \(error), falling back to normal pipeline")
                         // Fall through and treat the utterance as a normal dictation.
                     }
                 }
@@ -416,16 +474,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if Preferences.shared.voiceCommandsEnabled, let cmd = CommandRouter.parse(raw) {
                     do {
                         let summary = try await CommandRouter.execute(cmd)
-                        Haptics.success()
-                        let durMs = recordingStartedAt.map { Int(Date().timeIntervalSince($0) * 1000) } ?? 0
-                        recordingStartedAt = nil
+                        if Task.isCancelled { return }
+                        let durMs = startedAt.map { Int(Date().timeIntervalSince($0) * 1000) } ?? 0
                         HistoryStore.shared.add(rawText: raw, finalText: "[cmd] \(summary)", durationMs: durMs)
-                        state.phase = .success(preview: summary)
-                        autoReset(after: 1.0)
+                        if self.isCurrent(id) {
+                            Haptics.success()
+                            self.state.phase = .success(preview: summary)
+                            self.autoReset(after: 1.0)
+                        }
                     } catch {
                         NSLog("[ListenToMe] command failed: \(error)")
-                        state.phase = .error(message: "Command failed")
-                        autoReset()
+                        if self.isCurrent(id) {
+                            self.state.phase = .error(message: "Command failed")
+                            self.autoReset()
+                        }
                     }
                     return
                 }
@@ -441,12 +503,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // Pure-undo edge case: user said only "scratch that" (or it
                 // resolved to empty). Skip paste, no history, brief feedback.
                 if edited.isEmpty {
-                    let durMs = recordingStartedAt.map { Int(Date().timeIntervalSince($0) * 1000) } ?? 0
-                    recordingStartedAt = nil
+                    let durMs = startedAt.map { Int(Date().timeIntervalSince($0) * 1000) } ?? 0
                     HistoryStore.shared.add(rawText: raw, finalText: "",
                                              durationMs: durMs, dismissed: true)
-                    state.phase = .success(preview: "(scratched)")
-                    autoReset(after: 0.6)
+                    if self.isCurrent(id) {
+                        self.state.phase = .success(preview: "(scratched)")
+                        self.autoReset(after: 0.6)
+                    }
                     return
                 }
 
@@ -454,21 +517,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // flows naturally around the expanded text.
                 let expanded = SnippetsStore.shared.expand(in: edited)
                 let words = expanded.split(whereSeparator: \.isWhitespace).count
-                let durMs = recordingStartedAt.map { Int(Date().timeIntervalSince($0) * 1000) } ?? 0
-                recordingStartedAt = nil
+                let durMs = startedAt.map { Int(Date().timeIntervalSince($0) * 1000) } ?? 0
 
                 // Secure-input guard. If a password field (or any secure-event-
                 // input context) has focus, never insert the transcript and
                 // never store it in history — doing either would leak a secret
                 // the user is plainly typing. Covers both cleanup branches below.
                 if SecureInput.isActive {
-                    lastRawTranscript = nil
-                    state.phase = .error(message: "Secure field — not inserted")
-                    autoReset()
+                    self.lastRawTranscript = nil
+                    if self.isCurrent(id) {
+                        self.state.phase = .error(message: "Secure field — not inserted")
+                        self.autoReset()
+                    }
                     return
                 }
 
-                lastRawTranscript = raw
+                self.lastRawTranscript = raw
 
                 // Route on the user's output destination. .activeApp keeps the
                 // streaming paste → background-cleanup → replace pipeline; the
@@ -476,11 +540,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // undo-replace) then writes the note off-main.
                 switch Preferences.shared.outputDestination {
                 case .appleNotes:
-                    await self.deliverToNotes(raw: raw, expanded: expanded,
+                    await self.deliverToNotes(id: id, raw: raw, expanded: expanded,
                                               words: words, durMs: durMs)
 
                 case .clipboard:
-                    await self.deliverToClipboard(raw: raw, expanded: expanded,
+                    await self.deliverToClipboard(id: id, raw: raw, expanded: expanded,
                                                   words: words, durMs: durMs)
 
                 case .activeApp:
@@ -497,37 +561,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         // Capture the focused app now for context-aware tone; we
                         // paste into it once cleanup returns.
                         let bundleId = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-                        state.phase = .polishing(rawPreview: String(expanded.prefix(40)))
-                        PillWindow.shared.setInteractive(true)
-                        startCleanupTask(raw: raw, expanded: expanded,
-                                         durMs: durMs, bundleId: bundleId)
+                        if self.isCurrent(id) {
+                            self.state.phase = .polishing(rawPreview: String(expanded.prefix(40)))
+                            PillWindow.shared.setInteractive(true)
+                        }
+                        self.startCleanupTask(id: id, raw: raw, expanded: expanded,
+                                             durMs: durMs, bundleId: bundleId)
                     } else {
                         // No-cleanup mode: still paste-tracked so the user can
                         // open the correction popover; we just never call replace.
-                        state.lastTranscript = expanded
+                        self.state.lastTranscript = expanded
                         let token = Paster.pasteTracked(expanded)
-                        lastPasteToken = token
-                        scheduleRetypeDetection(token: token)
-                        recordStyleSample(token: token, cleaned: expanded)
-                        Haptics.success()
-                        SoundCue.success()
+                        self.lastPasteToken = token
+                        self.scheduleRetypeDetection(token: token)
+                        self.recordStyleSample(token: token, cleaned: expanded)
                         HistoryStore.shared.add(rawText: raw, finalText: expanded,
                                                  durationMs: durMs, bundleId: token.bundleId)
-                        state.phase = .success(preview: String(expanded.prefix(30)))
-                        PillWindow.shared.setInteractive(true)
-                        // Longer success window so the user has time to click the
-                        // pill if they want to correct.
-                        autoReset(after: 3.0)
+                        if self.isCurrent(id) {
+                            Haptics.success()
+                            SoundCue.success()
+                            self.state.phase = .success(preview: String(expanded.prefix(30)))
+                            PillWindow.shared.setInteractive(true)
+                            // Longer success window so the user has time to click the
+                            // pill if they want to correct.
+                            self.autoReset(after: 3.0)
+                        }
                     }
                 }
             } catch WhisperError.modelNotFound(let path) {
                 NSLog("[ListenToMe] model not found: \(path)")
-                state.phase = .error(message: "Model missing")
-                autoReset()
+                if self.isCurrent(id) {
+                    self.state.phase = .error(message: "Model missing")
+                    self.autoReset()
+                }
             } catch {
                 NSLog("[ListenToMe] transcription failed: \(error)")
-                state.phase = .error(message: "Transcribe failed")
-                autoReset()
+                if self.isCurrent(id) {
+                    self.state.phase = .error(message: "Transcribe failed")
+                    self.autoReset()
+                }
             }
         }
     }
@@ -536,14 +608,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// then write the polished text into Notes. No paste, no replace, no
     /// correction popover — Notes is a one-shot sink. History is recorded so
     /// the dashboard/History still reflect the dictation.
-    private func deliverToNotes(raw: String, expanded: String,
+    private func deliverToNotes(id: Int, raw: String, expanded: String,
                                 words: Int, durMs: Int) async {
         // No paste target on this path — clear any stale token so a later
         // "actually, …" backtrack can't revise into a previous active-app paste.
         lastPasteToken = nil
 
-        state.phase = .polishing(rawPreview: String(expanded.prefix(40)))
-        PillWindow.shared.setInteractive(true)
+        if isCurrent(id) {
+            state.phase = .polishing(rawPreview: String(expanded.prefix(40)))
+            PillWindow.shared.setInteractive(true)
+        }
 
         var finalText = expanded
         if CleanupGate.shouldClean(text: expanded, wordCount: words,
@@ -557,36 +631,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 finalText = expanded
             }
         }
+        // User cancelled while cleanup was running: no Notes write, no history.
+        if Task.isCancelled { return }
 
+        // No cancel check after the write: once the note exists, History
+        // must reflect it.
         let result = await OutputRouter.deliverToNotes(text: finalText)
         switch result {
         case .success:
             state.lastTranscript = finalText
             HistoryStore.shared.add(rawText: raw, finalText: finalText,
                                      durationMs: durMs, bundleId: "com.apple.Notes")
-            Haptics.success()
-            SoundCue.success()
-            state.phase = .success(preview: "Saved to Notes")
-            autoReset(after: 2.0)
+            if isCurrent(id) {
+                Haptics.success()
+                SoundCue.success()
+                state.phase = .success(preview: "Saved to Notes")
+                autoReset(after: 2.0)
+            }
         case .failure(let err):
             NSLog("[ListenToMe] notes write failed: \(err)")
-            state.phase = .error(message: "Notes write failed")
-            autoReset()
+            if isCurrent(id) {
+                state.phase = .error(message: "Notes write failed")
+                autoReset()
+            }
         }
-        PillWindow.shared.setInteractive(false)
+        if isCurrent(id) {
+            PillWindow.shared.setInteractive(false)
+        }
     }
 
     /// Clipboard destination: clean to completion (subject to the gate), copy
     /// to the pasteboard WITHOUT simulating Cmd+V, and record history. The
     /// user pastes when they're ready. No replace, no correction popover.
-    private func deliverToClipboard(raw: String, expanded: String,
+    private func deliverToClipboard(id: Int, raw: String, expanded: String,
                                     words: Int, durMs: Int) async {
         // No paste target on this path — clear any stale token so a later
         // "actually, …" backtrack can't revise into a previous active-app paste.
         lastPasteToken = nil
 
-        state.phase = .polishing(rawPreview: String(expanded.prefix(40)))
-        PillWindow.shared.setInteractive(true)
+        if isCurrent(id) {
+            state.phase = .polishing(rawPreview: String(expanded.prefix(40)))
+            PillWindow.shared.setInteractive(true)
+        }
 
         var finalText = expanded
         if CleanupGate.shouldClean(text: expanded, wordCount: words,
@@ -600,6 +686,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 finalText = expanded
             }
         }
+        // User cancelled while cleanup was running: no clipboard write, no history.
+        if Task.isCancelled { return }
 
         let pb = NSPasteboard.general
         pb.clearContents()
@@ -608,10 +696,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         state.lastTranscript = finalText
         HistoryStore.shared.add(rawText: raw, finalText: finalText,
                                  durationMs: durMs, bundleId: nil)
-        Haptics.success()
-        SoundCue.success()
-        state.phase = .success(preview: "Copied to clipboard")
-        autoReset(after: 2.0)
+        if isCurrent(id) {
+            Haptics.success()
+            SoundCue.success()
+            state.phase = .success(preview: "Copied to clipboard")
+            autoReset(after: 2.0)
+        }
     }
 
     /// Run cleanup, then paste the polished text into the focused app exactly
@@ -620,7 +710,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// flow, which duplicated text in apps where Cmd+Z isn't text-undo
     /// (terminals). On cleanup failure the raw (`expanded`) is pasted instead.
     /// Cancellation (new dictation / user bail) aborts before any paste.
-    private func startCleanupTask(raw: String,
+    private func startCleanupTask(id: Int,
+                                  raw: String,
                                   expanded: String,
                                   durMs: Int,
                                   bundleId: String?) {
@@ -652,20 +743,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.recordStyleSample(token: token, cleaned: finalText)
                 HistoryStore.shared.add(rawText: raw, finalText: finalText,
                                          durationMs: durMs, bundleId: token.bundleId)
-                if self.isStillPolishing(token: token) {
+                if self.isCurrent(id) {
                     self.state.phase = .success(preview: String(finalText.prefix(30)))
                     self.autoReset(after: 3.0)
                 }
             }
         }
-    }
-
-    /// True if the pill is still in the polishing state for this token —
-    /// i.e. the user hasn't started a new dictation since. Prevents the
-    /// callback from clobbering a fresher phase.
-    private func isStillPolishing(token: PasteToken) -> Bool {
-        if case .polishing = state.phase { return true }
-        return false
     }
 
     // MARK: - Retype detection
@@ -912,12 +995,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try? await Task.sleep(for: .seconds(seconds))
             if Task.isCancelled { return }
             guard let self else { return }
-            // Don't yank the pill back to idle if the user is mid-correction
-            // — they're actively editing. Also bail if we've since entered a
-            // .suggestion banner (Phase 4 A4: banner cancels this task, but
-            // belt-and-braces guard).
-            if case .correcting = self.state.phase { return }
-            if case .suggestion = self.state.phase { return }
+            // Auto-reset must never yank an active recording/transcription
+            // (or the correction popover / suggestion banner) back to idle.
+            // (Phase 4 A4: the .suggestion banner also cancels this task on
+            // entry, but this is a belt-and-braces guard.)
+            guard DictationGate.allowsAutoReset(in: self.state.phase) else { return }
             self.state.phase = .idle
             // Idle pill is click-through again so it doesn't intercept stray
             // clicks on whatever's underneath.

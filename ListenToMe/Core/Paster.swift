@@ -29,9 +29,10 @@ struct PasteToken {
     /// won't match — that's our "user did something" signal.
     let changeCountAtPaste: Int
     let pastedText: String
-    /// Pasteboard string that was there before our paste. Restored after
-    /// we're done replacing (or we hit max staleness).
-    let priorPasteboardString: String?
+    /// Full pasteboard contents (every item, every type) that were there
+    /// before our paste. Restored automatically a beat after the paste, and
+    /// again after we're done replacing (or we hit max staleness).
+    let priorPasteboard: PasteboardSnapshot
     let timestamp: Date
     /// AX-captured selection state at paste time. nil when AX read failed
     /// for any reason (per D-01 graceful degrade). Recording-only for now;
@@ -43,6 +44,42 @@ struct PasteToken {
 /// optionally lets a caller replace what was pasted later (used for the
 /// "stream raw, polish in background" flow).
 enum Paster {
+    /// changeCount right after our own restore, keyed by the token's
+    /// `changeCountAtPaste` that the restore was for. Lets `replace` tell
+    /// "we restored the user's clipboard" apart from "the user copied
+    /// something" (Gate 3 would otherwise treat our own restore as a
+    /// pasteboard change and refuse to replace). Bounded: only the most
+    /// recent ~8 entries are kept, since a stale token is unusable anyway.
+    private static var restoredChangeCounts: [Int: Int] = [:]
+    /// Insertion order of `restoredChangeCounts` keys, oldest first. Tracked
+    /// separately from the dictionary itself because eviction needs "oldest
+    /// recorded", not "smallest key": changeCount is monotonic in practice,
+    /// but nothing guarantees it, so sorting by key value isn't reliable.
+    private static var restoredChangeCountOrder: [Int] = []
+
+    /// Records that `pasteChangeCount` (a token's `changeCountAtPaste`) was
+    /// followed by an automatic restore that left the pasteboard at
+    /// `restoredChangeCount`. `internal` so tests can call it directly.
+    static func recordRestore(pasteChangeCount: Int, restoredChangeCount: Int) {
+        if restoredChangeCounts[pasteChangeCount] == nil {
+            restoredChangeCountOrder.append(pasteChangeCount)
+        }
+        restoredChangeCounts[pasteChangeCount] = restoredChangeCount
+        while restoredChangeCountOrder.count > 8 {
+            let oldest = restoredChangeCountOrder.removeFirst()
+            restoredChangeCounts.removeValue(forKey: oldest)
+        }
+    }
+
+    /// True when the pasteboard is still in the state `replace`/`finalize`
+    /// expect: either untouched since the token's paste, or touched only by
+    /// our own automatic restore of that paste. `internal` so tests can call
+    /// it directly.
+    static func pasteboardUntouched(since token: PasteToken, currentChangeCount: Int) -> Bool {
+        currentChangeCount == token.changeCountAtPaste
+            || currentChangeCount == restoredChangeCounts[token.changeCountAtPaste]
+    }
+
     /// One-shot paste with auto-restore of the prior pasteboard contents
     /// after a short delay. Use when you do NOT plan to replace the text.
     ///
@@ -52,7 +89,7 @@ enum Paster {
     /// gate we'd clobber whatever the user just copied.
     static func paste(_ text: String) {
         let pb = NSPasteboard.general
-        let prior = pb.string(forType: .string)
+        let snapshot = PasteboardSnapshot.capture(from: pb)
 
         pb.clearContents()
         pb.setString(text, forType: .string)
@@ -62,17 +99,16 @@ enum Paster {
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
             guard pb.changeCount == changeCountAtPaste else { return }
-            if let p = prior {
-                pb.clearContents()
-                pb.setString(p, forType: .string)
-            }
+            snapshot.restore(to: pb)
+            recordRestore(pasteChangeCount: changeCountAtPaste, restoredChangeCount: pb.changeCount)
         }
     }
 
     /// Paste-and-track. Returns a token that can be passed to `replace(...)`
-    /// to swap in different text later. The pasteboard is NOT auto-restored —
-    /// the caller must call `finalize(token:)` (or `replace(...)`, which
-    /// finalizes implicitly) to put the user's prior clipboard back.
+    /// to swap in different text later. The pasteboard IS auto-restored a
+    /// beat after the paste (same as `paste(_:)`); `replace`/`finalize` still
+    /// work afterwards because `pasteboardUntouched` recognizes our own
+    /// restore, not just an untouched pasteboard.
     static func pasteTracked(_ text: String) -> PasteToken {
         // Capture AX selection state BEFORE any pasteboard mutation. The
         // focused element and its selection must reflect where text will land.
@@ -80,7 +116,7 @@ enum Paster {
         let selectionState = captureSelectionState()
 
         let pb = NSPasteboard.general
-        let prior = pb.string(forType: .string)
+        let snapshot = PasteboardSnapshot.capture(from: pb)
 
         // Indent injection (D-03). Only when AX gave us non-empty whitespace
         // AND the to-be-pasted text contains \n (i.e., voice "new line" was
@@ -102,11 +138,22 @@ enum Paster {
 
         simulatePasteKeystroke()
 
+        // Auto-restore the user's prior clipboard a beat after the paste
+        // settles, same delay as the one-shot `paste(_:)`. Gated on
+        // changeCount so a copy the user made in that window is never
+        // clobbered; `recordRestore` lets `replace`/`finalize` still work
+        // afterwards even though our restore itself bumps changeCount.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            guard pb.changeCount == changeCount else { return }
+            snapshot.restore(to: pb)
+            recordRestore(pasteChangeCount: changeCount, restoredChangeCount: pb.changeCount)
+        }
+
         return PasteToken(
             bundleId: bundleId,
             changeCountAtPaste: changeCount,
             pastedText: textToWrite,           // store the indented version
-            priorPasteboardString: prior,
+            priorPasteboard: snapshot,
             timestamp: Date(),
             selection: selectionState
         )
@@ -139,7 +186,7 @@ enum Paster {
                 bundleId: token.bundleId,
                 changeCountAtPaste: NSPasteboard.general.changeCount,
                 pastedText: newText,
-                priorPasteboardString: token.priorPasteboardString,
+                priorPasteboard: token.priorPasteboard,
                 timestamp: Date(),
                 selection: token.selection
             )
@@ -160,9 +207,12 @@ enum Paster {
         }
 
         // Gate 3: pasteboard untouched. Anyone else (the user, another app)
-        // writing to the pasteboard would have bumped the changeCount.
+        // writing to the pasteboard would have bumped the changeCount, but
+        // our own automatic restore (pasteTracked's +0.6s tick) also bumps
+        // it, so `pasteboardUntouched` recognizes that case too instead of
+        // treating it as "the user copied something".
         let pb = NSPasteboard.general
-        if pb.changeCount != token.changeCountAtPaste {
+        if !pasteboardUntouched(since: token, currentChangeCount: pb.changeCount) {
             finalize(token: token)
             return nil
         }
@@ -193,37 +243,36 @@ enum Paster {
         // Restore the user's original pasteboard a beat after our paste
         // settles. 0.6s matches the existing fire-and-forget paste path.
         // changeCount-gated: if the user (or another app) wrote to the
-        // pasteboard during this window, leave it alone — clobbering a
-        // fresh copy would be a worse bug than not restoring.
-        let prior = token.priorPasteboardString
+        // pasteboard during this window, leave it alone (clobbering a
+        // fresh copy would be a worse bug than not restoring).
+        let snapshot = token.priorPasteboard
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
             guard pb.changeCount == newChangeCount else { return }
-            if let p = prior {
-                pb.clearContents()
-                pb.setString(p, forType: .string)
-            }
+            snapshot.restore(to: pb)
+            recordRestore(pasteChangeCount: newChangeCount, restoredChangeCount: pb.changeCount)
         }
 
         return PasteToken(
             bundleId: token.bundleId,
             changeCountAtPaste: newChangeCount,
             pastedText: textToWrite,
-            priorPasteboardString: token.priorPasteboardString,
+            priorPasteboard: snapshot,
             timestamp: Date(),
             selection: token.selection
         )
     }
 
-    /// Restore the prior pasteboard string captured at paste time. Call
-    /// this when you've decided NOT to replace (e.g. cleanup threw).
+    /// Restore the prior pasteboard captured at paste time. Call this when
+    /// you've decided NOT to replace (e.g. cleanup threw). A no-op once the
+    /// automatic restore (from `pasteTracked`/`replace`) has already run,
+    /// which is fine; it's still needed for early-return paths that finalize
+    /// before that 0.6s tick fires.
     static func finalize(token: PasteToken) {
         let pb = NSPasteboard.general
         // Only restore if the pasteboard hasn't been touched since our
         // paste — otherwise we'd overwrite something the user just copied.
-        if pb.changeCount == token.changeCountAtPaste,
-           let prior = token.priorPasteboardString {
-            pb.clearContents()
-            pb.setString(prior, forType: .string)
+        if pb.changeCount == token.changeCountAtPaste {
+            token.priorPasteboard.restore(to: pb)
         }
     }
 
