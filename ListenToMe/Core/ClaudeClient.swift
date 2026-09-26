@@ -28,6 +28,45 @@ enum LLMRoute: Equatable {
 struct ClaudeClient {
     static let shared = ClaudeClient()
 
+    /// Flags that turn `claude --print` into a plain text-in/text-out call:
+    /// no tools, no MCP servers, no user/project/local settings (so no
+    /// hooks), no skills. Without these, a raw dictated transcript becomes
+    /// the prompt to a full agent that inherits the user's CLAUDE.md, hooks,
+    /// MCP servers and allowlisted tools, a dictated instruction could
+    /// trigger real tool side effects. Verified on the installed CLI
+    /// 2.1.283 (still returns normally with these flags):
+    ///   claude --print --no-session-persistence --disable-slash-commands
+    ///     --tools "" --strict-mcp-config --setting-sources ""
+    ///     --model haiku --output-format text
+    static let cliIsolationArgs = ["--tools", "", "--strict-mcp-config", "--setting-sources", ""]
+
+    /// The full `claude --print` argument list every CLI call site uses, so
+    /// the isolation flags above can never be forgotten on one of the three
+    /// routes (clean/transform/rewrite). Deliberately does NOT include
+    /// `--bare`, bare mode requires `ANTHROPIC_API_KEY` (it ignores
+    /// OAuth/keychain), and the whole point of shelling out to `claude` is
+    /// to reuse the user's Claude Code subscription auth.
+    static func cliArgs(systemPrompt: String) -> [String] {
+        [
+            "--print",
+            "--no-session-persistence",
+            "--disable-slash-commands",
+        ] + cliIsolationArgs + [
+            "--model", "haiku",
+            "--output-format", "text",
+            "--append-system-prompt", systemPrompt,
+        ]
+    }
+
+    /// Empty, app-private directory the `claude` CLI subprocess runs in, so
+    /// it never picks up a project CLAUDE.md from the app's inherited cwd.
+    /// Created on first access.
+    private static let claudeCLIWorkingDirectory: URL = {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("ListenToMe-claude-cwd")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }()
+
     /// One routing decision for every LLM call (clean/transform/rewrite), so
     /// `.local` honours the privacy contract everywhere instead of just in
     /// `clean`. `.local` always wins (ignores the key/cleanupBackend): picking
@@ -68,7 +107,15 @@ struct ClaudeClient {
     /// sentence, not the revision phrase (see the `sanitizeOutput: false` note on
     /// `runDirectAPI` below for why that distinction matters).
     static func sanitizeRewrite(output: String, original: String) throws -> String {
-        let s = sanitize(cleaned: output, original: original, thresholds: MeaningGuard.Thresholds.of(.medium))
+        // A revision may legitimately flip polarity ("urgent" → "not
+        // urgent") or a date/number ("Friday" → "next Thursday" carries no
+        // digit, but "the 3pm meeting" → "the 5pm meeting" does), that's
+        // the whole point of a Backtrack revision, so negation/number
+        // preservation is off here even though the medium content-word
+        // thresholds still catch a gross rewrite.
+        var thresholds = MeaningGuard.Thresholds.of(.medium)
+        thresholds.preserveNegationAndNumbers = false
+        let s = sanitize(cleaned: output, original: original, thresholds: thresholds)
         let trimmedOriginal = original.trimmingCharacters(in: .whitespacesAndNewlines)
         if s.isEmpty || s.trimmingCharacters(in: .whitespacesAndNewlines) == trimmedOriginal {
             throw ClaudeError.revisionRejected
@@ -291,20 +338,12 @@ struct ClaudeClient {
             )
 
         case .cli:
-            // CLI path. NOTE: deliberately NOT passing `--bare` — bare mode
-            // requires ANTHROPIC_API_KEY (it ignores OAuth/keychain). The whole
-            // point of shelling out to `claude` is to reuse the user's Claude
-            // Code subscription auth, so we accept the slower default startup.
+            // CLI path, isolated to a plain text-in/text-out call via
+            // `cliArgs` (see its doc comment) and run in an empty private
+            // cwd so no project CLAUDE.md loads.
             let stdoutData = try await runClaude(
                 input: text,
-                args: [
-                    "--print",
-                    "--no-session-persistence",
-                    "--disable-slash-commands",
-                    "--model", "haiku",
-                    "--output-format", "text",
-                    "--append-system-prompt", systemPrompt + intensitySuffix,
-                ],
+                args: Self.cliArgs(systemPrompt: systemPrompt + intensitySuffix),
                 timeout: timeout
             )
 
@@ -370,12 +409,20 @@ struct ClaudeClient {
             (Preferences.shared.llmBackend, Preferences.shared.cleanupBackend, Preferences.shared.anthropicAPIKey)
         }
 
+        // Surface-only thresholds on all three routes: the user explicitly
+        // asked for a transformation (translate/summarize/bulletize/...),
+        // so meaning-preservation and negation/number checks would reject
+        // almost every legitimate result, a French translation shares
+        // almost no content words with its English source, and "Bulletize"
+        // legitimately restructures numbers and polarity.
+        let transformThresholds = MeaningGuard.Thresholds.transform
+
         switch Self.route(llmBackend: llmBackend, cleanupBackend: cleanupBackend, apiKey: apiKey) {
         case .local:
             // Same privacy contract as `clean`: on-device never falls back
             // to the cloud, even for history-row re-transforms.
             let transformed = try await runLocal(system: systemPrompt, user: text)
-            let sanitized = Self.sanitize(cleaned: transformed, original: text)
+            let sanitized = Self.sanitize(cleaned: transformed, original: text, thresholds: transformThresholds)
             if sanitized.isEmpty { throw ClaudeError.emptyOutput }
             return sanitized
 
@@ -385,24 +432,18 @@ struct ClaudeClient {
                 text: text,
                 systemPrompt: systemPrompt,
                 apiKey: key,
-                timeout: timeout
+                timeout: timeout,
+                thresholds: transformThresholds
             )
 
         case .cli:
             let stdoutData = try await runClaude(
                 input: text,
-                args: [
-                    "--print",
-                    "--no-session-persistence",
-                    "--disable-slash-commands",
-                    "--model", "haiku",
-                    "--output-format", "text",
-                    "--append-system-prompt", systemPrompt,
-                ],
+                args: Self.cliArgs(systemPrompt: systemPrompt),
                 timeout: timeout
             )
             let raw = String(data: stdoutData, encoding: .utf8) ?? ""
-            let sanitized = Self.sanitize(cleaned: raw, original: text)
+            let sanitized = Self.sanitize(cleaned: raw, original: text, thresholds: transformThresholds)
             if sanitized.isEmpty { throw ClaudeError.emptyOutput }
             return sanitized
         }
@@ -470,14 +511,7 @@ struct ClaudeClient {
         case .cli:
             let stdoutData = try await runClaude(
                 input: revision,
-                args: [
-                    "--print",
-                    "--no-session-persistence",
-                    "--disable-slash-commands",
-                    "--model", "haiku",
-                    "--output-format", "text",
-                    "--append-system-prompt", systemPrompt,
-                ],
+                args: Self.cliArgs(systemPrompt: systemPrompt),
                 timeout: timeout
             )
             let raw = String(data: stdoutData, encoding: .utf8) ?? ""
@@ -584,20 +618,27 @@ struct ClaudeClient {
 
     // MARK: - Subprocess plumbing
 
-    /// Spawns `/usr/bin/env claude <args>` with stdin piped and stdout captured.
+    /// Spawns `/usr/bin/env claude <args>` with stdin piped and stdout
+    /// captured, in an empty private working directory (see
+    /// `claudeCLIWorkingDirectory`) so the subprocess can't pick up a
+    /// project CLAUDE.md from wherever the app happens to be running from.
     private func runClaude(input: String, args: [String], timeout: TimeInterval) async throws -> Data {
-        try await runEnv(args: ["claude"] + args, input: input, timeout: timeout)
+        try await runEnv(args: ["claude"] + args, input: input, timeout: timeout,
+                         cwd: Self.claudeCLIWorkingDirectory)
     }
 
     /// Generic `/usr/bin/env <args>` runner. macOS GUI apps inherit a stripped
     /// PATH, so we extend it here to include the common install locations for
-    /// user-installed CLIs (npm global, ~/.local/bin, Homebrew).
+    /// user-installed CLIs (npm global, ~/.local/bin, Homebrew). `cwd`
+    /// defaults to nil (inherit the app's cwd), only the `claude` calls
+    /// above override it.
     @discardableResult
-    private func runEnv(args: [String], input: String?, timeout: TimeInterval) async throws -> Data {
+    private func runEnv(args: [String], input: String?, timeout: TimeInterval, cwd: URL? = nil) async throws -> Data {
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         proc.arguments = args
         proc.environment = Self.augmentedEnvironment()
+        if let cwd { proc.currentDirectoryURL = cwd }
 
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()

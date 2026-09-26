@@ -40,7 +40,7 @@ Full details below.
 
 ### Transcript cleanup
 
-- **On-device Gemma 4** — llama.cpp runs Gemma 4 E2B (~3.1 GB Q4_K_M, default) or Gemma 4 12B (~7.4 GB Q4_K_M, requires ≥16 GB unified memory). Transcripts never leave your Mac. Includes a meaning guard (content-word recall + hallucination checks) and a cleanup gate that skips already-clean text.
+- **On-device Gemma 4** — llama.cpp runs Gemma 4 E2B (~3.1 GB Q4_K_M, default) or Gemma 4 12B (~7.2 GB Q4_0, requires ≥16 GB unified memory). Transcripts never leave your Mac. Includes a meaning guard (content-word recall + hallucination checks) and a cleanup gate that skips already-clean text.
 - **Cloud Claude (opt-in)** — if you select the cloud backend, the raw transcript is sent to the Anthropic API. Strictly opt-in; the local model path is never silently promoted to cloud if the local model is missing.
 - **Cleanup modes** — Never / Smart >20 words (default) / Smart >50 words / Always. Intensity: Light / Medium / High.
 

@@ -526,6 +526,7 @@ struct SettingsView: View {
                         .onChange(of: selectedWhisperModel) { _, new in
                             Preferences.shared.selectedWhisperModel = new
                             WhisperLib.shared.shutdown()
+                            WhisperServer.shared.shutdown()
                             modelManager.refreshStatus()
                         }
                     }
