@@ -48,7 +48,7 @@ if [ -f CMakeLists.txt ] && command -v cmake >/dev/null 2>&1; then
     -DWHISPER_COREML=1 \
     -DWHISPER_COREML_ALLOW_FALLBACK=1 \
     >/dev/null
-  cmake --build build --config Release -j
+  cmake --build build --config Release -j "$BUILD_JOBS"
   # binary ends up in build/bin/whisper-cli or build/bin/main
   if [ -f build/bin/whisper-cli ]; then
     WHISPER_BIN="$VENDOR_DIR/build/bin/whisper-cli"
@@ -60,7 +60,7 @@ if [ -f CMakeLists.txt ] && command -v cmake >/dev/null 2>&1; then
     exit 1
   fi
 else
-  make -j
+  make -j "$BUILD_JOBS"
   WHISPER_BIN="$VENDOR_DIR/main"
 fi
 popd >/dev/null

@@ -10,6 +10,12 @@ WHISPER_CPP_COMMIT="9386f239401074690479731c1e41683fbbeac557"   # v1.8.4
 LLAMA_CPP_REPO="https://github.com/ggml-org/llama.cpp"
 LLAMA_CPP_COMMIT="fdb1db877c526ec90f668eca1b858da5dba85560"     # 2026-07-02, ggml 0.15.3
 
+# Parallel compile jobs for both native builds. A bare `-j` means unlimited
+# jobs under the Makefile generator: every translation unit compiles at once,
+# which is fine on a big Mac but can push a 3-core / 7 GB CI runner into swap.
+# Bounded to the core count; override with BUILD_JOBS=N.
+BUILD_JOBS="${BUILD_JOBS:-$(sysctl -n hw.ncpu)}"
+
 # checkout_pinned <repo-url> <commit> <dir>
 #
 # Fetches and checks out a pinned commit into <dir>, detached.
