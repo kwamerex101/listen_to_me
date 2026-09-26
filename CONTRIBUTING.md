@@ -31,6 +31,8 @@ cd ListenToMe
 ```
 
 `setup.sh` is idempotent — re-run it to refresh whisper.cpp without losing anything.
+Native dependency commits (whisper.cpp, llama.cpp) are pinned in `scripts/native-deps.sh`;
+CI runs the full test suite on every pull request against those same pins.
 
 Open the generated `ListenToMe.xcodeproj` in Xcode for IDE development. The project file is gitignored; always regenerate it with `xcodegen generate` (or `./scripts/build.sh`) after pulling.
 

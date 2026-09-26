@@ -15,15 +15,22 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 PROJECT_ROOT="$(pwd)"
+. "$PROJECT_ROOT/scripts/native-deps.sh"
 LLAMA_DIR="$PROJECT_ROOT/vendor/llama.cpp"
 BUILD_DIR="$LLAMA_DIR/build-arm64"
 LLM_DIR="$PROJECT_ROOT/ListenToMe/Resources/llm"
 
-echo "==> 1. Clone llama.cpp (if needed)"
-if [ ! -d "$LLAMA_DIR" ]; then
-  mkdir -p "$PROJECT_ROOT/vendor"
-  # master carries Gemma 4 (gemma4 arch) + ggml >= 0.15. Metal embedded.
-  git clone --filter=blob:none https://github.com/ggml-org/llama.cpp "$LLAMA_DIR"
+echo "==> 1. Checkout pinned llama.cpp commit (scripts/native-deps.sh)"
+# The pin in native-deps.sh must stay on a commit that carries Gemma 4
+# (gemma4 arch) and ggml >= 0.15; bump it deliberately, not to floating master.
+mkdir -p "$PROJECT_ROOT/vendor"
+rc=0
+checkout_pinned "$LLAMA_CPP_REPO" "$LLAMA_CPP_COMMIT" "$LLAMA_DIR" || rc=$?
+if [ "$rc" -eq 10 ]; then
+  echo "    commit changed; wiping stale build dir so cmake reconfigures"
+  rm -rf "$BUILD_DIR"
+elif [ "$rc" -ne 0 ]; then
+  exit "$rc"
 fi
 
 echo "==> 2. Configure (arm64, Metal, embedded metallib, shared libs)"
