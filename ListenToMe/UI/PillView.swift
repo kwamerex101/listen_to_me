@@ -358,9 +358,13 @@ struct PillView: View {
     }
 
     /// True when clicking the pill should open the correction popover.
+    /// Only `.success` qualifies — during `.polishing` (clean-first)
+    /// nothing has pasted yet, so tapping there would open correction on
+    /// the PREVIOUS dictation's token. Keep in sync with
+    /// `AppDelegate.handlePillTap`.
     private var isPillTappable: Bool {
         switch state.phase {
-        case .success, .polishing: return true
+        case .success: return true
         default: return false
         }
     }
@@ -389,7 +393,7 @@ struct PillView: View {
     /// VoiceOver hint — what tapping the pill will do, when relevant.
     private var accessibilityHintForCurrentPhase: String {
         switch state.phase {
-        case .success, .polishing: return "Activate to edit the just-pasted transcript"
+        case .success: return "Activate to edit the just-pasted transcript"
         case .recording, .transcribing, .cleaning:
             return "Use the cancel button to abort"
         case .suggestion: return "Use Keep or Dismiss to respond"

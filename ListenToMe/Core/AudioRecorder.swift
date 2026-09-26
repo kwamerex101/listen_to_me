@@ -55,10 +55,44 @@ final class AudioRecorder {
     /// normal release path so the rest of the pipeline runs.
     var onMaxDurationReached: (() -> Void)?
 
+    /// Caller-provided callback fired at most once per recording when
+    /// `AVAudioEngineConfigurationChange` fires (e.g. AirPods disconnect,
+    /// or any other input-device change) — nothing else observes that
+    /// notification, so without this the engine just goes quiet and the
+    /// rest of the speech is lost with no feedback. AppDelegate wires this
+    /// like `onMaxDurationReached`: treat it as a normal release so
+    /// whatever was captured so far still gets transcribed and pasted.
+    var onInputInterrupted: (() -> Void)?
+
     /// Callback fired ~30Hz with normalized level 0…1.
     var onLevel: ((Float) -> Void)?
 
+    /// Observer token for `.AVAudioEngineConfigurationChange`. Registered
+    /// in `start()`, removed in `stop()`/`cancel()` so it never outlives
+    /// the session it belongs to.
+    private var configChangeObserver: NSObjectProtocol?
+
+    /// Guards `onInputInterrupted` firing more than once per recording —
+    /// a config change can post more than one notification for a single
+    /// device switch.
+    private var hasReportedInterruption = false
+
     private init() {}
+
+    /// Pure decision for whether a config-change notification should be
+    /// reported: only while a recording is actually in flight, and only
+    /// once per recording. Extracted so it's testable without touching
+    /// AVAudioEngine.
+    ///
+    /// `engineRunning`: a real device loss stops the engine (Apple posts the
+    /// notification after the engine stops itself). If the engine is still
+    /// running, the change didn't cost us any audio (e.g. a notification
+    /// triggered by our own device selection at start), so ignore it rather
+    /// than ending a healthy recording.
+    static func shouldReportInterruption(isRecording: Bool, engineRunning: Bool,
+                                         alreadyReported: Bool) -> Bool {
+        isRecording && !engineRunning && !alreadyReported
+    }
 
     static func requestMicAccess() async -> Bool {
         await withCheckedContinuation { cont in
@@ -84,7 +118,7 @@ final class AudioRecorder {
         if let uid = Preferences.shared.inputDeviceUID,
            var deviceID = AudioInputDevices.resolve(uid: uid),
            let audioUnit = input.audioUnit {
-            AudioUnitSetProperty(
+            let status = AudioUnitSetProperty(
                 audioUnit,
                 kAudioOutputUnitProperty_CurrentDevice,
                 kAudioUnitScope_Global,
@@ -92,6 +126,12 @@ final class AudioRecorder {
                 &deviceID,
                 UInt32(MemoryLayout<AudioDeviceID>.size)
             )
+            if status != noErr {
+                // Leave the engine on whatever input it already has (the
+                // system default) rather than failing the recording over
+                // a device that couldn't be selected.
+                NSLog("[ListenToMe] failed to select input device (status=\(status)) — using system default")
+            }
         }
 
         // Defensive teardown — installTap raises an Objective-C NSException
@@ -150,6 +190,25 @@ final class AudioRecorder {
             self?.process(buffer: buffer, target: targetFormat)
         }
 
+        // Nothing else observes this notification. If the input device
+        // changes mid-recording (AirPods disconnect, USB mic unplugged,
+        // the OS switching the default input) the engine stops and the
+        // tap goes silent with no signal to the rest of the app unless we
+        // watch for it ourselves.
+        hasReportedInterruption = false
+        if let existing = configChangeObserver {
+            NotificationCenter.default.removeObserver(existing)
+        }
+        configChangeObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: engine,
+            queue: nil
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.reportInterruptionIfNeeded()
+            }
+        }
+
         engine.prepare()
         try engine.start()
 
@@ -169,6 +228,7 @@ final class AudioRecorder {
     func stop() -> URL? {
         maxDurationTask?.cancel()
         maxDurationTask = nil
+        removeConfigChangeObserver()
         // removeTap is synchronous — no new tap callbacks fire after this.
         // Any in-flight callback will block on stateLock below before
         // touching the about-to-be-cleared state.
@@ -190,6 +250,7 @@ final class AudioRecorder {
     func cancel() {
         maxDurationTask?.cancel()
         maxDurationTask = nil
+        removeConfigChangeObserver()
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
         if let url = currentURL {
@@ -202,6 +263,27 @@ final class AudioRecorder {
         reusableOutBuffer = nil
         sampleAccumulator = nil
         stateLock.unlock()
+    }
+
+    @MainActor
+    private func removeConfigChangeObserver() {
+        if let observer = configChangeObserver {
+            NotificationCenter.default.removeObserver(observer)
+            configChangeObserver = nil
+        }
+        hasReportedInterruption = false
+    }
+
+    /// Runs on the main actor (dispatched there by the notification
+    /// observer registered in `start()`, since this class isn't globally
+    /// `@MainActor` and `currentURL` is main-thread-only state).
+    @MainActor
+    private func reportInterruptionIfNeeded() {
+        guard Self.shouldReportInterruption(isRecording: currentURL != nil,
+                                            engineRunning: engine.isRunning,
+                                            alreadyReported: hasReportedInterruption) else { return }
+        hasReportedInterruption = true
+        onInputInterrupted?()
     }
 
     /// Return a snapshot of the accumulator (M5' streaming partials).
