@@ -61,7 +61,7 @@ final class MeaningGuardNegationTests: XCTestCase {
     func test_accepts_thousands_separator_normalized() {
         // Enough surrounding content words that the unrelated content-word
         // recall metric (which tokenizes "1,000" as two separate digit
-        // groups) doesn't itself reject a too-short sentence — the point
+        // groups) doesn't itself reject a too-short sentence, the point
         // here is specifically that the number-preservation check treats
         // "1,000" and "1000" as the same number.
         let d = MeaningGuard.evaluate(
@@ -98,7 +98,7 @@ final class MeaningGuardNegationTests: XCTestCase {
     }
 
     func test_rewrite_path_accepts_polarity_flip_when_preserve_is_off() throws {
-        // ClaudeClient.sanitizeRewrite explicitly disables preservation —
+        // ClaudeClient.sanitizeRewrite explicitly disables preservation,
         // a Backtrack revision may legitimately flip "urgent" to "not
         // urgent" or change a date/number.
         let out = try ClaudeClient.sanitizeRewrite(

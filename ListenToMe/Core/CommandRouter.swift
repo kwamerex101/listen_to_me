@@ -66,7 +66,7 @@ enum CommandRouter {
     /// dictation pipeline (paste the raw words) rather than surface an
     /// error. Only `.openApp` qualifies: "Open the PR and merge it" parses
     /// as `.openApp(name: "the PR and merge it")` purely because it starts
-    /// with "open " — that's ordinary English, not a command the user
+    /// with "open ", that's ordinary English, not a command the user
     /// meant, so failing to launch an app by that name shouldn't eat the
     /// dictation behind a "Command failed" cue. `.logToday` and `.shell`
     /// are unambiguous, deliberate commands, so their failures still
@@ -169,7 +169,7 @@ enum CommandRouter {
     }
 
     /// Thread-safe append-only byte buffer. `readabilityHandler` fires on a
-    /// GCD dispatch-I/O thread, not the caller's — this is the only state
+    /// GCD dispatch-I/O thread, not the caller's, this is the only state
     /// that thread and the resume path both touch.
     private final class PipeBuffer {
         private let lock = NSLock()

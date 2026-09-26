@@ -76,13 +76,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// True once `handlePress` has actually started a recording for the
     /// press currently in flight. False when the gate refused the press
-    /// (already `.recording` / `.transcribing`) or mic access was denied —
+    /// (already `.recording` / `.transcribing`) or mic access was denied,
     /// `handleShortTap` uses this to know whether there's a just-started
     /// recording to discard at all.
     private var pressStartedRecording = false
 
     /// Snapshot of the pending clean-first cleanup's inputs (Item 2b). Set
-    /// when `startCleanupTask` begins, cleared when it finishes — either
+    /// when `startCleanupTask` begins, cleared when it finishes, either
     /// normally, or because the caller (a pre-empting `handlePress`, or an
     /// explicit `handleCancel`) is about to cancel it. Lets a pre-empting
     /// press record the discarded dictation to History instead of losing
@@ -148,7 +148,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.handleRelease()
         }
         // Item 4: AirPods disconnecting (or any input-device change) mid-
-        // recording stops the engine silently — without this the rest of
+        // recording stops the engine silently, without this the rest of
         // the speech is just gone. Treat it like the watchdog: finish the
         // dictation with whatever was captured so far instead of losing it.
         AudioRecorder.shared.onInputInterrupted = { [weak self] in
@@ -300,7 +300,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard DictationGate.acceptsPress(in: state.phase) else { return }
         // Item 2b: a press pre-empting a still-running clean-first cleanup
         // (phase == .polishing) is about to cancel it below. Nothing has
-        // pasted yet, but the words are real — record them to History
+        // pasted yet, but the words are real, record them to History
         // before the cancel, instead of the cleanup's CancellationError
         // branch silently dropping them.
         if let pending = pendingCleanupRecord {
@@ -553,7 +553,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         if Task.isCancelled { return }
                         if CommandRouter.fallsBackToDictation(on: cmd) {
                             // "Open the PR and merge it" parses as .openApp
-                            // because it starts with "open " — when `open -a`
+                            // because it starts with "open ", when `open -a`
                             // fails, that was never really an app-launch
                             // command, so fall through to the normal
                             // dictation pipeline instead of eating the words
@@ -802,7 +802,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         cleanupTask?.cancel()
         // Item 2b: remember these inputs so a pre-empting press can record
         // the dictation to History if it cancels us before we paste.
-        // Cleared below once we actually finish (paste, copy, or block) —
+        // Cleared below once we actually finish (paste, copy, or block),
         // by then the caller no longer needs it.
         pendingCleanupRecord = (raw: raw, expanded: expanded, durMs: durMs)
         cleanupTask = Task { [weak self] in
@@ -1044,7 +1044,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// CORR-01: a short tap of the hotkey opens the correction popover.
     /// The press half of the tap already started a recording (there's no
     /// way to know it's a tap, not a hold, until the release); discard that
-    /// recording silently — no history row, nothing pasted — then decide
+    /// recording silently, no history row, nothing pasted, then decide
     /// whether to open correction from `phaseAtPress`, the phase the tap
     /// interrupted, NOT `state.phase` (which by now just reflects the
     /// tap's own discarded recording).
@@ -1076,7 +1076,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Clicking the pill opens the correction popover. Only offered right
-    /// after a paste actually landed (`.success`) — during `.polishing`
+    /// after a paste actually landed (`.success`), during `.polishing`
     /// (clean-first) nothing has pasted yet, so tapping there used to open
     /// correction on the PREVIOUS dictation's token. Keep in sync with
     /// `PillView.isPillTappable`.

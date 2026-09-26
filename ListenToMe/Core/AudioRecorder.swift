@@ -57,7 +57,7 @@ final class AudioRecorder {
 
     /// Caller-provided callback fired at most once per recording when
     /// `AVAudioEngineConfigurationChange` fires (e.g. AirPods disconnect,
-    /// or any other input-device change) — nothing else observes that
+    /// or any other input-device change), nothing else observes that
     /// notification, so without this the engine just goes quiet and the
     /// rest of the speech is lost with no feedback. AppDelegate wires this
     /// like `onMaxDurationReached`: treat it as a normal release so
@@ -72,7 +72,7 @@ final class AudioRecorder {
     /// the session it belongs to.
     private var configChangeObserver: NSObjectProtocol?
 
-    /// Guards `onInputInterrupted` firing more than once per recording —
+    /// Guards `onInputInterrupted` firing more than once per recording,
     /// a config change can post more than one notification for a single
     /// device switch.
     private var hasReportedInterruption = false
@@ -130,7 +130,7 @@ final class AudioRecorder {
                 // Leave the engine on whatever input it already has (the
                 // system default) rather than failing the recording over
                 // a device that couldn't be selected.
-                NSLog("[ListenToMe] failed to select input device (status=\(status)) — using system default")
+                NSLog("[ListenToMe] failed to select input device (status=\(status)): using system default")
             }
         }
 

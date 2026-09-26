@@ -2,7 +2,7 @@ import XCTest
 @testable import ListenToMe
 
 /// Tests for `CommandRouter`: `fallsBackToDictation` (Item 3b) and
-/// `runProcess` (Item 3a) — the pipe-drain / timeout / cancellation fixes
+/// `runProcess` (Item 3a), the pipe-drain / timeout / cancellation fixes
 /// for a subprocess that could otherwise deadlock on a full pipe, hang
 /// forever with no timeout, or orphan a child process on cancellation.
 final class CommandRouterTests: XCTestCase {
@@ -71,7 +71,7 @@ final class CommandRouterTests: XCTestCase {
         let start = Date()
         task.cancel()
         // `onCancel` terminates the child immediately, so the continuation
-        // resolves right away — either with the process's own (SIGTERM'd)
+        // resolves right away, either with the process's own (SIGTERM'd)
         // termination status, or a thrown error. Either is fine; a
         // `sleep 5` that isn't cut short by cancellation is the actual bug.
         _ = try? await task.value

@@ -31,8 +31,8 @@ final class WhisperServer {
     }
 
     /// Local-only loopback bind. A random free port is picked at launch
-    /// (see `freeLoopbackPort`) so a crashed/orphaned previous instance —
-    /// or any other local process squatting a fixed port — can never
+    /// (see `freeLoopbackPort`) so a crashed/orphaned previous instance,
+    /// or any other local process squatting a fixed port, can never
     /// answer our probe or receive dictated audio. Falls back to this
     /// fixed port only if the helper can't find one.
     private let host = "127.0.0.1"
@@ -87,7 +87,7 @@ final class WhisperServer {
     /// Runs synchronously on the caller's thread (main, per the class's
     /// @MainActor isolation): terminate(), poll `isRunning` in 50ms
     /// steps up to 0.5s, then SIGKILL if it's still alive. 0.5s worst
-    /// case at quit/model-change is an acceptable, bounded cost — and
+    /// case at quit/model-change is an acceptable, bounded cost, and
     /// unlike a fire-and-forget async fallback, it's guaranteed to run.
     func shutdown() {
         startupTask?.cancel()
@@ -194,7 +194,7 @@ final class WhisperServer {
         // enough that a normal cold-cache start always wins the race.
         let started = Date()
         while Date().timeIntervalSince(started) < 20.0 {
-            // Readiness must come from OUR child — if it already exited
+            // Readiness must come from OUR child, if it already exited
             // (bind failure, model load crash, etc.) fail fast instead
             // of waiting out the timeout for a probe that will never
             // succeed.
@@ -236,7 +236,7 @@ final class WhisperServer {
 
     /// Random free loopback port. Binds 127.0.0.1:0, lets the kernel
     /// assign an ephemeral port, reads it back via getsockname, then
-    /// closes the socket immediately — whisper-server binds it moments
+    /// closes the socket immediately, whisper-server binds it moments
     /// later. There's a theoretical race if something else grabs the
     /// same port in between, but that's true of any "find a free port"
     /// scheme and is vastly less likely than colliding with a fixed
@@ -272,7 +272,7 @@ final class WhisperServer {
 
     /// Pure decision: should we kill the pid recorded in a stale pidfile
     /// before launching a new server? Only when its executable path is
-    /// exactly our bundled whisper-server binary — never a pid that
+    /// exactly our bundled whisper-server binary, never a pid that
     /// happens to be alive for an unrelated reason (pid reuse by the
     /// OS after our old child exited).
     static func shouldKillStale(pidExecutablePath: String?, ourBinaryPath: String) -> Bool {

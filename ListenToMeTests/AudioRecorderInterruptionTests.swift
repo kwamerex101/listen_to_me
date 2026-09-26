@@ -4,7 +4,7 @@ import XCTest
 /// Tests for `AudioRecorder.shouldReportInterruption`: the pure decision
 /// behind Item 4's `onInputInterrupted` callback (fired when
 /// `AVAudioEngineConfigurationChange` posts mid-recording, e.g. AirPods
-/// disconnecting). AVAudioEngine itself isn't driven here — only the
+/// disconnecting). AVAudioEngine itself isn't driven here, only the
 /// extracted decision.
 final class AudioRecorderInterruptionTests: XCTestCase {
 

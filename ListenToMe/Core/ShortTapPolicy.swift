@@ -3,7 +3,7 @@ import Foundation
 /// Decides whether a short hotkey tap should open the correction popover.
 ///
 /// A short tap always starts (and then discards) a brief recording, so by
-/// the time the decision runs the current phase is no longer meaningful —
+/// the time the decision runs the current phase is no longer meaningful,
 /// it reflects the just-discarded tap, not the dictation before it. The
 /// decision instead looks at `phaseAtPress`, the phase captured the instant
 /// before the press did anything. Correction only makes sense when the

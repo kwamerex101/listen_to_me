@@ -358,7 +358,7 @@ struct PillView: View {
     }
 
     /// True when clicking the pill should open the correction popover.
-    /// Only `.success` qualifies — during `.polishing` (clean-first)
+    /// Only `.success` qualifies, during `.polishing` (clean-first)
     /// nothing has pasted yet, so tapping there would open correction on
     /// the PREVIOUS dictation's token. Keep in sync with
     /// `AppDelegate.handlePillTap`.

@@ -9,7 +9,7 @@ import Foundation
 ///
 /// Integrity: every model in `Preferences.LocalLLMModel` carries a
 /// SHA-256 (from the HF API's `lfs.oid`, pinned alongside a commit-locked
-/// download URL — see `Preferences.swift`), verified against the
+/// download URL, see `Preferences.swift`), verified against the
 /// downloaded temp file before it's moved into place. A truncated download
 /// is also caught by the size floor.
 @MainActor
@@ -31,7 +31,7 @@ final class LLMModelManager: NSObject, ObservableObject {
     private var destURL: URL { LocalLLMEngine.modelURL(for: activeModel.filename) }
 
     /// Model + destination captured at the moment `startDownload()` is
-    /// called. The completion handler uses these — not `activeModel` — so
+    /// called. The completion handler uses these, not `activeModel`, so
     /// switching the model picker mid-download can't land a multi-GB GGUF
     /// under a different model's filename. `nil` whenever no download is
     /// in flight.
@@ -60,7 +60,7 @@ final class LLMModelManager: NSObject, ObservableObject {
 
     /// Recompute `status` from disk for the currently selected model.
     ///
-    /// No-op while a download is in flight (`downloadTask != nil`) — see
+    /// No-op while a download is in flight (`downloadTask != nil`), see
     /// the identical note on `WhisperModelManager.refreshStatus`: without
     /// this a picker-driven refresh could stomp `.downloading` back to
     /// `.missing` for the model that's still landing.
@@ -79,16 +79,16 @@ final class LLMModelManager: NSObject, ObservableObject {
         }
         if let expected = activeModel.sha256,
            let actual = WhisperModelManager.sha256(of: url), actual != expected {
-            NSLog("[ListenToMe] LLM model SHA mismatch (got \(actual.prefix(12))…, expected \(expected.prefix(12))…) — removing")
+            NSLog("[ListenToMe] LLM model SHA mismatch (got \(actual.prefix(12))…, expected \(expected.prefix(12))…): removing")
             try? FileManager.default.removeItem(at: url)
-            status = .failed(message: "Model integrity check failed — re-download required")
+            status = .failed(message: "Model integrity check failed. Re-download required")
             return
         }
         status = .ready(sizeBytes: size)
     }
 
     /// Begin a download if we don't already have one in flight. Refuses a
-    /// second concurrent request rather than cancelling-and-restarting —
+    /// second concurrent request rather than cancelling-and-restarting,
     /// the UI already disables the control while `.downloading`.
     func startDownload() {
         guard downloadTask == nil else { return }
@@ -154,7 +154,7 @@ final class LLMModelManager: NSObject, ObservableObject {
         downloadTask = nil
         downloadingModel = nil
         downloadingDestination = nil
-        status = .failed(message: "Downloaded model failed integrity check — please retry")
+        status = .failed(message: "Downloaded model failed integrity check. Please retry")
     }
 
     private func clearDownloadState() {
@@ -186,7 +186,7 @@ final class LLMModelManager: NSObject, ObservableObject {
         downloadingModel = nil
         downloadingDestination = nil
         refreshStatus()
-        // Point the engine at the freshly downloaded model and warm it —
+        // Point the engine at the freshly downloaded model and warm it,
         // only when it's still the active selection (the user may have
         // switched away while this download was in flight).
         if case .ready = status, let finishedModel, finishedModel == activeModel {
@@ -234,7 +234,7 @@ extension LLMModelManager: URLSessionDownloadDelegate {
             Task { @MainActor in self.handleFailure(error) }
             return
         }
-        // Not `@MainActor` — hashing a multi-GB GGUF must not run on the
+        // Not `@MainActor`, hashing a multi-GB GGUF must not run on the
         // main thread.
         Task { await self.verifyAndFinish(temp: owned) }
     }

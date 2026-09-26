@@ -19,7 +19,7 @@ final class ClaudeClientCLIIsolationTests: XCTestCase {
         let args = ClaudeClient.cliArgs(systemPrompt: "x")
         XCTAssertTrue(args.contains("--no-session-persistence"))
         XCTAssertTrue(args.contains("--disable-slash-commands"))
-        XCTAssertFalse(args.contains("--bare"), "must never pass --bare — breaks OAuth subscription auth")
+        XCTAssertFalse(args.contains("--bare"), "must never pass --bare, breaks OAuth subscription auth")
     }
 
     func test_cliArgs_carriesSystemPrompt() {

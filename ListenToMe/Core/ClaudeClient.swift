@@ -32,7 +32,7 @@ struct ClaudeClient {
     /// no tools, no MCP servers, no user/project/local settings (so no
     /// hooks), no skills. Without these, a raw dictated transcript becomes
     /// the prompt to a full agent that inherits the user's CLAUDE.md, hooks,
-    /// MCP servers and allowlisted tools — a dictated instruction could
+    /// MCP servers and allowlisted tools, a dictated instruction could
     /// trigger real tool side effects. Verified on the installed CLI
     /// 2.1.283 (still returns normally with these flags):
     ///   claude --print --no-session-persistence --disable-slash-commands
@@ -43,7 +43,7 @@ struct ClaudeClient {
     /// The full `claude --print` argument list every CLI call site uses, so
     /// the isolation flags above can never be forgotten on one of the three
     /// routes (clean/transform/rewrite). Deliberately does NOT include
-    /// `--bare` — bare mode requires `ANTHROPIC_API_KEY` (it ignores
+    /// `--bare`, bare mode requires `ANTHROPIC_API_KEY` (it ignores
     /// OAuth/keychain), and the whole point of shelling out to `claude` is
     /// to reuse the user's Claude Code subscription auth.
     static func cliArgs(systemPrompt: String) -> [String] {
@@ -109,7 +109,7 @@ struct ClaudeClient {
     static func sanitizeRewrite(output: String, original: String) throws -> String {
         // A revision may legitimately flip polarity ("urgent" → "not
         // urgent") or a date/number ("Friday" → "next Thursday" carries no
-        // digit, but "the 3pm meeting" → "the 5pm meeting" does) — that's
+        // digit, but "the 3pm meeting" → "the 5pm meeting" does), that's
         // the whole point of a Backtrack revision, so negation/number
         // preservation is off here even though the medium content-word
         // thresholds still catch a gross rewrite.
@@ -412,7 +412,7 @@ struct ClaudeClient {
         // Surface-only thresholds on all three routes: the user explicitly
         // asked for a transformation (translate/summarize/bulletize/...),
         // so meaning-preservation and negation/number checks would reject
-        // almost every legitimate result — a French translation shares
+        // almost every legitimate result, a French translation shares
         // almost no content words with its English source, and "Bulletize"
         // legitimately restructures numbers and polarity.
         let transformThresholds = MeaningGuard.Thresholds.transform
@@ -630,7 +630,7 @@ struct ClaudeClient {
     /// Generic `/usr/bin/env <args>` runner. macOS GUI apps inherit a stripped
     /// PATH, so we extend it here to include the common install locations for
     /// user-installed CLIs (npm global, ~/.local/bin, Homebrew). `cwd`
-    /// defaults to nil (inherit the app's cwd) — only the `claude` calls
+    /// defaults to nil (inherit the app's cwd), only the `claude` calls
     /// above override it.
     @discardableResult
     private func runEnv(args: [String], input: String?, timeout: TimeInterval, cwd: URL? = nil) async throws -> Data {

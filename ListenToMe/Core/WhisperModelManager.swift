@@ -30,7 +30,7 @@ final class WhisperModelManager: NSObject, ObservableObject {
     private var activeModel: Preferences.WhisperModel { Preferences.shared.selectedWhisperModel }
 
     /// Model + destination captured at the moment `startDownload()` is
-    /// called. The completion handler uses these — not `activeModel` — so
+    /// called. The completion handler uses these, not `activeModel`, so
     /// switching the Settings picker mid-download can't land the bytes
     /// under a different model's filename (the picker's own `refreshStatus`
     /// call also can't clobber the in-flight download; see `refreshStatus`).
@@ -69,7 +69,7 @@ final class WhisperModelManager: NSObject, ObservableObject {
     }
 
     /// Where a given model's file lives on disk, independent of the current
-    /// selection — a pure function of the model, mirroring
+    /// selection, a pure function of the model, mirroring
     /// `WhisperRunner.modelURL`'s path construction (which is keyed off
     /// `Preferences.shared.selectedWhisperModel` instead). Used to capture
     /// the download destination at `startDownload()` time.
@@ -79,11 +79,11 @@ final class WhisperModelManager: NSObject, ObservableObject {
     }
 
     /// Recompute `status` from disk for the currently selected model. Cheap
-    /// when the file is already in page cache — at ~150 MB the SHA pass
+    /// when the file is already in page cache, at ~150 MB the SHA pass
     /// takes ~50-100 ms on M-series silicon. Called once on launch (init)
     /// and after a download completes, so the user-felt cost is invisible.
     ///
-    /// No-op while a download is in flight (`downloadTask != nil`) — without
+    /// No-op while a download is in flight (`downloadTask != nil`), without
     /// this, a caller (e.g. the Settings model picker reacting to a
     /// selection change) could stomp `.downloading` back to `.missing` for
     /// the model that's still landing, and `startDownload()`'s "already
@@ -133,7 +133,7 @@ final class WhisperModelManager: NSObject, ObservableObject {
     }
 
     /// Begin a download if we don't already have one in flight. Refuses
-    /// (rather than cancelling-and-restarting) a second concurrent request —
+    /// (rather than cancelling-and-restarting) a second concurrent request,
     /// simpler to reason about, and the UI already disables the download
     /// control while `.downloading`.
     func startDownload() {
@@ -206,7 +206,7 @@ final class WhisperModelManager: NSObject, ObservableObject {
         downloadTask = nil
         downloadingModel = nil
         downloadingDestination = nil
-        status = .failed(message: "Downloaded model failed integrity check — please retry")
+        status = .failed(message: "Downloaded model failed integrity check. Please retry")
     }
 
     private func clearDownloadState() {
@@ -217,8 +217,8 @@ final class WhisperModelManager: NSObject, ObservableObject {
 
     fileprivate func handleFinished(temp: URL) {
         guard let dest = downloadingDestination else {
-            // Shouldn't happen — startDownload() always sets this before a
-            // download can start — but don't strand the temp file either way.
+            // Shouldn't happen, startDownload() always sets this before a
+            // download can start, but don't strand the temp file either way.
             try? FileManager.default.removeItem(at: temp)
             clearDownloadState()
             status = .failed(message: "Couldn't save model: no destination recorded for this download")
@@ -278,7 +278,7 @@ extension WhisperModelManager: URLSessionDownloadDelegate {
     ) {
         // The downloaded file lives in the temp directory until this delegate
         // returns; we need to copy/move it synchronously OR snapshot the path
-        // and dispatch — synchronously snapshot, then hop off-actor to verify.
+        // and dispatch, synchronously snapshot, then hop off-actor to verify.
         // Move it to a stable temp file we own so it doesn't get cleaned up
         // before the hash/move runs.
         let owned = FileManager.default.temporaryDirectory
@@ -289,7 +289,7 @@ extension WhisperModelManager: URLSessionDownloadDelegate {
             Task { @MainActor in self.handleFailure(error) }
             return
         }
-        // Not `@MainActor` — the hash pass over a multi-hundred-MB/GB file
+        // Not `@MainActor`, the hash pass over a multi-hundred-MB/GB file
         // must not run on the main thread.
         Task { await self.verifyAndFinish(temp: owned) }
     }

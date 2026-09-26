@@ -73,7 +73,7 @@ final class WhisperServerTests: XCTestCase {
 
     @MainActor
     func test_inferenceTimeout_belowHeaderSize_isFloor() {
-        // Malformed/truncated file smaller than the header — must not go negative.
+        // Malformed/truncated file smaller than the header, must not go negative.
         XCTAssertEqual(WhisperServer.inferenceTimeout(wavBytes: 10), 30)
     }
 }

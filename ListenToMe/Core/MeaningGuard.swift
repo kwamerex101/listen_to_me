@@ -33,7 +33,7 @@ enum MeaningGuard {
         /// When true, reject a cleanup that drops a negation ("Do not
         /// deploy" → "Deploy") or loses a number that appeared in the
         /// original ("15" → "50"). These invert or falsify the sentence in
-        /// ways the content-word metrics above can't see — nearly every
+        /// ways the content-word metrics above can't see, nearly every
         /// word survives either failure. Off for transformations that
         /// legitimately change numbers/polarity on purpose (a translation,
         /// or a Backtrack revision like "make that not urgent").
@@ -58,7 +58,7 @@ enum MeaningGuard {
         /// because more aggressive editing legitimately drops/reorders words.
         /// `.light` keeps the validated defaults; `.high` only catches gross
         /// garbage (a rewrite is expected to diverge). Negation/number
-        /// preservation stays on at every intensity — cleanup, unlike an
+        /// preservation stays on at every intensity, cleanup, unlike an
         /// explicit transform/rewrite, should never silently flip "not" or a
         /// number no matter how aggressively it's asked to edit.
         static func of(_ intensity: Preferences.CleanupIntensity) -> Thresholds {
@@ -153,7 +153,7 @@ enum MeaningGuard {
     ]
 
     /// Count of negators in `text`, tokenized on letters only (lowercased),
-    /// with immediately-repeated identical negators collapsed to one — a
+    /// with immediately-repeated identical negators collapsed to one, a
     /// speech stutter ("no no, we won't") shouldn't inflate the count and
     /// then get flagged as "dropped" when the cleanup naturally de-stutters
     /// it.
@@ -201,10 +201,10 @@ enum MeaningGuard {
                 current.append(ch)
                 i += 1
             } else if !current.isEmpty, ch == ",", i + 1 < chars.count, chars[i + 1].isNumber {
-                // Thousands separator inside an active run — drop it, keep the run going.
+                // Thousands separator inside an active run, drop it, keep the run going.
                 i += 1
             } else if !current.isEmpty, ch == ".", i + 1 < chars.count, chars[i + 1].isNumber {
-                // Decimal point inside an active run — keep it.
+                // Decimal point inside an active run, keep it.
                 current.append(ch)
                 i += 1
             } else {
@@ -222,7 +222,7 @@ enum MeaningGuard {
     /// True when every number that appeared in `original` still appears in
     /// `cleaned`, as a multiset (a repeated number must survive the same
     /// number of times). `cleaned` may contain additional numbers not in
-    /// `original` — cleanup turning "fifteen" into "15" is a legitimate
+    /// `original`, cleanup turning "fifteen" into "15" is a legitimate
     /// improvement, not a drift.
     static func numbersPreserved(original: String, cleaned: String) -> Bool {
         let originalNumbers = numberTokens(original)

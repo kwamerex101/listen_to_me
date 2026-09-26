@@ -376,7 +376,7 @@ final class Preferences {
         /// SHA-256 for every model, read from the same API call's
         /// `siblings[].lfs.sha256` (the `lfs.oid` for each of these files IS
         /// its sha256). base.en's was already recorded before this pass and
-        /// matched the API exactly — the other two are newly added here.
+        /// matched the API exactly, the other two are newly added here.
         var sha256: String? {
             switch self {
             case .baseEn:
@@ -527,7 +527,7 @@ final class Preferences {
 
         /// NOTE: `gemma4_12B` was originally `gemma-4-12B-it-Q4_K_M.gguf`, but
         /// that filename doesn't exist in `ggml-org/gemma-4-12B-it-GGUF` (checked
-        /// against the live API on 2026-09-26 — the repo publishes BF16, Q4_0,
+        /// against the live API on 2026-09-26, the repo publishes BF16, Q4_0,
         /// and Q8_0 only, so the old URL 404s). Switched to the Q4_0 quant,
         /// the closest available to the requested 4-bit size, so the download
         /// actually works and so every model can carry a real, API-verified

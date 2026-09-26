@@ -19,7 +19,7 @@ final class ShortTapPolicyTests: XCTestCase {
     }
 
     func test_opensCorrection_false_whenPhaseAtPressWasPolishing() {
-        // Clean-first hasn't pasted anything yet — opening correction here
+        // Clean-first hasn't pasted anything yet, opening correction here
         // would edit the token from the dictation before this one.
         XCTAssertFalse(ShortTapPolicy.opensCorrection(
             phaseAtPress: .polishing(rawPreview: "revising"), hasPasteToken: true))
