@@ -492,10 +492,15 @@ final class Preferences {
         }
     }
 
+    /// On-device is the default so nothing leaves the Mac unless the user
+    /// opts into cloud (README + onboarding promise). Users who explicitly
+    /// picked cloud keep it (the value is stored in defaults either way).
+    static let defaultLLMBackend: LLMBackend = .local
+
     var llmBackend: LLMBackend {
         get {
-            let raw = defaults.string(forKey: kLLMBackend) ?? LLMBackend.cloud.rawValue
-            return LLMBackend(rawValue: raw) ?? .cloud
+            let raw = defaults.string(forKey: kLLMBackend) ?? Self.defaultLLMBackend.rawValue
+            return LLMBackend(rawValue: raw) ?? Self.defaultLLMBackend
         }
         set { defaults.set(newValue.rawValue, forKey: kLLMBackend) }
     }

@@ -2,7 +2,7 @@ import Foundation
 
 /// Spawns the `claude` CLI as a subprocess for transcript cleanup.
 /// Mirrors the `WhisperRunner` pattern: Process + Pipe + terminationHandler.
-enum ClaudeError: Error {
+enum ClaudeError: Error, Equatable {
     case binaryNotFound
     case processFailed(code: Int32, stderr: String)
     case timedOut
@@ -13,10 +13,68 @@ enum ClaudeError: Error {
     case apiHTTPError(status: Int, body: String)
     /// Anthropic API returned 2xx but the body wasn't shaped how we expected.
     case apiResponseMalformed(String)
+    /// Backtrack revision failed the meaning guard (or came back empty); the
+    /// caller falls through to the normal cleanup pipeline instead of
+    /// "succeeding" with no change.
+    case revisionRejected
+}
+
+/// Where an LLM call is routed. Pure function of the user's settings, so it's
+/// testable without touching the network, the CLI, or the on-device engine.
+enum LLMRoute: Equatable {
+    case local, api, cli
 }
 
 struct ClaudeClient {
     static let shared = ClaudeClient()
+
+    /// One routing decision for every LLM call (clean/transform/rewrite), so
+    /// `.local` honours the privacy contract everywhere instead of just in
+    /// `clean`. `.local` always wins (ignores the key/cleanupBackend): picking
+    /// on-device means nothing leaves the Mac. Under `.cloud`, `.auto` prefers
+    /// the direct API when a key is configured, else falls back to the CLI.
+    static func route(llmBackend: Preferences.LLMBackend,
+                      cleanupBackend: Preferences.CleanupBackend,
+                      apiKey: String?) -> LLMRoute {
+        if llmBackend == .local { return .local }
+        switch cleanupBackend {
+        case .api:  return .api
+        case .cli:  return .cli
+        case .auto: return (apiKey?.isEmpty == false) ? .api : .cli
+        }
+    }
+
+    /// Runs the on-device model. Reused by every `.local` route. If the model
+    /// path isn't set yet, points it at the user's selected local model
+    /// before running; if the model is missing, the error propagates. The
+    /// caller must NOT fall back to the cloud (that's the whole point of
+    /// picking on-device).
+    private func runLocal(system: String, user: String) async throws -> String {
+        await MainActor.run {
+            let engine = LocalLLMEngine.shared
+            if engine.activeModelPath == nil {
+                engine.activeModelPath = LocalLLMEngine.modelURL(for: Preferences.shared.selectedLocalLLMModel.filename).path
+            }
+        }
+        return try await LocalLLMEngine.shared.transform(system: system, user: user)
+    }
+
+    /// Sanitize a backtrack rewrite. Throws `ClaudeError.revisionRejected` when the
+    /// guard rejects it (sanitize fell back to `original`) or output is empty, so the
+    /// caller falls through to the normal pipeline instead of "succeeding" with no change.
+    ///
+    /// A revision legitimately swaps words ("Friday" -> "next Thursday"), so this
+    /// uses the looser medium thresholds, but still checks against the ORIGINAL
+    /// sentence, not the revision phrase (see the `sanitizeOutput: false` note on
+    /// `runDirectAPI` below for why that distinction matters).
+    static func sanitizeRewrite(output: String, original: String) throws -> String {
+        let s = sanitize(cleaned: output, original: original, thresholds: MeaningGuard.Thresholds.of(.medium))
+        let trimmedOriginal = original.trimmingCharacters(in: .whitespacesAndNewlines)
+        if s.isEmpty || s.trimmingCharacters(in: .whitespacesAndNewlines) == trimmedOriginal {
+            throw ClaudeError.revisionRejected
+        }
+        return s
+    }
 
     /// Code-aware cleanup prompt — swapped in when AppContext.category
     /// is .codeEditor. Same hard-rule safety net as the default
@@ -194,56 +252,35 @@ struct ClaudeClient {
             return sections.joined(separator: "\n\n")
         }
 
-        // On-device path. When the user selects the local LLM backend we run
-        // Gemma via llama.cpp and NEVER fall back to the cloud — picking
-        // "on-device" is a privacy contract. If the model is missing/unloaded,
-        // the error propagates and the pipeline keeps the raw transcript
-        // rather than silently shipping it to Anthropic.
-        let (llmBackend, intensity) = await MainActor.run {
-            ((Preferences.shared.llmBackend, Preferences.shared.selectedLocalLLMModel),
-             Preferences.shared.cleanupIntensity)
+        // One read of everything the router needs, plus intensity (which
+        // modulates the prompt and how strict the MeaningGuard is, since a
+        // rewrite legitimately diverges more; `.light` adds nothing and
+        // keeps the validated defaults).
+        let (llmBackend, cleanupBackend, apiKey, intensity): (Preferences.LLMBackend, Preferences.CleanupBackend, String?, Preferences.CleanupIntensity) = await MainActor.run {
+            (Preferences.shared.llmBackend, Preferences.shared.cleanupBackend,
+             Preferences.shared.anthropicAPIKey, Preferences.shared.cleanupIntensity)
         }
-        // Intensity modulates the prompt (an extra instruction) and how strict
-        // the MeaningGuard is (a rewrite legitimately diverges more). `.light`
-        // adds nothing and keeps the validated defaults.
         let intensitySuffix = Self.intensitySuffix(intensity)
         let guardThresholds = MeaningGuard.Thresholds.of(intensity)
 
-        if llmBackend.0 == .local {
-            await MainActor.run {
-                let engine = LocalLLMEngine.shared
-                if engine.activeModelPath == nil {
-                    engine.activeModelPath = LocalLLMEngine.modelURL(for: llmBackend.1.filename).path
-                }
-            }
+        switch Self.route(llmBackend: llmBackend, cleanupBackend: cleanupBackend, apiKey: apiKey) {
+        case .local:
+            // On-device path. Picking "on-device" is a privacy contract: we
+            // NEVER fall back to the cloud here. If the model is
+            // missing/unloaded, the error propagates and the pipeline keeps
+            // the raw transcript rather than silently shipping it to
+            // Anthropic.
+            //
             // Use the Gemma-tuned prompt (short, prohibition-first, examples
             // that carry punctuation/splitting) rather than the layered
             // Haiku prompt — the eval harness measured this prompt directly.
             // sanitize/MeaningGuard back-stop the output regardless.
-            let cleaned = try await LocalLLMEngine.shared.transform(
-                system: Self.localCleanupSystemPrompt + intensitySuffix, user: text)
+            let cleaned = try await runLocal(system: Self.localCleanupSystemPrompt + intensitySuffix, user: text)
             let sanitized = Self.sanitize(cleaned: cleaned, original: text, thresholds: guardThresholds)
             if sanitized.isEmpty { throw ClaudeError.emptyOutput }
             return sanitized
-        }
 
-        // Cloud backend selection per Preferences. .auto picks API when a key
-        // is configured (it's ~3-5× faster than CLI cold-start), falls
-        // back to CLI otherwise — preserving the original
-        // "reuse-Claude-Code-subscription" behavior for users without
-        // their own API key.
-        let (backend, apiKey): (Preferences.CleanupBackend, String?) = await MainActor.run {
-            (Preferences.shared.cleanupBackend, Preferences.shared.anthropicAPIKey)
-        }
-
-        let useAPI: Bool
-        switch backend {
-        case .auto: useAPI = (apiKey?.isEmpty == false)
-        case .cli:  useAPI = false
-        case .api:  useAPI = true
-        }
-
-        if useAPI {
+        case .api:
             guard let key = apiKey, !key.isEmpty else { throw ClaudeError.apiKeyMissing }
             return try await runDirectAPI(
                 text: text,
@@ -252,29 +289,30 @@ struct ClaudeClient {
                 timeout: timeout,
                 thresholds: guardThresholds
             )
+
+        case .cli:
+            // CLI path. NOTE: deliberately NOT passing `--bare` — bare mode
+            // requires ANTHROPIC_API_KEY (it ignores OAuth/keychain). The whole
+            // point of shelling out to `claude` is to reuse the user's Claude
+            // Code subscription auth, so we accept the slower default startup.
+            let stdoutData = try await runClaude(
+                input: text,
+                args: [
+                    "--print",
+                    "--no-session-persistence",
+                    "--disable-slash-commands",
+                    "--model", "haiku",
+                    "--output-format", "text",
+                    "--append-system-prompt", systemPrompt + intensitySuffix,
+                ],
+                timeout: timeout
+            )
+
+            let raw = String(data: stdoutData, encoding: .utf8) ?? ""
+            let sanitized = Self.sanitize(cleaned: raw, original: text, thresholds: guardThresholds)
+            if sanitized.isEmpty { throw ClaudeError.emptyOutput }
+            return sanitized
         }
-
-        // CLI path. NOTE: deliberately NOT passing `--bare` — bare mode
-        // requires ANTHROPIC_API_KEY (it ignores OAuth/keychain). The whole
-        // point of shelling out to `claude` is to reuse the user's Claude
-        // Code subscription auth, so we accept the slower default startup.
-        let stdoutData = try await runClaude(
-            input: text,
-            args: [
-                "--print",
-                "--no-session-persistence",
-                "--disable-slash-commands",
-                "--model", "haiku",
-                "--output-format", "text",
-                "--append-system-prompt", systemPrompt + intensitySuffix,
-            ],
-            timeout: timeout
-        )
-
-        let raw = String(data: stdoutData, encoding: .utf8) ?? ""
-        let sanitized = Self.sanitize(cleaned: raw, original: text, thresholds: guardThresholds)
-        if sanitized.isEmpty { throw ClaudeError.emptyOutput }
-        return sanitized
     }
 
     /// Extra instruction appended to the cleanup prompt per intensity. `.light`
@@ -328,17 +366,20 @@ struct ClaudeClient {
         - Ship the release
         """
 
-        let (backend, apiKey): (Preferences.CleanupBackend, String?) = await MainActor.run {
-            (Preferences.shared.cleanupBackend, Preferences.shared.anthropicAPIKey)
-        }
-        let useAPI: Bool
-        switch backend {
-        case .auto: useAPI = (apiKey?.isEmpty == false)
-        case .cli:  useAPI = false
-        case .api:  useAPI = true
+        let (llmBackend, cleanupBackend, apiKey): (Preferences.LLMBackend, Preferences.CleanupBackend, String?) = await MainActor.run {
+            (Preferences.shared.llmBackend, Preferences.shared.cleanupBackend, Preferences.shared.anthropicAPIKey)
         }
 
-        if useAPI {
+        switch Self.route(llmBackend: llmBackend, cleanupBackend: cleanupBackend, apiKey: apiKey) {
+        case .local:
+            // Same privacy contract as `clean`: on-device never falls back
+            // to the cloud, even for history-row re-transforms.
+            let transformed = try await runLocal(system: systemPrompt, user: text)
+            let sanitized = Self.sanitize(cleaned: transformed, original: text)
+            if sanitized.isEmpty { throw ClaudeError.emptyOutput }
+            return sanitized
+
+        case .api:
             guard let key = apiKey, !key.isEmpty else { throw ClaudeError.apiKeyMissing }
             return try await runDirectAPI(
                 text: text,
@@ -346,24 +387,25 @@ struct ClaudeClient {
                 apiKey: key,
                 timeout: timeout
             )
-        }
 
-        let stdoutData = try await runClaude(
-            input: text,
-            args: [
-                "--print",
-                "--no-session-persistence",
-                "--disable-slash-commands",
-                "--model", "haiku",
-                "--output-format", "text",
-                "--append-system-prompt", systemPrompt,
-            ],
-            timeout: timeout
-        )
-        let raw = String(data: stdoutData, encoding: .utf8) ?? ""
-        let sanitized = Self.sanitize(cleaned: raw, original: text)
-        if sanitized.isEmpty { throw ClaudeError.emptyOutput }
-        return sanitized
+        case .cli:
+            let stdoutData = try await runClaude(
+                input: text,
+                args: [
+                    "--print",
+                    "--no-session-persistence",
+                    "--disable-slash-commands",
+                    "--model", "haiku",
+                    "--output-format", "text",
+                    "--append-system-prompt", systemPrompt,
+                ],
+                timeout: timeout
+            )
+            let raw = String(data: stdoutData, encoding: .utf8) ?? ""
+            let sanitized = Self.sanitize(cleaned: raw, original: text)
+            if sanitized.isEmpty { throw ClaudeError.emptyOutput }
+            return sanitized
+        }
     }
 
     /// Rewrite `original` per `revision` instructions. Used by the
@@ -401,42 +443,46 @@ struct ClaudeClient {
         Output: Hey team, the production URL is broken.
         """
 
-        let (backend, apiKey): (Preferences.CleanupBackend, String?) = await MainActor.run {
-            (Preferences.shared.cleanupBackend, Preferences.shared.anthropicAPIKey)
-        }
-        let useAPI: Bool
-        switch backend {
-        case .auto: useAPI = (apiKey?.isEmpty == false)
-        case .cli:  useAPI = false
-        case .api:  useAPI = true
+        let (llmBackend, cleanupBackend, apiKey): (Preferences.LLMBackend, Preferences.CleanupBackend, String?) = await MainActor.run {
+            (Preferences.shared.llmBackend, Preferences.shared.cleanupBackend, Preferences.shared.anthropicAPIKey)
         }
 
-        if useAPI {
+        // All three routes below are validated exactly once, by
+        // `sanitizeRewrite(output:original:)`, against the ORIGINAL sentence
+        // (never the revision phrase); see that function's doc comment for
+        // why a naive sanitize-against-`revision` rejects good rewrites.
+        switch Self.route(llmBackend: llmBackend, cleanupBackend: cleanupBackend, apiKey: apiKey) {
+        case .local:
+            let raw = try await runLocal(system: systemPrompt, user: revision)
+            return try Self.sanitizeRewrite(output: raw, original: original)
+
+        case .api:
             guard let key = apiKey, !key.isEmpty else { throw ClaudeError.apiKeyMissing }
-            return try await runDirectAPI(
+            let raw = try await runDirectAPI(
                 text: revision,
                 systemPrompt: systemPrompt,
                 apiKey: key,
+                timeout: timeout,
+                sanitizeOutput: false
+            )
+            return try Self.sanitizeRewrite(output: raw, original: original)
+
+        case .cli:
+            let stdoutData = try await runClaude(
+                input: revision,
+                args: [
+                    "--print",
+                    "--no-session-persistence",
+                    "--disable-slash-commands",
+                    "--model", "haiku",
+                    "--output-format", "text",
+                    "--append-system-prompt", systemPrompt,
+                ],
                 timeout: timeout
             )
+            let raw = String(data: stdoutData, encoding: .utf8) ?? ""
+            return try Self.sanitizeRewrite(output: raw, original: original)
         }
-
-        let stdoutData = try await runClaude(
-            input: revision,
-            args: [
-                "--print",
-                "--no-session-persistence",
-                "--disable-slash-commands",
-                "--model", "haiku",
-                "--output-format", "text",
-                "--append-system-prompt", systemPrompt,
-            ],
-            timeout: timeout
-        )
-        let raw = String(data: stdoutData, encoding: .utf8) ?? ""
-        let sanitized = Self.sanitize(cleaned: raw, original: original)
-        if sanitized.isEmpty { throw ClaudeError.emptyOutput }
-        return sanitized
     }
 
     /// Quick check that cleanup is viable. Returns true when EITHER the
@@ -471,7 +517,8 @@ struct ClaudeClient {
                               systemPrompt: String,
                               apiKey: String,
                               timeout: TimeInterval,
-                              thresholds: MeaningGuard.Thresholds = .default) async throws -> String {
+                              thresholds: MeaningGuard.Thresholds = .default,
+                              sanitizeOutput: Bool = true) async throws -> String {
         var req = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
         req.httpMethod = "POST"
         req.timeoutInterval = timeout
@@ -521,6 +568,14 @@ struct ClaudeClient {
             guard let type = block["type"] as? String, type == "text" else { return nil }
             return block["text"] as? String
         }.joined()
+
+        // Rewrite callers pass `sanitizeOutput: false`: they validate the raw
+        // model text themselves via `sanitizeRewrite(output:original:)`,
+        // against the ORIGINAL sentence and not `text` (the revision phrase)
+        // that this function would otherwise guard against.
+        guard sanitizeOutput else {
+            return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
 
         let sanitized = Self.sanitize(cleaned: cleaned, original: text, thresholds: thresholds)
         if sanitized.isEmpty { throw ClaudeError.emptyOutput }
