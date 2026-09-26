@@ -352,8 +352,16 @@ final class Preferences {
 
         var filename: String { "ggml-\(rawValue).bin" }
 
+        /// Commit the download URLs below are pinned to, so a future push to
+        /// `ggerganov/whisper.cpp` can't silently swap the bytes behind an
+        /// already-verified SHA-256 (the risk with a mutable `resolve/main`
+        /// URL). Obtained from `GET
+        /// https://huggingface.co/api/models/ggerganov/whisper.cpp?blobs=true`
+        /// (its top-level `sha`) on 2026-09-26.
+        private static let whisperCppCommit = "5359861c739e955e79d9a303bcbc70fb988958b1"
+
         var downloadURL: URL {
-            URL(string: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/\(filename)")!
+            URL(string: "https://huggingface.co/ggerganov/whisper.cpp/resolve/\(Self.whisperCppCommit)/\(filename)")!
         }
 
         /// Minimum expected file size — rejects obviously-truncated downloads.
@@ -365,13 +373,18 @@ final class Preferences {
             }
         }
 
-        /// Verified SHA-256 for base.en. nil = size-only check for other models.
+        /// SHA-256 for every model, read from the same API call's
+        /// `siblings[].lfs.sha256` (the `lfs.oid` for each of these files IS
+        /// its sha256). base.en's was already recorded before this pass and
+        /// matched the API exactly — the other two are newly added here.
         var sha256: String? {
             switch self {
             case .baseEn:
                 return "a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002"
-            case .smallEn, .largeTurbo:
-                return nil
+            case .smallEn:
+                return "c6138d6d58ecc8322097e0f987c32f1be8bb0a18532a3f88f734d1bbf9c41e5d"
+            case .largeTurbo:
+                return "1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69"
             }
         }
     }
@@ -512,25 +525,47 @@ final class Preferences {
         case gemma4E2B   // ~3.1 GB Q4_K_M — fast, default
         case gemma4_12B  // ~7.4 GB Q4_K_M — high quality, opt-in
 
+        /// NOTE: `gemma4_12B` was originally `gemma-4-12B-it-Q4_K_M.gguf`, but
+        /// that filename doesn't exist in `ggml-org/gemma-4-12B-it-GGUF` (checked
+        /// against the live API on 2026-09-26 — the repo publishes BF16, Q4_0,
+        /// and Q8_0 only, so the old URL 404s). Switched to the Q4_0 quant,
+        /// the closest available to the requested 4-bit size, so the download
+        /// actually works and so every model can carry a real, API-verified
+        /// hash instead of leaving this one unpinned.
         var filename: String {
             switch self {
             case .gemma4E2B:  return "gemma-4-E2B-it-Q4_K_M.gguf"
-            case .gemma4_12B: return "gemma-4-12B-it-Q4_K_M.gguf"
+            case .gemma4_12B: return "gemma-4-12B-it-Q4_0.gguf"
             }
         }
+
+        /// Commits pinning each download URL, from that repo's `sha` in
+        /// `GET https://huggingface.co/api/models/<owner>/<repo>?blobs=true`
+        /// on 2026-09-26.
+        private static let e2bCommit = "0314792d7f1f7e229411f620751375812bb9faf2"
+        private static let twelveBCommit = "e3e681731089efaa3f0917336944ac64752db8ba"
 
         var downloadURL: URL {
             switch self {
             case .gemma4E2B:
-                return URL(string: "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf")!
+                return URL(string: "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/\(Self.e2bCommit)/\(filename)")!
             case .gemma4_12B:
-                return URL(string: "https://huggingface.co/ggml-org/gemma-4-12B-it-GGUF/resolve/main/gemma-4-12B-it-Q4_K_M.gguf")!
+                return URL(string: "https://huggingface.co/ggml-org/gemma-4-12B-it-GGUF/resolve/\(Self.twelveBCommit)/\(filename)")!
             }
         }
 
-        /// Reject obviously-truncated downloads. SHA pinning deferred (the HF
-        /// GGUF re-uploads aren't checksum-published the way whisper's are);
-        /// size floor + successful model load are the integrity signal.
+        /// SHA-256 for every model, read from the same API call's
+        /// `siblings[].lfs.sha256`.
+        var sha256: String? {
+            switch self {
+            case .gemma4E2B:
+                return "740185b21d22ceb83a11c3aa62ad5842ef32c70f6096d756bbee85a1e4ec34b8"
+            case .gemma4_12B:
+                return "3712b9bd32cae83a22f67ee7a4466d8d7a4f21646ac8a07d19bf9418e8767a70"
+            }
+        }
+
+        /// Reject obviously-truncated downloads.
         var expectedMinBytes: Int64 {
             switch self {
             case .gemma4E2B:  return 2_800_000_000

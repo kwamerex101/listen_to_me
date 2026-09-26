@@ -2,6 +2,25 @@
 
 All notable user-facing changes per release. Format inspired by [Keep a Changelog](https://keepachangelog.com/), version numbers follow [SemVer](https://semver.org/) at the bundle level.
 
+## 0.19.0 (build 45)
+
+### Fixed
+
+- The warm transcription server now starts on a fresh random port each launch and cleans up any orphaned copy of itself from a previous crash, so a stuck process can no longer intercept your dictated audio.
+- Long dictations no longer time out on the warm transcription server and get re-run from scratch; the time limit now grows with the length of the recording.
+- Switching or deleting the Whisper model now restarts the transcription server right away, instead of leaving it running with the old (or deleted) model.
+- Model downloads are now verified against a known checksum before they're used, and switching models mid-download can no longer save the wrong file under the wrong name.
+- Cloud cleanup through the `claude` command-line tool now runs as a plain text-in, text-out call with no tools, hooks or MCP servers, so nothing in your dictation can trigger an action.
+- Cleanup no longer silently drops a "not" or changes a number in your dictated text; if it tries, your original words are kept.
+- History transforms (Translate, Summarize, Bulletize and your own) now actually apply. Before, they were usually rejected and returned your text unchanged.
+- The Gemma 4 12B download works again. It pointed at a file that no longer exists; it now downloads the Q4_0 build (about 7.2 GB).
+- A quick tap of the hotkey right after a dictation now opens the correction popover, as intended.
+- Starting a new dictation while the previous one is still being cleaned up no longer loses the earlier one; it's saved to History.
+- Voice commands no longer hang when a command runs long or prints a lot; they time out instead.
+- A dictation that starts with "open" (like "Open the PR and merge it") is typed normally if no app by that name opens, instead of failing as a command.
+- If your microphone or headphones disconnect mid-recording, what you said so far is transcribed and pasted instead of lost.
+- Granting microphone access in System Settings takes effect on the next press, without relaunching.
+
 ## 0.18.2 (build 44)
 
 ### Fixed

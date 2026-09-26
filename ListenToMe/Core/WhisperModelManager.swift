@@ -29,6 +29,15 @@ final class WhisperModelManager: NSObject, ObservableObject {
     /// Derives download URL, size floor, and SHA from the currently selected model.
     private var activeModel: Preferences.WhisperModel { Preferences.shared.selectedWhisperModel }
 
+    /// Model + destination captured at the moment `startDownload()` is
+    /// called. The completion handler uses these — not `activeModel` — so
+    /// switching the Settings picker mid-download can't land the bytes
+    /// under a different model's filename (the picker's own `refreshStatus`
+    /// call also can't clobber the in-flight download; see `refreshStatus`).
+    /// `nil` whenever no download is in flight.
+    private var downloadingModel: Preferences.WhisperModel?
+    private var downloadingDestination: URL?
+
     /// Optional Core ML encoder package (ANE-accelerated encoder).
     /// whisper.cpp linked builds auto-load this when the .mlmodelc
     /// directory sits next to the .bin. Without it, the encoder runs
@@ -59,11 +68,28 @@ final class WhisperModelManager: NSObject, ObservableObject {
         refreshStatus()
     }
 
-    /// Recompute `status` from disk. Cheap when the file is already in
-    /// page cache — at ~150 MB the SHA pass takes ~50-100 ms on M-series
-    /// silicon. Called once on launch (init) and after a download
-    /// completes, so the user-felt cost is invisible.
+    /// Where a given model's file lives on disk, independent of the current
+    /// selection — a pure function of the model, mirroring
+    /// `WhisperRunner.modelURL`'s path construction (which is keyed off
+    /// `Preferences.shared.selectedWhisperModel` instead). Used to capture
+    /// the download destination at `startDownload()` time.
+    static func downloadDestination(for model: Preferences.WhisperModel) -> URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        return base.appendingPathComponent("ListenToMe/models/\(model.filename)")
+    }
+
+    /// Recompute `status` from disk for the currently selected model. Cheap
+    /// when the file is already in page cache — at ~150 MB the SHA pass
+    /// takes ~50-100 ms on M-series silicon. Called once on launch (init)
+    /// and after a download completes, so the user-felt cost is invisible.
+    ///
+    /// No-op while a download is in flight (`downloadTask != nil`) — without
+    /// this, a caller (e.g. the Settings model picker reacting to a
+    /// selection change) could stomp `.downloading` back to `.missing` for
+    /// the model that's still landing, and `startDownload()`'s "already
+    /// downloading" refusal would stop applying.
     func refreshStatus() {
+        guard downloadTask == nil else { return }
         let model = activeModel
         let url = WhisperRunner.modelURL
         guard FileManager.default.fileExists(atPath: url.path) else {
@@ -88,9 +114,12 @@ final class WhisperModelManager: NSObject, ObservableObject {
         status = .ready(sizeBytes: size)
     }
 
-    /// Stream the file through SHA256 in 1 MB chunks so we never load the
-    /// 150 MB blob into memory all at once.
-    private static func sha256(of url: URL) -> String? {
+    /// Stream the file through SHA256 in 1 MB chunks so we never load a
+    /// multi-hundred-MB or multi-GB file into memory all at once.
+    /// `nonisolated` and off the actor deliberately: callers that verify a
+    /// freshly-downloaded temp file do so from a background `Task`, not the
+    /// MainActor, so a large model's hash pass never blocks the UI.
+    nonisolated static func sha256(of url: URL) -> String? {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? handle.close() }
         var hasher = SHA256()
@@ -103,20 +132,25 @@ final class WhisperModelManager: NSObject, ObservableObject {
         return digest.map { String(format: "%02x", $0) }.joined()
     }
 
-    /// Begin a download if we don't already have one in flight.
+    /// Begin a download if we don't already have one in flight. Refuses
+    /// (rather than cancelling-and-restarting) a second concurrent request —
+    /// simpler to reason about, and the UI already disables the download
+    /// control while `.downloading`.
     func startDownload() {
-        if case .downloading = status { return }
+        guard downloadTask == nil else { return }
         if case .ready = status { return }
 
-        // Ensure the destination directory exists. Mirrors WhisperRunner.modelURL.
-        let dest = WhisperRunner.modelURL
+        let model = activeModel
+        let dest = Self.downloadDestination(for: model)
         try? FileManager.default.createDirectory(
             at: dest.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
 
+        downloadingModel = model
+        downloadingDestination = dest
         status = .downloading(progress: 0)
-        let task = session.downloadTask(with: activeModel.downloadURL)
+        let task = session.downloadTask(with: model.downloadURL)
         downloadTask = task
         task.resume()
     }
@@ -124,6 +158,8 @@ final class WhisperModelManager: NSObject, ObservableObject {
     func cancelDownload() {
         downloadTask?.cancel()
         downloadTask = nil
+        downloadingModel = nil
+        downloadingDestination = nil
         refreshStatus()
     }
 
@@ -134,7 +170,10 @@ final class WhisperModelManager: NSObject, ObservableObject {
     func deleteModel() {
         downloadTask?.cancel()
         downloadTask = nil
+        downloadingModel = nil
+        downloadingDestination = nil
         WhisperLib.shared.shutdown()   // release the loaded context before unlinking the file
+        WhisperServer.shared.shutdown()   // and the warm subprocess, so it can't keep serving the deleted file from RAM
         try? FileManager.default.removeItem(at: WhisperRunner.modelURL)
         if coreMLPackageInstalled {
             try? FileManager.default.removeItem(at: Self.coreMLPackageURL)
@@ -146,25 +185,67 @@ final class WhisperModelManager: NSObject, ObservableObject {
         status = .downloading(progress: max(0, min(1, p)))
     }
 
-    fileprivate func handleFinished(temp: URL) {
-        let dest = WhisperRunner.modelURL
-        do {
-            // Move temp file to final destination. Replace any existing
-            // truncated file from a prior attempt.
-            if FileManager.default.fileExists(atPath: dest.path) {
-                try FileManager.default.removeItem(at: dest)
+    /// Runs off the MainActor: streams the just-downloaded temp file
+    /// through SHA-256 (when the model publishes one) before handing off to
+    /// `handleFinished` to move it into place. Keeps a multi-hundred-MB
+    /// verification pass from blocking the UI thread.
+    nonisolated private func verifyAndFinish(temp: URL) async {
+        let model = await MainActor.run { self.downloadingModel }
+        if let model, let expected = model.sha256 {
+            let actual = Self.sha256(of: temp)
+            guard actual == expected else {
+                try? FileManager.default.removeItem(at: temp)
+                await MainActor.run { self.handleHashMismatch() }
+                return
             }
-            try FileManager.default.moveItem(at: temp, to: dest)
+        }
+        await MainActor.run { self.handleFinished(temp: temp) }
+    }
+
+    fileprivate func handleHashMismatch() {
+        downloadTask = nil
+        downloadingModel = nil
+        downloadingDestination = nil
+        status = .failed(message: "Downloaded model failed integrity check — please retry")
+    }
+
+    private func clearDownloadState() {
+        downloadTask = nil
+        downloadingModel = nil
+        downloadingDestination = nil
+    }
+
+    fileprivate func handleFinished(temp: URL) {
+        guard let dest = downloadingDestination else {
+            // Shouldn't happen — startDownload() always sets this before a
+            // download can start — but don't strand the temp file either way.
+            try? FileManager.default.removeItem(at: temp)
+            clearDownloadState()
+            status = .failed(message: "Couldn't save model: no destination recorded for this download")
+            return
+        }
+        do {
+            // Atomic swap into place. replaceItemAt handles "no existing
+            // file at dest" too (it just performs the move).
+            _ = try FileManager.default.replaceItemAt(dest, withItemAt: temp)
         } catch {
+            // Clear the in-flight state too: startDownload refuses while a
+            // download is recorded, so leaving it set would block every retry.
+            try? FileManager.default.removeItem(at: temp)
+            clearDownloadState()
             status = .failed(message: "Couldn't save model: \(error.localizedDescription)")
             return
         }
         downloadTask = nil
+        downloadingModel = nil
+        downloadingDestination = nil
         refreshStatus()
     }
 
     fileprivate func handleFailure(_ error: Error) {
         downloadTask = nil
+        downloadingModel = nil
+        downloadingDestination = nil
         // Cancellation surfaces as URLError(.cancelled); treat as a clean
         // reset rather than a user-visible error.
         if let urlErr = error as? URLError, urlErr.code == .cancelled {
@@ -197,9 +278,9 @@ extension WhisperModelManager: URLSessionDownloadDelegate {
     ) {
         // The downloaded file lives in the temp directory until this delegate
         // returns; we need to copy/move it synchronously OR snapshot the path
-        // and dispatch — synchronously snapshot, then hop to main.
+        // and dispatch — synchronously snapshot, then hop off-actor to verify.
         // Move it to a stable temp file we own so it doesn't get cleaned up
-        // before MainActor.handleFinished runs.
+        // before the hash/move runs.
         let owned = FileManager.default.temporaryDirectory
             .appendingPathComponent("ListenToMe-model-\(UUID().uuidString).bin")
         do {
@@ -208,7 +289,9 @@ extension WhisperModelManager: URLSessionDownloadDelegate {
             Task { @MainActor in self.handleFailure(error) }
             return
         }
-        Task { @MainActor in self.handleFinished(temp: owned) }
+        // Not `@MainActor` — the hash pass over a multi-hundred-MB/GB file
+        // must not run on the main thread.
+        Task { await self.verifyAndFinish(temp: owned) }
     }
 
     nonisolated func urlSession(
