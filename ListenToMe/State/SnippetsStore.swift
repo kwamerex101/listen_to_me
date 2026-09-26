@@ -120,12 +120,16 @@ final class SnippetsStore: ObservableObject {
         } catch {
             NSLog("[ListenToMe] SnippetsStore.load failed: \(error) — falling back to legacy JSON")
             // Fall back to the legacy JSON so a DB problem can't lose
-            // the user's existing snippets. Same LegacySnippet shadow
+            // the user's existing snippets. Checks the post-migration
+            // `.bak` copy too (LegacyJSONFallback) — a successful
+            // migration already renamed the original away, so a DB
+            // failure after that point would otherwise read nothing and
+            // silently show an empty list. Same LegacySnippet shadow
             // type as migrateFromLegacyJSON since `Snippet` itself no
             // longer conforms to Codable (the new SQL columns include
             // a createdAt the legacy file doesn't carry).
             struct LegacySnippet: Decodable { let id: UUID; let keyword: String; let expansion: String }
-            if let data = try? Data(contentsOf: legacyURL),
+            if let data = LegacyJSONFallback.read(legacyURL: legacyURL),
                let arr = try? JSONDecoder().decode([LegacySnippet].self, from: data) {
                 snippets = arr.map { Snippet(id: $0.id, keyword: $0.keyword, expansion: $0.expansion) }
             }

@@ -2,6 +2,16 @@
 
 All notable user-facing changes per release. Format inspired by [Keep a Changelog](https://keepachangelog.com/), version numbers follow [SemVer](https://semver.org/) at the bundle level.
 
+## 0.18.2 (build 44)
+
+### Fixed
+
+- Long dictations no longer crash the app when on-device cleanup is on; if a cleanup would be cut off, your original words are pasted instead.
+- Switching or deleting a model while it's in use no longer crashes the app.
+- If you switch apps or click into a password field while cleanup is running, the text is no longer pasted there: it's copied to the clipboard instead (or, for a password field, discarded).
+- Snippets and transforms are no longer shown as empty if the local database can't be read.
+- Turning on history encryption now also removes the old unencrypted history backup left by an earlier upgrade.
+
 ## 0.18.1 (build 43)
 
 ### Fixed

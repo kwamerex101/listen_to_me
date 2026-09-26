@@ -21,7 +21,10 @@ final class LocalLLMEngine {
     /// Opaque `llama_model *` handle from the shim. nil until loaded.
     private var model: llama_bridge_model?
     private var loadedModelPath: String?
-    private var isBusy = false
+    /// Guards `model` against a free while a detached transform still holds
+    /// its raw pointer (model switch / delete / app quit racing an
+    /// in-flight decode). See `InFlightGate`.
+    private var gate = InFlightGate()
 
     private init() {}
 
@@ -66,23 +69,39 @@ final class LocalLLMEngine {
         }
     }
 
-    /// Free the model. Idempotent. Wire from applicationWillTerminate.
+    /// Free the model. Idempotent. Wire from applicationWillTerminate, the
+    /// model picker, and deleteModel. If a transform is in flight, the free
+    /// is deferred until it finishes (see `InFlightGate`) instead of pulling
+    /// the pointer out from under the detached decode task; never resets
+    /// `gate`'s busy state, since that transform still owns it.
     func shutdown() {
+        if gate.requestRelease() {
+            freeNow()
+        }
+    }
+
+    /// Actually frees the model and clears `loadedModelPath`. Only called
+    /// once nothing is in flight — directly from `shutdown()` when idle, or
+    /// from a transform's `defer` once `gate.end()` reports a deferred
+    /// release.
+    private func freeNow() {
         if let model { llama_bridge_free(model) }
         model = nil
         loadedModelPath = nil
-        isBusy = false
     }
 
     /// system + user text → cleaned text. Non-streaming, deterministic.
+    /// `maxTokens <= 0` (the default) auto-sizes the output budget and
+    /// context from the user text length (see `llama_bridge_plan`) instead
+    /// of a fixed cap, so long dictations get enough room to be cleaned in
+    /// one decode instead of aborting the process or getting cut off.
     /// Throws `.busy` if a transform is already in flight (one decode loop
     /// per model at a time).
-    func transform(system: String, user: String, maxTokens: Int = 512) async throws -> String {
-        guard !isBusy else { throw LLMError.busy }
+    func transform(system: String, user: String, maxTokens: Int = 0) async throws -> String {
         try ensureModel()
         guard let model else { throw LLMError.loadFailed }
-        isBusy = true
-        defer { isBusy = false }
+        guard gate.begin() else { throw LLMError.busy }
+        defer { if gate.end() { freeNow() } }
 
         // Pass the model pointer across the actor hop as a bit pattern
         // (UnsafeMutableRawPointer isn't Sendable; the integer is).
@@ -107,7 +126,11 @@ final class LocalLLMEngine {
             throw LLMError.loadFailed
         }
         // Model switch: free the stale handle so the new GGUF loads below.
-        if model != nil, loadedModelPath != path {
+        // Skipped while a transform is in flight — freeing here would race
+        // the detached decode still holding the old pointer; gate.begin()
+        // below throws .busy in that case, and the switch takes effect on
+        // the next call once the pending release (from shutdown()) frees it.
+        if model != nil, loadedModelPath != path, !gate.isBusy {
             llama_bridge_free(model!)
             model = nil
             loadedModelPath = nil
