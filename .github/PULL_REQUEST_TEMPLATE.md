@@ -12,3 +12,5 @@
 - [ ] Tested the change manually (describe what you did)
 - [ ] No new hardcoded paths, credentials, or secrets
 - [ ] Commit messages follow the `feat:` / `fix:` / `chore:` / `docs:` convention
+- [ ] CHANGELOG.md updated for user-facing changes
+- [ ] Bug fixes include a regression test

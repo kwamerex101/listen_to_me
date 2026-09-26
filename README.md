@@ -6,7 +6,7 @@
 
 Privacy-first, fully on-device dictation for macOS — speak into any app, release the hotkey, and your words appear. Everything runs locally by default; nothing leaves your Mac unless you explicitly opt in.
 
-![Platform](https://img.shields.io/badge/platform-macOS%2014%2B-blue) ![Swift](https://img.shields.io/badge/swift-5.9-orange) ![License](https://img.shields.io/badge/license-MIT-green)
+![Platform](https://img.shields.io/badge/platform-macOS%2014%2B-blue) ![Swift](https://img.shields.io/badge/swift-5.9-orange) ![License](https://img.shields.io/badge/license-MIT-green) ![CI](https://github.com/kwamerex101/listen_to_me/actions/workflows/ci.yml/badge.svg)
 
 </div>
 
@@ -187,6 +187,7 @@ cd listen_to_me
 
 # 2. Build whisper.cpp (with Core ML) + llama.cpp, copy binaries/dylibs
 #    into ListenToMe/Resources/, and install xcodegen via Homebrew.
+#    Native commit pins live in scripts/native-deps.sh.
 ./scripts/setup.sh
 
 # 3. Generate the Xcode project file

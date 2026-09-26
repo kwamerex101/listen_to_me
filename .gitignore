@@ -2,6 +2,8 @@
 build/
 build-release/
 DerivedData/
+.spm/
+TestResults.xcresult/
 
 # Distribution artifacts
 dist/

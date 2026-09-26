@@ -1,0 +1,72 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test:
+    name: Build and test
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      XCODE_APP: /Applications/Xcode_26.6.app
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode
+        run: sudo xcode-select -s "$XCODE_APP" && xcodebuild -version
+      - name: Install xcodegen
+        run: brew install xcodegen
+      - name: Restore native libraries (whisper.cpp, llama.cpp)
+        id: native-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ListenToMe/Resources/*.dylib
+            ListenToMe/Resources/whisper-cli
+            ListenToMe/Resources/whisper-server
+            ListenToMe/Resources/llm
+            ListenToMe/CLlama/include
+          key: native-${{ runner.os }}-${{ runner.arch }}-xcode26.6-${{ hashFiles('scripts/native-deps.sh', 'scripts/setup.sh', 'scripts/build-llama.sh') }}
+      - name: Build native libraries
+        if: steps.native-cache.outputs.cache-hit != 'true'
+        run: |
+          SKIP_MODELS=1 ./scripts/setup.sh
+          ./scripts/build-llama.sh
+      - name: Generate project
+        run: xcodegen generate
+      - name: Info.plist matches project.yml
+        # xcodegen regenerates Info.plist from project.yml; a diff means one was hand-edited
+        # without the other (version/build drift).
+        run: git diff --exit-code -- ListenToMe/Info.plist
+      - name: Restore Swift packages
+        uses: actions/cache@v4
+        with:
+          path: .spm
+          key: spm-${{ runner.os }}-${{ hashFiles('project.yml') }}
+      - name: Test
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project ListenToMe.xcodeproj \
+            -scheme ListenToMe \
+            -destination 'platform=macOS' \
+            -clonedSourcePackagesDirPath .spm \
+            -resultBundlePath TestResults.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            | tee xcodebuild.log | grep -E '^(Test Suite|Test Case .*failed|.*error:|\*\* )' || true
+          grep -q '\*\* TEST SUCCEEDED \*\*' xcodebuild.log
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            TestResults.xcresult
+            xcodebuild.log
+          retention-days: 7

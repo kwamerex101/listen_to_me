@@ -1,9 +1,13 @@
 #!/bin/bash
 # ListenToMe — one-time setup: xcodegen, whisper.cpp, model
+#
+# SKIP_MODELS=1 stops after the native build and skips the model + Core ML
+# downloads (steps 5 and 6). CI sets this since tests don't need a real model.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 PROJECT_ROOT="$(pwd)"
+. "$PROJECT_ROOT/scripts/native-deps.sh"
 VENDOR_DIR="$PROJECT_ROOT/vendor/whisper.cpp"
 RES_DIR="$PROJECT_ROOT/ListenToMe/Resources"
 MODEL_DIR="$HOME/Library/Application Support/ListenToMe/models"
@@ -20,10 +24,15 @@ if ! command -v xcodegen >/dev/null 2>&1; then
 fi
 echo "    xcodegen $(xcodegen --version)"
 
-echo "==> 2. Clone whisper.cpp (if needed)"
-if [ ! -d "$VENDOR_DIR" ]; then
-  mkdir -p "$PROJECT_ROOT/vendor"
-  git clone --depth 1 https://github.com/ggerganov/whisper.cpp "$VENDOR_DIR"
+echo "==> 2. Checkout pinned whisper.cpp commit (scripts/native-deps.sh)"
+mkdir -p "$PROJECT_ROOT/vendor"
+rc=0
+checkout_pinned "$WHISPER_CPP_REPO" "$WHISPER_CPP_COMMIT" "$VENDOR_DIR" || rc=$?
+if [ "$rc" -eq 10 ]; then
+  echo "    commit changed; wiping stale build dir so cmake rebuilds"
+  rm -rf "$VENDOR_DIR/build"
+elif [ "$rc" -ne 0 ]; then
+  exit "$rc"
 fi
 
 echo "==> 3. Build whisper.cpp (with Core ML support)"
@@ -122,6 +131,11 @@ for f in "$RES_DIR/whisper-cli" "$RES_DIR/whisper-server" "$RES_DIR"/*.dylib; do
   codesign --force --sign - "$f" 2>/dev/null || true
 done
 echo "    bundled $(ls "$RES_DIR"/*.dylib 2>/dev/null | wc -l | tr -d ' ') dylibs + whisper-cli"
+
+if [ "${SKIP_MODELS:-}" = "1" ]; then
+  echo "==> 5/6. Skipping model + Core ML downloads (SKIP_MODELS=1)"
+  exit 0
+fi
 
 echo "==> 5. Download Whisper model (if needed)"
 mkdir -p "$MODEL_DIR"
