@@ -710,6 +710,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// flow, which duplicated text in apps where Cmd+Z isn't text-undo
     /// (terminals). On cleanup failure the raw (`expanded`) is pasted instead.
     /// Cancellation (new dictation / user bail) aborts before any paste.
+    /// Before that paste, `PasteTarget.decide` re-checks the frontmost app
+    /// and secure-input state, since cleanup can take seconds: a secure
+    /// field blocks the paste entirely, and a changed frontmost app copies
+    /// to the clipboard instead of pasting into whatever's there now.
+    /// `bundleId` is the frontmost app when cleanup started, used as the
+    /// expected target for that check.
     private func startCleanupTask(id: Int,
                                   raw: String,
                                   expanded: String,
@@ -736,16 +742,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             await MainActor.run {
                 guard let self, !Task.isCancelled else { return }
-                let token = Paster.pasteTracked(finalText)
-                self.lastPasteToken = token
-                self.state.lastTranscript = finalText
-                self.scheduleRetypeDetection(token: token)
-                self.recordStyleSample(token: token, cleaned: finalText)
-                HistoryStore.shared.add(rawText: raw, finalText: finalText,
-                                         durationMs: durMs, bundleId: token.bundleId)
-                if self.isCurrent(id) {
-                    self.state.phase = .success(preview: String(finalText.prefix(30)))
-                    self.autoReset(after: 3.0)
+
+                // Cleanup can take seconds; re-check the target now rather
+                // than trusting the bundleId captured before cleanup
+                // started — the user may have switched apps or focused a
+                // password field while we were waiting.
+                let currentBundleId = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+                switch PasteTarget.decide(expectedBundleId: bundleId,
+                                          currentBundleId: currentBundleId,
+                                          secureInputActive: SecureInput.isActive) {
+                case .block:
+                    // Same contract as the pre-cleanup secure-field guard:
+                    // never insert, never store.
+                    self.lastRawTranscript = nil
+                    if self.isCurrent(id) {
+                        self.state.phase = .error(message: "Secure field — not inserted")
+                        self.autoReset()
+                    }
+                    return
+
+                case .copyInstead:
+                    // Deliberate copy, not a paste — no restore-on-timer
+                    // like the correction flow uses.
+                    let pb = NSPasteboard.general
+                    pb.clearContents()
+                    pb.setString(finalText, forType: .string)
+                    self.lastPasteToken = nil
+                    self.state.lastTranscript = finalText
+                    HistoryStore.shared.add(rawText: raw, finalText: finalText,
+                                             durationMs: durMs, bundleId: nil)
+                    if self.isCurrent(id) {
+                        self.state.phase = .success(preview: "Copied (app changed)")
+                        self.autoReset(after: 2.0)
+                    }
+
+                case .paste:
+                    let token = Paster.pasteTracked(finalText)
+                    self.lastPasteToken = token
+                    self.state.lastTranscript = finalText
+                    self.scheduleRetypeDetection(token: token)
+                    self.recordStyleSample(token: token, cleaned: finalText)
+                    HistoryStore.shared.add(rawText: raw, finalText: finalText,
+                                             durationMs: durMs, bundleId: token.bundleId)
+                    if self.isCurrent(id) {
+                        self.state.phase = .success(preview: String(finalText.prefix(30)))
+                        self.autoReset(after: 3.0)
+                    }
                 }
             }
         }

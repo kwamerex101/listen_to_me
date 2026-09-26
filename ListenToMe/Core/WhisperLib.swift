@@ -19,8 +19,10 @@ import Foundation
 ///     call (`whisper_full`) runs on a background priority via
 ///     Task.detached so the audio pipeline doesn't block.
 ///   - Concurrent `transcribe` calls are serialized via an in-flight
-///     gate (`isBusy`); a second call returns an error immediately.
-///     Real usage is serial (one hotkey hold at a time).
+///     gate (`InFlightGate`); a second call returns an error immediately.
+///     Real usage is serial (one hotkey hold at a time). The same gate
+///     defers `shutdown()`'s free until an in-flight call finishes, so a
+///     model switch/delete/quit can't free `ctx` out from under it.
 @MainActor
 final class WhisperLib {
     static let shared = WhisperLib()
@@ -40,7 +42,10 @@ final class WhisperLib {
     /// model switches (PR #28) and invalidate the cached context so the
     /// new model is loaded on the next transcribe call.
     private var loadedModelPath: String?
-    private var isBusy: Bool = false
+    /// Guards `ctx` against a free while a detached transcribe still holds
+    /// its raw pointer (model switch / delete / app quit racing an
+    /// in-flight decode). See `InFlightGate`.
+    private var gate = InFlightGate()
 
     private init() {}
 
@@ -67,11 +72,10 @@ final class WhisperLib {
     func transcribe(samples: [Float], prompt: String? = nil,
                     paragraphBreaks: Bool = false,
                     beamSize: Int = 1) async throws -> String {
-        guard !isBusy else { throw LibError.alreadyBusy }
         try ensureContext()
         guard let ctx else { throw LibError.initFailed }
-        isBusy = true
-        defer { isBusy = false }
+        guard gate.begin() else { throw LibError.alreadyBusy }
+        defer { if gate.end() { freeNow() } }
 
         let promptCopy = prompt
         let beamCopy = beamSize
@@ -143,14 +147,25 @@ final class WhisperLib {
     }
 
     /// Tear down the model context. Idempotent. Wired from
-    /// AppDelegate.applicationWillTerminate alongside WhisperServer.
+    /// AppDelegate.applicationWillTerminate alongside WhisperServer, the
+    /// model picker, and deleteModel. If a transcribe is in flight, the free
+    /// is deferred until it finishes (see `InFlightGate`) instead of pulling
+    /// the pointer out from under the detached transcribe task; never
+    /// resets `gate`'s busy state, since that transcribe still owns it.
     func shutdown() {
-        if let ctx {
-            whisper_free(ctx)
+        if gate.requestRelease() {
+            freeNow()
         }
+    }
+
+    /// Actually frees the context and clears `loadedModelPath`. Only called
+    /// once nothing is in flight — directly from `shutdown()` when idle, or
+    /// from a transcribe's `defer` once `gate.end()` reports a deferred
+    /// release.
+    private func freeNow() {
+        if let ctx { whisper_free(ctx) }
         ctx = nil
         loadedModelPath = nil
-        isBusy = false
     }
 
     // MARK: - Internals
@@ -158,8 +173,12 @@ final class WhisperLib {
     private func ensureContext() throws {
         let modelPath = WhisperRunner.modelURL.path
         // Model switch detected (user changed selection in Settings): free
-        // the old context so the new model is loaded below.
-        if ctx != nil && loadedModelPath != modelPath {
+        // the old context so the new model is loaded below. Skipped while a
+        // transcribe is in flight — freeing here would race the detached
+        // call still holding the old pointer; gate.begin() below throws
+        // .alreadyBusy in that case, and the switch takes effect on the next
+        // call once the pending release (from shutdown()) frees it.
+        if ctx != nil, loadedModelPath != modelPath, !gate.isBusy {
             whisper_free(ctx!)
             ctx = nil
             loadedModelPath = nil

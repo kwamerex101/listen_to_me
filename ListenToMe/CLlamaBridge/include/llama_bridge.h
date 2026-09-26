@@ -26,11 +26,24 @@ llama_bridge_model llama_bridge_load(const char *path);
 /// Free a model handle. NULL-safe.
 void llama_bridge_free(llama_bridge_model model);
 
+/// Sizes a transform. Returns 0 and fills the outputs, or -1 when the prompt
+/// can't fit even with the minimum output budget (caller should fail cleanly).
+/// n_prompt_tokens: tokens of the fully formatted prompt (system + user + template).
+/// n_user_tokens:   tokens of the user text alone (drives the output budget).
+/// requested_max:   caller's max new tokens; <= 0 means "auto".
+/// n_ctx_cap:       hard ceiling for the context (model n_ctx_train, capped at 16384).
+int llama_bridge_plan(int n_prompt_tokens, int n_user_tokens, int requested_max,
+                      int n_ctx_cap, int *out_n_ctx, int *out_max_tokens);
+
 /// Run a single deterministic (greedy) transform: `system` + `user` are
 /// merged into one chat turn, formatted with the model's embedded chat
-/// template, and decoded up to `max_tokens`. Returns a malloc'd, NUL-
-/// terminated C string the caller must release with
-/// `llama_bridge_string_free`, or NULL on any failure.
+/// template, and decoded up to `max_tokens` new tokens (`max_tokens <= 0`
+/// means auto-size, via `llama_bridge_plan`, from the user text length —
+/// see the .cpp for why the whole context is sized up front). Returns a
+/// malloc'd, NUL-terminated C string the caller must release with
+/// `llama_bridge_string_free`, or NULL on any failure — including a
+/// generation that was cut off before end-of-generation (max tokens reached
+/// or context exhausted), so the caller never silently returns truncated text.
 char *llama_bridge_transform(llama_bridge_model model,
                              const char *system,
                              const char *user,

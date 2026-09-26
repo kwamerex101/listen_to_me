@@ -188,6 +188,40 @@ final class HistoryStore: ObservableObject {
         rewriteAll()
         if !Preferences.shared.historyEncryptionEnabled {
             try? HistoryCipher.dropKey()
+        } else {
+            removeLegacyPlaintextBackupIfEncrypted()
+        }
+    }
+
+    /// Deletes the plaintext `history.json.bak` left behind by the legacy
+    /// NDJSON migration (see `load()`), if encryption is on. That backup is
+    /// never read again once NDJSON exists, and its whole point (letting a
+    /// migration mistake be recovered from) doesn't justify leaving a
+    /// full plaintext copy of the user's history on disk once they've
+    /// explicitly asked for encryption at rest. Called from both
+    /// `applyEncryptionPreference()` (toggling the setting) and `load()`
+    /// (so a user who enabled encryption on an earlier build gets cleaned
+    /// up on next launch, even though `load()`'s NDJSON fast path returns
+    /// early and never reaches the migration branch that created the
+    /// backup).
+    private func removeLegacyPlaintextBackupIfEncrypted() {
+        Self.removeLegacyBackup(near: legacyURL,
+                                encryptionEnabled: Preferences.shared.historyEncryptionEnabled)
+    }
+
+    /// Core logic pulled into a static so tests can exercise it against a
+    /// temp directory without touching the real `Preferences.shared`.
+    /// Logs one line on an actual removal (no content, just that it
+    /// happened); a missing backup or encryption being off are both no-ops.
+    nonisolated internal static func removeLegacyBackup(near legacyURL: URL, encryptionEnabled: Bool) {
+        guard encryptionEnabled else { return }
+        let backup = legacyURL.appendingPathExtension("bak")
+        guard FileManager.default.fileExists(atPath: backup.path) else { return }
+        do {
+            try FileManager.default.removeItem(at: backup)
+            NSLog("[ListenToMe] removed legacy plaintext history backup (encryption is on)")
+        } catch {
+            NSLog("[ListenToMe] failed to remove legacy plaintext history backup: \(error)")
         }
     }
 
@@ -335,6 +369,12 @@ final class HistoryStore: ObservableObject {
     // MARK: - Persistence
 
     private func load() {
+        // Runs on every load path, including the NDJSON fast path below
+        // which returns early: a user who enabled encryption on an earlier
+        // build (before this cleanup existed) gets the leftover plaintext
+        // `.bak` removed on the next launch, not just on a fresh toggle.
+        defer { removeLegacyPlaintextBackupIfEncrypted() }
+
         // Prefer NDJSON. Each line is one record, file order is
         // chronological oldest→newest (we append at the end), so we
         // reverse after read to match the in-memory newest-first

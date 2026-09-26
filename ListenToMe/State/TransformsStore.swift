@@ -89,9 +89,11 @@ final class TransformsStore: ObservableObject {
         } catch {
             NSLog("[ListenToMe] TransformsStore.load failed: \(error) — falling back to legacy JSON")
             // Same fallback shape as SnippetsStore — a DB problem must
-            // not lose user-defined prompts.
+            // not lose user-defined prompts. Checks the post-migration
+            // `.bak` copy too (LegacyJSONFallback), since a successful
+            // migration already renamed the original away.
             struct LegacyTransform: Decodable { let id: UUID; let name: String; let prompt: String }
-            if let data = try? Data(contentsOf: legacyURL),
+            if let data = LegacyJSONFallback.read(legacyURL: legacyURL),
                let arr = try? JSONDecoder().decode([LegacyTransform].self, from: data) {
                 transforms = arr.map { Transform(id: $0.id, name: $0.name, prompt: $0.prompt) }
             }
