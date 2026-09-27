@@ -19,11 +19,28 @@ enum Uninstaller {
             .appendingPathComponent("Documents/daily", isDirectory: true)
     }
 
+    /// Sparkle's own cache, under our bundle ID rather than its own, see
+    /// `SPULocalCacheDirectory` in the resolved Sparkle sources (2.10.0):
+    /// non-sandboxed apps get `~/Library/Caches/<host bundle id>/
+    /// org.sparkle-project.Sparkle`. Sparkle writes nothing under
+    /// Application Support (verified against the same sources); its
+    /// preferences (e.g. `SUAutomaticallyCheckForUpdates`,
+    /// `SULastCheckTime`) live in the app's own UserDefaults domain, which
+    /// `removePersistentDomain` below already clears.
+    static var sparkleCacheURL: URL {
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let bundleId = Bundle.main.bundleIdentifier ?? "com.rexdanquah.listentome"
+        return caches
+            .appendingPathComponent(bundleId, isDirectory: true)
+            .appendingPathComponent("org.sparkle-project.Sparkle", isDirectory: true)
+    }
+
     /// The paths that exist and would be deleted. Pure — no side effects.
     static func removalPlan(includeDailyNotes: Bool) -> [URL] {
         var urls: [URL] = []
         let fm = FileManager.default
         if fm.fileExists(atPath: appSupportURL.path) { urls.append(appSupportURL) }
+        if fm.fileExists(atPath: sparkleCacheURL.path) { urls.append(sparkleCacheURL) }
         if includeDailyNotes, fm.fileExists(atPath: dailyNotesURL.path) {
             urls.append(dailyNotesURL)
         }

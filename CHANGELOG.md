@@ -2,6 +2,12 @@
 
 All notable user-facing changes per release. Format inspired by [Keep a Changelog](https://keepachangelog.com/), version numbers follow [SemVer](https://semver.org/) at the bundle level.
 
+## 0.20.0 (build 46)
+
+### Added
+
+- ListenToMe can now update itself. It asks permission once, the second time you open it, before it ever checks for anything; after that it checks GitHub in the background and lets you install a new signed version with one click. Turn automatic checks on or off, or check right away, from Settings → Privacy.
+
 ## 0.19.0 (build 45)
 
 ### Fixed

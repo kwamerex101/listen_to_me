@@ -36,6 +36,10 @@ CI runs the full test suite on every pull request against those same pins.
 
 Open the generated `ListenToMe.xcodeproj` in Xcode for IDE development. The project file is gitignored; always regenerate it with `xcodegen generate` (or `./scripts/build.sh`) after pulling.
 
+## Auto-update signing key (maintainers, one-time)
+
+Signed releases are updated through Sparkle, which needs an EdDSA key pair. Run Sparkle's `generate_keys` once; it stores the private key in your login Keychain and prints the public key for `SUPublicEDKey` in `project.yml`. Back up the private key (`generate_keys -x <file>`); losing it means existing installs can't verify new updates. Contributors building locally for their own use don't need this, it only matters for cutting a signed public release.
+
 ## AI cleanup (optional)
 
 The cleanup pipeline requires the companion

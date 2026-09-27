@@ -46,6 +46,8 @@ struct SettingsView: View {
     @State private var apiKeyDraft: String = Preferences.shared.anthropicAPIKey ?? ""
     @State private var apiKeySaved: Bool = (Preferences.shared.anthropicAPIKey?.isEmpty == false)
     @State private var diagnosticsEnabled: Bool = Preferences.shared.diagnosticsEnabled
+    @State private var automaticallyChecksForUpdates: Bool = Updater.shared.automaticallyChecks
+    @State private var lastUpdateCheck: Date? = Updater.shared.lastCheck
     @State private var historyRetentionDays: Double = Double(Preferences.shared.historyRetentionDays)
     @State private var historyEncryptionEnabled: Bool = Preferences.shared.historyEncryptionEnabled
     @State private var contextAwareToneEnabled: Bool = Preferences.shared.contextAwareToneEnabled
@@ -147,6 +149,8 @@ struct SettingsView: View {
             apiKeyDraft = Preferences.shared.anthropicAPIKey ?? ""
             apiKeySaved = !apiKeyDraft.isEmpty
             diagnosticsEnabled = Preferences.shared.diagnosticsEnabled
+            automaticallyChecksForUpdates = Updater.shared.automaticallyChecks
+            lastUpdateCheck = Updater.shared.lastCheck
             historyRetentionDays = Double(Preferences.shared.historyRetentionDays)
             historyEncryptionEnabled = Preferences.shared.historyEncryptionEnabled
             contextAwareToneEnabled = Preferences.shared.contextAwareToneEnabled
@@ -763,6 +767,31 @@ struct SettingsView: View {
                 }
             }
 
+            section(title: "Updates") {
+                row(label: "Automatically check for updates",
+                    description: "Checks github.com for a newer signed version. Sends your app version; no other data.") {
+                    Toggle("", isOn: $automaticallyChecksForUpdates)
+                        .labelsHidden()
+                        .onChange(of: automaticallyChecksForUpdates) { _, new in
+                            Updater.shared.automaticallyChecks = new
+                        }
+                }
+                row(label: "Last checked") {
+                    HStack(spacing: 10) {
+                        Text(lastCheckedLabel)
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                        Button("Check Now") {
+                            Updater.shared.checkForUpdates()
+                            lastUpdateCheck = Updater.shared.lastCheck
+                        }
+                        .buttonStyle(.pressable)
+                        .disabled(!Updater.shared.canCheck)
+                    }
+                }
+                .hoverableRow()
+            }
+
             section(title: "Diagnostics") {
                 row(label: "Diagnostics log",
                     description: "Local-only logs to help debug issues. Never includes transcripts.") {
@@ -887,6 +916,15 @@ struct SettingsView: View {
                     .buttonStyle(.pressable)
             }
         }
+    }
+
+    /// "Never checked" until Sparkle has actually run a check, then a short
+    /// relative timestamp ("2 hours ago").
+    private var lastCheckedLabel: String {
+        guard let lastUpdateCheck else { return "Never checked" }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: lastUpdateCheck, relativeTo: Date())
     }
 
     private func formatBytes(_ bytes: Int64) -> String {

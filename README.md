@@ -109,6 +109,7 @@ The top card on the Home screen greets you by name, shows your configured hotkey
 - **In-app A/B benchmark** — read-aloud cards scoring WER + latency for Whisper vs Parakeet (Settings → Models → Engine Benchmark).
 - **Diagnostics log (opt-in, default off)** — `retype-debug.log`, rotated at 1 MB. Never includes transcript content.
 - **In-app uninstall** — Settings → Privacy → "Uninstall & delete all data" removes all local data and the app in one step. See [Uninstalling](#uninstalling).
+- **Auto-update with Sparkle (asks first)**: signed release builds check GitHub for a newer version; Sparkle asks permission once before it ever checks.
 
 ---
 
@@ -131,6 +132,9 @@ ListenToMe is built around local-first processing. Here is an exact account of w
 | Anthropic API (transcript cleanup) | Only when cloud backend is selected AND the cleanup gate fires | Settings → Dictation → "On-Device Polish" → Claude (cloud); API key stored in macOS Keychain |
 | Apple Events → browser (URL read) | Only when context-aware tone is enabled AND a dictation finishes | Settings → Privacy → "Context-aware tone" → on |
 | Apple Events → Notes.app | Only when Apple Notes is the active output destination | Settings → Dictation → Output → Apple Notes |
+| Sparkle update check (github.com) | Only after you accept Sparkle's one-time permission prompt (shown on the second launch), or when you press "Check Now"/"Check for Updates…" | Settings → Privacy → "Automatically check for updates" toggle |
+
+An update check is a plain HTTPS request to github.com that sends your app version and nothing else; system profiling is off. Sparkle asks once, on the second launch, before it ever checks on its own.
 
 There is no analytics, telemetry, or background network activity.
 
@@ -207,7 +211,7 @@ open ListenToMe.xcodeproj
 
 ```bash
 ./scripts/release.sh
-# Outputs: dist/ListenToMe.dmg
+# Outputs: dist/ListenToMe.dmg (+ dist/appcast.xml once notarized)
 ```
 
 `release.sh` runs `xcodegen generate`, builds the Release configuration, and packages a DMG with `hdiutil`. It auto-detects signing: if a **Developer ID Application** cert is in your keychain it deep-signs (hardened runtime + secure timestamp) and, when a `notarytool` keychain profile named `ListenToMe` exists, **notarizes and staples** the DMG so it installs with a normal double-click. Without a Developer ID cert it falls back to ad-hoc / `scripts/resign-stable.sh` (Gatekeeper then needs a one-time right-click → **Open**). Override the identity with `SIGN_IDENTITY=…`, or Developer-ID-sign without notarizing via `SKIP_NOTARIZE=1`.
@@ -218,6 +222,19 @@ Set up notarization once:
 xcrun notarytool store-credentials ListenToMe \
   --apple-id <you> --team-id <TEAMID> --password <app-specific-password>
 ```
+
+### Auto-update setup (one-time)
+
+Releases ship an [appcast](https://sparkle-project.org/) that Sparkle checks for updates. Set the signing key up once, before your first Sparkle-enabled release:
+
+```bash
+# Finds Sparkle's tool under DerivedData/SourcePackages after a resolve/build
+./build-release/SourcePackages/artifacts/sparkle/Sparkle/bin/generate_keys
+```
+
+This stores the private EdDSA key in your login Keychain and prints the public key, which is already set as `SUPublicEDKey` in `project.yml`. Only a maintainer who publishes releases needs the private key; if it ever changes, update `SUPublicEDKey` and run `xcodegen generate`. **Back up the private key** (`generate_keys -x <file>`); losing it means existing installs can no longer verify new updates.
+
+After that, `release.sh` handles the rest: once the DMG is notarized and stapled, it generates `dist/appcast.xml` (signed with the Keychain key) alongside `dist/ListenToMe.dmg`. Upload **both files** to the GitHub Release for that version, the feed URL points at `releases/latest/download/appcast.xml`, so the appcast asset name must stay exactly that.
 
 ### First launch after a local build
 
@@ -251,7 +268,7 @@ Open Settings with ⌘, or via the menu bar icon → Open ListenToMe….
 | **General** | Hotkey binding (Fn+⌘ / Fn+⌥ / ⌃+⌘ / ⌃+⌥), appearance (Light/Dark/System), pill position reset, launch at login |
 | **Dictation** | Microphone device, max recording duration (30–600 s, default 120), AI cleanup mode and intensity, cloud vs on-device backend, Anthropic API key, cleanup timeout (5–60 s), output destination and Notes mode/folder/title |
 | **Models** | Transcription engine (Whisper Server / Whisper Linked / Parakeet ANE), Whisper model download and deletion, Parakeet model download and deletion, Parakeet dictionary boost toggle, on-device LLM (Gemma E2B or 12B) download and deletion, Engine Benchmark (A/B WER + latency) |
-| **Privacy** | History retention (0–365 days, default 90), encrypt history at rest (AES-GCM), context-aware tone toggle (default off), voice commands toggle (default off), diagnostics log toggle (default off), **Uninstall & delete all data** |
+| **Privacy** | History retention (0–365 days, default 90), encrypt history at rest (AES-GCM), context-aware tone toggle (default off), voice commands toggle (default off), automatic update checks toggle + "Check Now", diagnostics log toggle (default off), **Uninstall & delete all data** |
 | **About** | Version and build number, on-device processing note |
 
 ---
