@@ -202,13 +202,31 @@ final class ParakeetEngine: ObservableObject {
         if status == .ready { status = .missing }
     }
 
-    /// Free the loaded model and delete the on-disk Parakeet model tree to
-    /// reclaim disk space. FluidAudio stores several `.mlmodelc` bundles under
-    /// `modelsDirectory`, so we remove the whole directory. Re-downloadable via
-    /// `ensureReady()`, so this is a reclaim-space action, not data loss.
+    /// Every folder FluidAudio writes Parakeet models into. It does NOT write
+    /// inside `modelsDirectory`: both `AsrModels` (`repoPath(from:version:)`,
+    /// FluidAudio 0.15.2 AsrModels.swift:151) and `CtcModels.download`
+    /// (CtcModels.swift:204) take the directory's PARENT and append the repo's
+    /// folder name, so the models land in siblings such as
+    /// `ListenToMe/parakeet-tdt-0.6b-v3`. Built from FluidAudio's public
+    /// `Repo.folderName` so a renamed repo folder follows along. Includes
+    /// `modelsDirectory` itself for anything an older build left there.
+    nonisolated static func modelFolders(in modelsDirectory: URL) -> [URL] {
+        let parent = modelsDirectory.deletingLastPathComponent()
+        let repos: [Repo] = [.parakeetV3, .parakeetV2] + CtcModelVariant.allCases.map(\.repo)
+        return [modelsDirectory] + repos.map {
+            parent.appendingPathComponent($0.folderName, isDirectory: true)
+        }
+    }
+
+    /// Free the loaded model and delete every downloaded Parakeet model (both
+    /// TDT versions and the vocabulary-boost CTC model) to reclaim disk space.
+    /// Re-downloadable via `ensureReady()`, so this is a reclaim-space action,
+    /// not data loss.
     func deleteModel() {
         shutdown()
-        try? FileManager.default.removeItem(at: Self.modelsDirectory)
+        for folder in Self.modelFolders(in: Self.modelsDirectory) {
+            try? FileManager.default.removeItem(at: folder)
+        }
         status = .missing
     }
 }
