@@ -361,8 +361,7 @@ final class Preferences {
     /// rather than hardcoding an assumption about whether this dev
     /// machine already has a history file on disk.
     internal static func historyDatabaseExists() -> Bool {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let dir = base.appendingPathComponent("ListenToMe", isDirectory: true)
+        let dir = RuntimeEnvironment.appSupportDirectory
         let current = dir.appendingPathComponent("history.ndjson")
         let legacy = dir.appendingPathComponent("history.json")
         return FileManager.default.fileExists(atPath: current.path)

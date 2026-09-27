@@ -58,8 +58,7 @@ final class WhisperServer {
     /// crashed/orphaned previous instance can be identified and killed
     /// before we try to bind the same port again.
     private static var pidfileURL: URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return base.appendingPathComponent("ListenToMe/whisper-server.pid")
+        RuntimeEnvironment.appSupportDirectory.appendingPathComponent("whisper-server.pid")
     }
 
     private init() {}

@@ -82,8 +82,7 @@ final class HistoryStore: ObservableObject {
     }
 
     private init() {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let dir = base.appendingPathComponent("ListenToMe", isDirectory: true)
+        let dir = RuntimeEnvironment.appSupportDirectory
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         self.url = dir.appendingPathComponent("history.ndjson")
         self.legacyURL = dir.appendingPathComponent("history.json")

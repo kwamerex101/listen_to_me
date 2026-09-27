@@ -58,8 +58,7 @@ final class Database {
     /// per-store JSON files in Application Support so backups + sync
     /// tools see everything in one folder.
     static var url: URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let dir = base.appendingPathComponent("ListenToMe", isDirectory: true)
+        let dir = RuntimeEnvironment.appSupportDirectory
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("store.sqlite")
     }
