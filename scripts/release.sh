@@ -39,12 +39,20 @@ NOTARY_PROFILE="${NOTARY_PROFILE:-ListenToMe}"
 
 # ---- Resolve signing identity -------------------------------------------------
 SIGN_IDENTITY="${SIGN_IDENTITY:-}"
+SIGN_NAME="$SIGN_IDENTITY"
 if [ -z "$SIGN_IDENTITY" ]; then
   IDS="$(security find-identity -v -p codesigning 2>/dev/null || true)"
-  SIGN_IDENTITY="$(printf '%s\n' "$IDS" | grep -oE '"Developer ID Application:[^"]*"' | head -1 | tr -d '"' || true)"
+  DEVID_LINE="$(printf '%s\n' "$IDS" | grep '"Developer ID Application:' | head -1 || true)"
+  if [ -n "$DEVID_LINE" ]; then
+    # Sign by SHA-1, not by name: codesign rejects a name as "ambiguous"
+    # when the keychain holds two certificates with the same name (e.g. a
+    # Developer ID certificate that was issued twice).
+    SIGN_IDENTITY="$(printf '%s\n' "$DEVID_LINE" | awk '{print $2}')"
+    SIGN_NAME="$(printf '%s\n' "$DEVID_LINE" | grep -oE '"[^"]*"' | tr -d '"')"
+  fi
 fi
 DEV_ID=0
-case "$SIGN_IDENTITY" in
+case "$SIGN_NAME" in
   "Developer ID Application:"*) DEV_ID=1 ;;
 esac
 
