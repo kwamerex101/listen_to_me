@@ -94,8 +94,8 @@ targets:
         CFBundleName: ListenToMe
         CFBundleDisplayName: ListenToMe
         CFBundleIdentifier: com.rexdanquah.listentome
-        CFBundleShortVersionString: "0.20.0"
-        CFBundleVersion: "46"
+        CFBundleShortVersionString: "0.20.1"
+        CFBundleVersion: "47"
         NSHumanReadableCopyright: "© 2026 Rex Danquah"
         NSMicrophoneUsageDescription: "ListenToMe needs microphone access to transcribe your speech."
         NSAppleEventsUsageDescription: "ListenToMe uses Apple Events to paste transcripts into the active app and, when you choose the Apple Notes destination, to save dictations to Notes."
@@ -143,8 +143,10 @@ targets:
         # Resources/ holds whisper's ggml 0.9.8 set; Resources/llm/ holds
         # llama's isolated ggml >=0.15 set + libllama (directory isolation —
         # see scripts/build-llama.sh). Both on the link + runtime search path.
+        # @executable_path/../Frameworks is where embedded SPM frameworks
+        # (Sparkle) land; without it the release app can't load them at launch.
         LIBRARY_SEARCH_PATHS: $(SRCROOT)/ListenToMe/Resources $(SRCROOT)/ListenToMe/Resources/llm
-        LD_RUNPATH_SEARCH_PATHS: $(inherited) @loader_path/../Resources @loader_path/../Resources/llm
+        LD_RUNPATH_SEARCH_PATHS: $(inherited) @executable_path/../Frameworks @loader_path/../Resources @loader_path/../Resources/llm
         OTHER_LDFLAGS: -lwhisper.1 -lllama
       configs:
         # Hardened runtime (CS_RUNTIME flag) is Release-only because

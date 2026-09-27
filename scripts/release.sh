@@ -134,6 +134,36 @@ echo "==> Verifying signature..."
 # sed consumes the whole stream, and `|| true` keeps this purely informational.
 codesign -dv "$APP_PATH" 2>&1 | sed -n '1,5p' || true
 
+# ---- Launch check: every @rpath library must resolve -------------------------
+# Tests run with Xcode's DYLD_FRAMEWORK_PATH, so a missing runpath (like the
+# one that stopped 0.20.0 from opening) only shows up in the shipped app.
+# Resolve each @rpath dependency of the main binary against its own LC_RPATH
+# entries, the same way dyld does at launch, and stop if any is missing.
+echo "==> Checking that the app's libraries resolve..."
+EXE="$APP_PATH/Contents/MacOS/$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$APP_PATH/Contents/Info.plist")"
+EXE_DIR="$(dirname "$EXE")"
+RPATHS="$(otool -l "$EXE" | awk '/cmd LC_RPATH/{getline; getline; print $2}')"
+MISSING=0
+while read -r LIB; do
+  REL="${LIB#@rpath/}"
+  FOUND=0
+  while read -r RP; do
+    RP="${RP//@loader_path/$EXE_DIR}"
+    RP="${RP//@executable_path/$EXE_DIR}"
+    if [[ -e "$RP/$REL" ]]; then FOUND=1; break; fi
+  done <<< "$RPATHS"
+  # Swift runtime libraries live in the OS dyld cache, not on disk.
+  if [[ "$FOUND" == "0" && "$REL" != libswift* ]]; then
+    echo "error: $LIB does not resolve against the app's runpaths:" >&2
+    printf '    %s\n' $RPATHS >&2
+    MISSING=1
+  fi
+done < <(otool -L "$EXE" | awk 'NR>1 && $1 ~ /^@rpath\// {print $1}')
+if [[ "$MISSING" == "1" ]]; then
+  echo "error: the app would crash at launch; fix LD_RUNPATH_SEARCH_PATHS in project.yml." >&2
+  exit 1
+fi
+
 # ---- Notarize the app -------------------------------------------------------
 # The app is notarized and stapled on its own BEFORE it goes into the DMG, so
 # the copy people drag to Applications carries its own ticket and passes

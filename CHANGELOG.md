@@ -2,6 +2,12 @@
 
 All notable user-facing changes per release. Format inspired by [Keep a Changelog](https://keepachangelog.com/), version numbers follow [SemVer](https://semver.org/) at the bundle level.
 
+## 0.20.1 (build 47)
+
+### Fixed
+
+- 0.20.0 closed immediately when you opened it. This version opens normally. If you installed 0.20.0, download this one and replace it.
+
 ## 0.20.0 (build 46)
 
 ### Added
