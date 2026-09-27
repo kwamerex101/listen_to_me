@@ -54,10 +54,17 @@ final class OnboardingWindow: NSPanel {
             }
         )
         let host = NSHostingView(rootView: view)
+        // Without this, the hosting view's default sizing lets the window
+        // grow to the SwiftUI content's ideal size. OnboardingView's content
+        // fills to .infinity, so the panel balloons to nearly full-screen
+        // height. Same fix as MainWindowController.swift.
+        host.sizingOptions = []
         host.frame = NSRect(origin: .zero, size: Self.windowSize)
         host.autoresizingMask = [.width, .height]
         contentView = host
 
+        // Reset in case a previous presentation let the panel grow.
+        setContentSize(Self.windowSize)
         center()
         NSApp.activate(ignoringOtherApps: true)
         makeKeyAndOrderFront(nil)

@@ -122,7 +122,32 @@ enum NoteMode: String, CaseIterable {
 final class Preferences {
     static let shared = Preferences()
 
-    private let defaults = UserDefaults.standard
+    /// Name of the dedicated suite the test host writes into instead of
+    /// the user's real `com.rexdanquah.listentome` domain. The test target
+    /// runs inside the app (TEST_HOST), so `UserDefaults.standard` there IS
+    /// the real user's preferences: a test that removes `wf.*` keys was
+    /// once enough to wipe a real install's onboarding flag and engine
+    /// choice (see the 0.21.1 CHANGELOG entry).
+    static let testDefaultsSuiteName = "com.rexdanquah.listentome.tests"
+
+    /// Backing store for tests. Cleared once per process on first access so
+    /// runs don't leak state into each other; every test that used to write
+    /// `UserDefaults.standard` directly should use this instead.
+    static let testDefaults: UserDefaults = {
+        let store = UserDefaults(suiteName: testDefaultsSuiteName)!
+        store.removePersistentDomain(forName: testDefaultsSuiteName)
+        return store
+    }()
+
+    private let defaults = RuntimeEnvironment.isRunningUnderTests
+        ? Preferences.testDefaults
+        : UserDefaults.standard
+
+    /// Test-only: which store this instance is actually backed by, so a
+    /// guard test can assert it's never `.standard` while running under
+    /// tests.
+    internal var backingDefaultsForTesting: UserDefaults { defaults }
+
     private let kCleanupMode = "wf.cleanupMode"
     private let kHotkeyBinding = "wf.hotkeyBinding"
     private let kSoundEnabled = "wf.soundEnabled"
@@ -303,12 +328,45 @@ final class Preferences {
     }
 
     /// Pure decision function for the one-time engine-default migration
-    /// below. Kept free of UserDefaults so it's trivially unit-testable:
-    /// a user who already finished onboarding before Parakeet became the
-    /// new-install default keeps `.server`; anyone else (a fresh install)
-    /// gets the new default, `.parakeet`.
-    static func defaultEngineForMigration(hasCompletedOnboarding: Bool) -> TranscriptionEngine {
-        hasCompletedOnboarding ? .server : .parakeet
+    /// below. Kept free of UserDefaults so it's trivially unit-testable.
+    /// `hasCompletedOnboarding` alone used to be the only existing-user
+    /// signal, but a user who force-quit mid-onboarding (or upgraded from
+    /// a build old enough not to set the flag) would look identical to a
+    /// fresh install and get silently switched to Parakeet. Existing if
+    /// ANY of these hold: onboarding completed, a name was saved, an
+    /// engine was already chosen, a Whisper model was downloaded, or a
+    /// history database is on disk. Anyone matching none of them gets the
+    /// new default, `.parakeet`.
+    static func defaultEngineForMigration(
+        hasCompletedOnboarding: Bool,
+        hasStoredUserName: Bool,
+        hasStoredEngineChoice: Bool,
+        hasDownloadedWhisperModel: Bool,
+        hasHistoryDatabase: Bool
+    ) -> TranscriptionEngine {
+        let isExistingUser = hasCompletedOnboarding
+            || hasStoredUserName
+            || hasStoredEngineChoice
+            || hasDownloadedWhisperModel
+            || hasHistoryDatabase
+        return isExistingUser ? .server : .parakeet
+    }
+
+    /// On-disk history file paths, checked directly rather than through
+    /// `HistoryStore.shared` so gathering the migration signals below never
+    /// triggers that store's own legacy-JSON migration as a side effect.
+    /// Kept in sync with `HistoryStore`'s `url` / `legacyURL`.
+    /// `internal` (not `private`) so `PreferencesEngineMigrationTests` can
+    /// call it directly and mirror the exact signal the wrapper reads,
+    /// rather than hardcoding an assumption about whether this dev
+    /// machine already has a history file on disk.
+    internal static func historyDatabaseExists() -> Bool {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let dir = base.appendingPathComponent("ListenToMe", isDirectory: true)
+        let current = dir.appendingPathComponent("history.ndjson")
+        let legacy = dir.appendingPathComponent("history.json")
+        return FileManager.default.fileExists(atPath: current.path)
+            || FileManager.default.fileExists(atPath: legacy.path)
     }
 
     /// One-time migration, run at launch before anything reads
@@ -316,10 +374,10 @@ final class Preferences {
     /// be `.server` and is now `.parakeet` (new installs should try the
     /// faster on-device engine); an existing user who never explicitly
     /// picked an engine must not be silently moved off Whisper by that
-    /// change. If the engine pref is unset and the user already completed
-    /// onboarding, we persist `.server` explicitly so their behavior is
-    /// unchanged; a fresh install needs nothing written since the getter's
-    /// new fallback already gives it `.parakeet`. Gated on
+    /// change. If the engine pref is unset and the gathered signals say
+    /// this is an existing user, we persist `.server` explicitly so their
+    /// behavior is unchanged; a fresh install needs nothing written since
+    /// the getter's new fallback already gives it `.parakeet`. Gated on
     /// `kEngineDefaultMigrated` so it only ever runs once, even though a
     /// later explicit engine choice is stored under the same key and would
     /// otherwise look identical to "still unset".
@@ -327,7 +385,13 @@ final class Preferences {
         guard !defaults.bool(forKey: kEngineDefaultMigrated) else { return }
         defaults.set(true, forKey: kEngineDefaultMigrated)
         guard defaults.object(forKey: kTranscriptionEngine) == nil else { return }
-        let resolved = Self.defaultEngineForMigration(hasCompletedOnboarding: hasCompletedOnboarding)
+        let resolved = Self.defaultEngineForMigration(
+            hasCompletedOnboarding: hasCompletedOnboarding,
+            hasStoredUserName: !userName.isEmpty,
+            hasStoredEngineChoice: defaults.object(forKey: kTranscriptionEngine) != nil,
+            hasDownloadedWhisperModel: FileManager.default.fileExists(atPath: WhisperRunner.modelURL.path),
+            hasHistoryDatabase: Self.historyDatabaseExists()
+        )
         if resolved != .parakeet {
             defaults.set(resolved.rawValue, forKey: kTranscriptionEngine)
         }

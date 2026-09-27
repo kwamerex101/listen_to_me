@@ -255,8 +255,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // First-run onboarding. Deferred one runloop tick so the menu bar +
         // pill are installed before the panel takes key focus. Shown once;
-        // completing it (or closing) sets the flag.
-        if !Preferences.shared.hasCompletedOnboarding {
+        // completing it (or closing) sets the flag. Skipped under tests:
+        // the test host reads `hasCompletedOnboarding` from its own
+        // isolated defaults suite (always unset on a fresh run), and
+        // popping the onboarding panel mid-test-run would steal key focus.
+        if !RuntimeEnvironment.isRunningUnderTests && !Preferences.shared.hasCompletedOnboarding {
             DispatchQueue.main.async {
                 OnboardingWindow.shared.present {
                     Preferences.shared.hasCompletedOnboarding = true

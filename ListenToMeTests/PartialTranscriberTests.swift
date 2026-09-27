@@ -127,10 +127,10 @@ final class StreamingPartialsPrefTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        UserDefaults.standard.removeObject(forKey: Self.key)
+        Preferences.testDefaults.removeObject(forKey: Self.key)
     }
     override func tearDown() {
-        UserDefaults.standard.removeObject(forKey: Self.key)
+        Preferences.testDefaults.removeObject(forKey: Self.key)
         super.tearDown()
     }
 

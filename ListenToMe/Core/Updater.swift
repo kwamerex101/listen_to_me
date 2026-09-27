@@ -21,9 +21,9 @@ final class Updater: NSObject, SPUStandardUserDriverDelegate {
 
     /// The unit tests run inside the app (TEST_HOST), so without this every
     /// test run would start Sparkle's scheduler: on a second run it shows the
-    /// consent prompt mid-test and, once allowed, contacts GitHub.
-    static let isRunningUnderTests =
-        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    /// consent prompt mid-test and, once allowed, contacts GitHub. Forwards
+    /// to the shared check so every "are we under test" call site agrees.
+    static let isRunningUnderTests = RuntimeEnvironment.isRunningUnderTests
 
     /// `lazy` so the controller's init (which needs `userDriverDelegate:
     /// self`) runs only once `self` is fully initialized: `self` can't be
