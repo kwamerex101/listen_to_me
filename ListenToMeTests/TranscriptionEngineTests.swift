@@ -13,10 +13,10 @@ final class TranscriptionEngineTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        UserDefaults.standard.removeObject(forKey: Self.testKey)
+        Preferences.testDefaults.removeObject(forKey: Self.testKey)
     }
     override func tearDown() {
-        UserDefaults.standard.removeObject(forKey: Self.testKey)
+        Preferences.testDefaults.removeObject(forKey: Self.testKey)
         super.tearDown()
     }
 
@@ -69,7 +69,7 @@ final class TranscriptionEngineTests: XCTestCase {
         // If a future build adds a new engine and a downgrade reads
         // a raw value the current build doesn't recognize, Preferences
         // should return the current default rather than crashing.
-        UserDefaults.standard.set("future-engine-x", forKey: Self.testKey)
+        Preferences.testDefaults.set("future-engine-x", forKey: Self.testKey)
         XCTAssertEqual(Preferences.shared.transcriptionEngine, .parakeet)
     }
 }
@@ -103,10 +103,10 @@ final class TranscriptionAccuracyPrefTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        UserDefaults.standard.removeObject(forKey: Self.key)
+        Preferences.testDefaults.removeObject(forKey: Self.key)
     }
     override func tearDown() {
-        UserDefaults.standard.removeObject(forKey: Self.key)
+        Preferences.testDefaults.removeObject(forKey: Self.key)
         super.tearDown()
     }
 
@@ -125,7 +125,7 @@ final class TranscriptionAccuracyPrefTests: XCTestCase {
 
     @MainActor
     func test_unknown_raw_value_falls_back_to_fast() {
-        UserDefaults.standard.set("turbo-ludicrous", forKey: Self.key)
+        Preferences.testDefaults.set("turbo-ludicrous", forKey: Self.key)
         XCTAssertEqual(Preferences.shared.transcriptionAccuracy, .fast)
     }
 
@@ -145,28 +145,65 @@ final class PreferencesEngineMigrationTests: XCTestCase {
     private static let engineKey = "wf.transcriptionEngine"
     private static let migratedKey = "wf.engineDefaultMigrated"
     private static let onboardingKey = "wf.hasCompletedOnboarding"
+    private static let userNameKey = "wf.userName"
 
     override func setUp() {
         super.setUp()
-        UserDefaults.standard.removeObject(forKey: Self.engineKey)
-        UserDefaults.standard.removeObject(forKey: Self.migratedKey)
-        UserDefaults.standard.removeObject(forKey: Self.onboardingKey)
+        Preferences.testDefaults.removeObject(forKey: Self.engineKey)
+        Preferences.testDefaults.removeObject(forKey: Self.migratedKey)
+        Preferences.testDefaults.removeObject(forKey: Self.onboardingKey)
+        Preferences.testDefaults.removeObject(forKey: Self.userNameKey)
     }
     override func tearDown() {
-        UserDefaults.standard.removeObject(forKey: Self.engineKey)
-        UserDefaults.standard.removeObject(forKey: Self.migratedKey)
-        UserDefaults.standard.removeObject(forKey: Self.onboardingKey)
+        Preferences.testDefaults.removeObject(forKey: Self.engineKey)
+        Preferences.testDefaults.removeObject(forKey: Self.migratedKey)
+        Preferences.testDefaults.removeObject(forKey: Self.onboardingKey)
+        Preferences.testDefaults.removeObject(forKey: Self.userNameKey)
         super.tearDown()
     }
 
     // MARK: - Pure decision function
 
-    func test_freshInstall_decidesParakeet() {
-        XCTAssertEqual(Preferences.defaultEngineForMigration(hasCompletedOnboarding: false), .parakeet)
+    func test_noSignals_decidesParakeet() {
+        XCTAssertEqual(Preferences.defaultEngineForMigration(
+            hasCompletedOnboarding: false, hasStoredUserName: false,
+            hasStoredEngineChoice: false, hasDownloadedWhisperModel: false,
+            hasHistoryDatabase: false), .parakeet)
     }
 
-    func test_existingOnboardedUser_decidesServer() {
-        XCTAssertEqual(Preferences.defaultEngineForMigration(hasCompletedOnboarding: true), .server)
+    func test_onboardingCompleted_decidesServer() {
+        XCTAssertEqual(Preferences.defaultEngineForMigration(
+            hasCompletedOnboarding: true, hasStoredUserName: false,
+            hasStoredEngineChoice: false, hasDownloadedWhisperModel: false,
+            hasHistoryDatabase: false), .server)
+    }
+
+    func test_storedUserNameAlone_decidesServer() {
+        XCTAssertEqual(Preferences.defaultEngineForMigration(
+            hasCompletedOnboarding: false, hasStoredUserName: true,
+            hasStoredEngineChoice: false, hasDownloadedWhisperModel: false,
+            hasHistoryDatabase: false), .server)
+    }
+
+    func test_storedEngineChoiceAlone_decidesServer() {
+        XCTAssertEqual(Preferences.defaultEngineForMigration(
+            hasCompletedOnboarding: false, hasStoredUserName: false,
+            hasStoredEngineChoice: true, hasDownloadedWhisperModel: false,
+            hasHistoryDatabase: false), .server)
+    }
+
+    func test_downloadedWhisperModelAlone_decidesServer() {
+        XCTAssertEqual(Preferences.defaultEngineForMigration(
+            hasCompletedOnboarding: false, hasStoredUserName: false,
+            hasStoredEngineChoice: false, hasDownloadedWhisperModel: true,
+            hasHistoryDatabase: false), .server)
+    }
+
+    func test_historyDatabaseAlone_decidesServer() {
+        XCTAssertEqual(Preferences.defaultEngineForMigration(
+            hasCompletedOnboarding: false, hasStoredUserName: false,
+            hasStoredEngineChoice: false, hasDownloadedWhisperModel: false,
+            hasHistoryDatabase: true), .server)
     }
 
     // MARK: - migrateEngineDefaultIfNeeded
@@ -179,13 +216,28 @@ final class PreferencesEngineMigrationTests: XCTestCase {
         XCTAssertEqual(Preferences.shared.transcriptionEngine, .server)
     }
 
-    func test_migration_leavesFreshInstall_onParakeetDefault() {
+    func test_migration_matchesPureFunction_whenOnboardingNotCompleted() {
+        // hasCompletedOnboarding is only one of several existing-user
+        // signals now: the others (a downloaded Whisper model, a history
+        // database) read the real Application Support directory, which
+        // this dev machine may already have populated. Compute the same
+        // signals the wrapper reads instead of assuming a "fresh install"
+        // outcome, so this test stays deterministic on any machine.
         Preferences.shared.hasCompletedOnboarding = false
+        let expected = Preferences.defaultEngineForMigration(
+            hasCompletedOnboarding: false,
+            hasStoredUserName: !Preferences.shared.userName.isEmpty,
+            hasStoredEngineChoice: false,
+            hasDownloadedWhisperModel: FileManager.default.fileExists(atPath: WhisperRunner.modelURL.path),
+            hasHistoryDatabase: Preferences.historyDatabaseExists()
+        )
         Preferences.shared.migrateEngineDefaultIfNeeded()
-        // Nothing needed to be written: the getter's own fallback already
-        // resolves to .parakeet for a fresh install.
-        XCTAssertNil(UserDefaults.standard.object(forKey: Self.engineKey))
-        XCTAssertEqual(Preferences.shared.transcriptionEngine, .parakeet)
+        XCTAssertEqual(Preferences.shared.transcriptionEngine, expected)
+        if expected == .parakeet {
+            // Nothing needed to be written: the getter's own fallback
+            // already resolves to .parakeet.
+            XCTAssertNil(Preferences.testDefaults.object(forKey: Self.engineKey))
+        }
     }
 
     func test_migration_neverOverridesAnExplicitlyStoredValue() {
@@ -209,6 +261,18 @@ final class PreferencesEngineMigrationTests: XCTestCase {
     }
 }
 
+/// Guard test for the production incident this fixed: the test host runs
+/// inside the app (TEST_HOST), so `UserDefaults.standard` there IS the real
+/// user's `com.rexdanquah.listentome` domain. `Preferences` must always be
+/// backed by the isolated test suite while a test run is in progress.
+final class PreferencesTestIsolationTests: XCTestCase {
+    func test_backingStore_isNeverStandardDefaults_underTests() {
+        XCTAssertTrue(RuntimeEnvironment.isRunningUnderTests)
+        XCTAssertFalse(Preferences.shared.backingDefaultsForTesting === UserDefaults.standard,
+                       "Preferences must not read/write UserDefaults.standard while tests are running")
+    }
+}
+
 /// Tests for `Preferences.ParakeetModel` (PR C): the version picker's
 /// mapping to FluidAudio's `AsrModelVersion`, display names, and default.
 final class ParakeetModelPrefTests: XCTestCase {
@@ -217,10 +281,10 @@ final class ParakeetModelPrefTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        UserDefaults.standard.removeObject(forKey: Self.key)
+        Preferences.testDefaults.removeObject(forKey: Self.key)
     }
     override func tearDown() {
-        UserDefaults.standard.removeObject(forKey: Self.key)
+        Preferences.testDefaults.removeObject(forKey: Self.key)
         super.tearDown()
     }
 
@@ -238,7 +302,7 @@ final class ParakeetModelPrefTests: XCTestCase {
     }
 
     func test_unknown_raw_value_falls_back_to_v3() {
-        UserDefaults.standard.set("tdt-v99", forKey: Self.key)
+        Preferences.testDefaults.set("tdt-v99", forKey: Self.key)
         XCTAssertEqual(Preferences.shared.parakeetModel, .v3)
     }
 

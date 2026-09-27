@@ -13,16 +13,16 @@ final class PartialTranscriberGateTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        UserDefaults.standard.removeObject(forKey: Self.engineKey)
-        UserDefaults.standard.removeObject(forKey: Self.partialsKey)
+        Preferences.testDefaults.removeObject(forKey: Self.engineKey)
+        Preferences.testDefaults.removeObject(forKey: Self.partialsKey)
         // Ensure clean stop state between tests.
         Task { @MainActor in PartialTranscriber.shared.stop() }
     }
 
     override func tearDown() {
         Task { @MainActor in PartialTranscriber.shared.stop() }
-        UserDefaults.standard.removeObject(forKey: Self.engineKey)
-        UserDefaults.standard.removeObject(forKey: Self.partialsKey)
+        Preferences.testDefaults.removeObject(forKey: Self.engineKey)
+        Preferences.testDefaults.removeObject(forKey: Self.partialsKey)
         super.tearDown()
     }
 
@@ -99,11 +99,11 @@ final class WhisperLibModelTrackingTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        UserDefaults.standard.removeObject(forKey: Self.modelKey)
+        Preferences.testDefaults.removeObject(forKey: Self.modelKey)
     }
 
     override func tearDown() {
-        UserDefaults.standard.removeObject(forKey: Self.modelKey)
+        Preferences.testDefaults.removeObject(forKey: Self.modelKey)
         super.tearDown()
     }
 
@@ -157,10 +157,10 @@ final class WhisperModelPreferenceTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        UserDefaults.standard.removeObject(forKey: Self.key)
+        Preferences.testDefaults.removeObject(forKey: Self.key)
     }
     override func tearDown() {
-        UserDefaults.standard.removeObject(forKey: Self.key)
+        Preferences.testDefaults.removeObject(forKey: Self.key)
         super.tearDown()
     }
 
@@ -178,7 +178,7 @@ final class WhisperModelPreferenceTests: XCTestCase {
     }
 
     func test_unknown_raw_value_falls_back_to_baseEn() {
-        UserDefaults.standard.set("nonexistent-model", forKey: Self.key)
+        Preferences.testDefaults.set("nonexistent-model", forKey: Self.key)
         XCTAssertEqual(Preferences.shared.selectedWhisperModel, .baseEn)
     }
 
