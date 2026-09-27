@@ -175,10 +175,14 @@ struct WhisperRunner {
                    let str = String(data: data, encoding: .utf8) {
                     try? FileManager.default.removeItem(at: txtURL)
                     try? FileManager.default.removeItem(at: wav)
-                    // Strip non-speech markers ("[BLANK_AUDIO]" etc.) that the
-                    // whisper CLI emits as literal text on silence — the last
-                    // place a marker could leak through as a transcript.
-                    cont.resume(returning: TranscriptHygiene.stripNonSpeechMarkers(str))
+                    // whisper.cpp's --output-txt writes one segment per
+                    // line, same shape as whisper-server's plain "text".
+                    // Rejoin before stripping non-speech markers
+                    // ("[BLANK_AUDIO]" etc.) that whisper emits as literal
+                    // text on silence, the last place a marker could leak
+                    // through as a transcript.
+                    let joined = WhisperLib.joinLines(str)
+                    cont.resume(returning: TranscriptHygiene.stripNonSpeechMarkers(joined))
                 } else {
                     cont.resume(throwing: WhisperError.noOutput)
                 }

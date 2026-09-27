@@ -361,18 +361,59 @@ final class WhisperServer {
             throw ServerError.httpError(status: http.statusCode, body: body)
         }
 
-        // Whisper-server returns either JSON ({ "text": "..." }) when
-        // response_format=json (default), or plain text when text. We
-        // didn't set the format so default JSON applies.
-        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let text = json["text"] as? String {
-            return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Whisper-server's "text" field (and whisper-cli's --output-txt)
+        // are one segment per line, so a mid-sentence line break can land
+        // in the middle of a pasted sentence. We ask for verbose_json so
+        // we get per-segment timing and can rejoin them properly (see
+        // transcriptText).
+        if let text = Self.transcriptText(from: data) {
+            return text
         }
-        // Fall back to raw body — tolerate either shape.
+        // Fall back to raw body: tolerate either shape, still flattened
+        // through the same one-line-per-segment fix.
         if let plain = String(data: data, encoding: .utf8) {
-            return plain.trimmingCharacters(in: .whitespacesAndNewlines)
+            return WhisperLib.joinLines(plain)
         }
         throw ServerError.responseMalformed("could not decode response body")
+    }
+
+    /// Parse a whisper-server `/inference` response body into a flat
+    /// transcript, fixing the server's one-segment-per-line shape.
+    ///
+    /// Prefers the `verbose_json` "segments" array (each with numeric
+    /// "start"/"end" in seconds and a "text") so we can reuse
+    /// `WhisperLib.joinSegments`'s gap-based paragraph logic, the same
+    /// join the linked in-process path already uses. Falls back to a
+    /// plain "text" field (no timing, so no paragraph breaks) when
+    /// segments aren't present or malformed. Returns nil if neither shape
+    /// is found, e.g. the body isn't JSON at all.
+    nonisolated static func transcriptText(from data: Data) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        if let segmentsJSON = json["segments"] as? [[String: Any]] {
+            var segments: [(text: String, t0: Int64, t1: Int64)] = []
+            segments.reserveCapacity(segmentsJSON.count)
+            var allValid = true
+            for segJSON in segmentsJSON {
+                guard let start = segJSON["start"] as? Double,
+                      let end = segJSON["end"] as? Double,
+                      let text = segJSON["text"] as? String else {
+                    allValid = false
+                    break
+                }
+                segments.append((text: text,
+                                 t0: Int64((start * 100).rounded()),
+                                 t1: Int64((end * 100).rounded())))
+            }
+            if allValid {
+                return WhisperLib.joinSegments(segments, paragraphBreaks: true)
+            }
+        }
+        if let text = json["text"] as? String {
+            return WhisperLib.joinLines(text)
+        }
+        return nil
     }
 
     private func multipartBody(boundary: String, wav: URL, prompt: String?) throws -> Data {
@@ -394,10 +435,12 @@ final class WhisperServer {
             body.append(crlf)
         }
 
-        // response_format json so we get a stable shape to parse
+        // response_format verbose_json so the response carries per-segment
+        // start/end timing, needed to rejoin the one-line-per-segment
+        // text without a stray mid-sentence break (see transcriptText).
         body.append("--\(boundary)\(crlf)")
         body.append("Content-Disposition: form-data; name=\"response_format\"\(crlf)\(crlf)")
-        body.append("json")
+        body.append("verbose_json")
         body.append(crlf)
 
         body.append("--\(boundary)--\(crlf)")

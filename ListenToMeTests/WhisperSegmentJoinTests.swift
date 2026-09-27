@@ -79,4 +79,16 @@ final class WhisperSegmentJoinTests: XCTestCase {
         XCTAssertEqual(WhisperLib.joinSegments(segs, paragraphBreaks: true),
                        "One.\n\nTwo. Three.\n\nFour.")
     }
+
+    // MARK: - joinLines
+
+    func test_joinLines_rejoinsMidSentenceLineBreak() {
+        XCTAssertEqual(WhisperLib.joinLines(" Sarah\n Chen in Accra.\n"),
+                       "Sarah Chen in Accra.")
+    }
+
+    func test_joinLines_blankInput_yieldsEmptyString() {
+        XCTAssertEqual(WhisperLib.joinLines(""), "")
+        XCTAssertEqual(WhisperLib.joinLines("\n\n\n"), "")
+    }
 }

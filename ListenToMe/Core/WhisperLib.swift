@@ -263,6 +263,20 @@ final class WhisperLib {
         }
         return out.trimmingCharacters(in: .whitespacesAndNewlines)
     }
+
+    /// Flatten one-segment-per-line text (whisper-server's plain "text"
+    /// field with no segments, and whisper-cli's `--output-txt` file) into
+    /// a single line: drop empty lines, trim each remaining line's
+    /// horizontal whitespace, and join with a single space. There's no
+    /// timing info in this shape, so unlike `joinSegments` there are no
+    /// paragraph breaks, just the flat join.
+    nonisolated static func joinLines(_ text: String) -> String {
+        let lines = text
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        return lines.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 }
 
 // MARK: - WAV → Float samples
