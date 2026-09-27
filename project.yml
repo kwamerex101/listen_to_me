@@ -8,10 +8,17 @@ options:
 # First SPM dependency. FluidAudio (Apache-2.0) provides Parakeet TDT v3 on
 # Core ML / ANE for the Wave 8 ASR A/B benchmark. Pinned exact — bump
 # deliberately, never floating.
+#
+# Sparkle (MIT) provides the auto-update flow: feed fetch, signature
+# verification, and the update UI. Pinned exact, bump deliberately, never
+# floating.
 packages:
   FluidAudio:
     url: https://github.com/FluidInference/FluidAudio
     exactVersion: 0.15.2
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    exactVersion: 2.10.0
 
 targets:
   ListenToMe:
@@ -30,6 +37,17 @@ targets:
     dependencies:
       - package: FluidAudio
         product: FluidAudio
+      # NOT embed: true. Sparkle's product is a prebuilt XCFramework
+      # (SPM binaryTarget); Xcode's build system already generates its own
+      # copy command that embeds it into Contents/Frameworks directly from
+      # the resolved package artifact, with no explicit embed phase needed.
+      # xcodegen's `embed: true` adds a SECOND, redundant "Embed Frameworks"
+      # copy-files phase on top of that, which not only duplicates the
+      # copy ("Multiple commands produce ... Sparkle.framework") but is
+      # itself broken for this product (it looks for a "Sparkle-product"
+      # intermediate that's never produced, since the real copy happens
+      # straight from the xcframework, not through that alias).
+      - package: Sparkle
     postBuildScripts:
       - name: Copy whisper binaries + dylibs into bundle
         script: |
@@ -76,12 +94,19 @@ targets:
         CFBundleName: ListenToMe
         CFBundleDisplayName: ListenToMe
         CFBundleIdentifier: com.rexdanquah.listentome
-        CFBundleShortVersionString: "0.19.0"
-        CFBundleVersion: "45"
+        CFBundleShortVersionString: "0.20.0"
+        CFBundleVersion: "46"
         NSHumanReadableCopyright: "© 2026 Rex Danquah"
         NSMicrophoneUsageDescription: "ListenToMe needs microphone access to transcribe your speech."
         NSAppleEventsUsageDescription: "ListenToMe uses Apple Events to paste transcripts into the active app and, when you choose the Apple Notes destination, to save dictations to Notes."
         NSHighResolutionCapable: true
+        # Sparkle auto-update. SUEnableAutomaticChecks is deliberately absent
+        # so Sparkle shows its own one-time permission prompt on the second
+        # launch instead of checking (and contacting GitHub) before the user
+        # agrees. SUScheduledCheckInterval is left at Sparkle's default.
+        SUFeedURL: https://github.com/kwamerex101/listen_to_me/releases/latest/download/appcast.xml
+        SUPublicEDKey: "ElYbM7/VCMgCbJylO9UizTiR6MKqd+RaiGiza939vzg="
+        SUEnableSystemProfiling: false
     entitlements:
       path: ListenToMe/ListenToMe.entitlements
       properties:

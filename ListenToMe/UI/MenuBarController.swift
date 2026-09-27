@@ -11,6 +11,7 @@ final class MenuBarController {
     private weak var claudeStatusItem: NSMenuItem?
     private weak var launchAtLoginItem: NSMenuItem?
     private weak var warningSeparator: NSMenuItem?
+    private weak var checkForUpdatesItem: NSMenuItem?
 
     private init() {}
 
@@ -103,6 +104,17 @@ final class MenuBarController {
         claudeStatusItem = claude
 
         menu.addItem(.separator())
+
+        let checkUpdates = NSMenuItem(
+            title: "Check for Updates…",
+            action: #selector(checkForUpdates),
+            keyEquivalent: ""
+        )
+        checkUpdates.target = self
+        menu.addItem(checkUpdates)
+        checkForUpdatesItem = checkUpdates
+
+        menu.addItem(.separator())
         menu.addItem(NSMenuItem(
             title: "Quit ListenToMe",
             action: #selector(NSApplication.terminate(_:)),
@@ -138,6 +150,7 @@ final class MenuBarController {
         let tapActive = HotkeyMonitor.shared.isActive
 
         launchAtLoginItem?.state = LaunchAtLogin.isEnabled ? .on : .off
+        checkForUpdatesItem?.isEnabled = Updater.shared.canCheck
 
         // Accessibility — show only when something needs the user's attention.
         var showAX = false
@@ -167,6 +180,10 @@ final class MenuBarController {
 
         // The warning separator is only visible when at least one warning is.
         warningSeparator?.isHidden = !(showAX || showClaude)
+    }
+
+    @objc private func checkForUpdates() {
+        Updater.shared.checkForUpdates()
     }
 
     @objc private func openClaudeInstallDocs() {

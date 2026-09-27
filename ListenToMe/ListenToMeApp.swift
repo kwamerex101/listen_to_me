@@ -98,6 +98,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         MenuBarController.shared.install()
 
+        // Start Sparkle's updater (scheduler + one-time consent prompt on
+        // the second launch). This never triggers a check itself; the
+        // `Updater.shared` access below just starts the controller Sparkle
+        // needs to hand off to.
+        _ = Updater.shared
+
         // Always-visible compact pill
         PillWindow.shared.showPersistent()
 

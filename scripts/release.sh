@@ -88,6 +88,31 @@ if [[ "$DEV_ID" == "1" ]]; then
         "$APP_PATH/Contents/Resources/$bin" >/dev/null
   done
 
+  # Sparkle 2's own documented signing order: inside-out through the
+  # framework's nested XPC services / helper executables, THEN the
+  # framework itself. Must happen before the outer app is signed below.
+  # The generic dylib loop above only globs "*.dylib" / "*.debug.dylib",
+  # so it never touches any of these (none of them match that pattern),
+  # nothing here gets re-signed afterwards with the wrong flags.
+  SPARKLE_FMW="$APP_PATH/Contents/Frameworks/Sparkle.framework/Versions/B"
+  if [ -d "$SPARKLE_FMW" ]; then
+    echo "==> Signing Sparkle.framework nested code..."
+    codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" \
+      "$SPARKLE_FMW/XPCServices/Installer.xpc" >/dev/null
+    # Downloader.xpc is sandboxed and ships with its own entitlements
+    # (app-sandbox, network.client); --preserve-metadata=entitlements keeps
+    # those intact instead of stripping them on re-sign.
+    codesign --force --options runtime --timestamp \
+      --preserve-metadata=entitlements --sign "$SIGN_IDENTITY" \
+      "$SPARKLE_FMW/XPCServices/Downloader.xpc" >/dev/null
+    codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" \
+      "$SPARKLE_FMW/Autoupdate" >/dev/null
+    codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" \
+      "$SPARKLE_FMW/Updater.app" >/dev/null
+    codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" \
+      "$APP_PATH/Contents/Frameworks/Sparkle.framework" >/dev/null
+  fi
+
   codesign --force --options runtime --timestamp \
     --entitlements "$ENT_TMP" --sign "$SIGN_IDENTITY" "$APP_PATH" >/dev/null
   codesign --verify --deep --strict "$APP_PATH"
@@ -137,10 +162,72 @@ if [[ "$DEV_ID" == "1" ]]; then
   fi
 fi
 
+# ---- Appcast -------------------------------------------------------------
+# An update must never ship un-notarized, so skip appcast generation
+# entirely (loudly) rather than produce a feed entry Gatekeeper would
+# reject on the installing machine.
+APPCAST_GENERATED=0
+if [[ "$NOTARIZED" != "1" ]]; then
+  echo ""
+  echo "⚠️  WARNING: skipping appcast generation: the DMG is not notarized."
+  echo "    An auto-update feed must only ever point at a notarized build."
+else
+  echo "==> Generating appcast..."
+
+  GENERATE_APPCAST="$(find "$DERIVED/SourcePackages" -path "*Sparkle*/bin/generate_appcast" -maxdepth 8 -type f 2>/dev/null | head -1)"
+  if [[ -z "$GENERATE_APPCAST" ]]; then
+    echo "⚠️  WARNING: generate_appcast not found under $DERIVED/SourcePackages: skipping appcast." >&2
+  else
+    VERSION="$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP_PATH/Contents/Info.plist")"
+
+    ARCHIVE_DIR="$DIST/appcast-stage"
+    rm -rf "$ARCHIVE_DIR"
+    mkdir -p "$ARCHIVE_DIR"
+    cp "$DIST/$DMG_NAME" "$ARCHIVE_DIR/"
+
+    # Release notes: pull this version's section out of CHANGELOG.md into a
+    # Markdown file generate_appcast will pick up by matching basename
+    # (generate_appcast 2.10.0 supports .html, .md, and .txt release notes).
+    NOTES_FILE="$ARCHIVE_DIR/${DMG_NAME%.dmg}.md"
+    awk -v ver="$VERSION" '
+      BEGIN { found = 0 }
+      /^## / {
+        if (found) exit
+        if (index($0, ver) > 0) { found = 1; next }
+        next
+      }
+      found { print }
+    ' "$ROOT/CHANGELOG.md" > "$NOTES_FILE"
+    if [[ ! -s "$NOTES_FILE" ]]; then
+      echo "⚠️  WARNING: no CHANGELOG.md section found for $VERSION: appcast item will have no release notes." >&2
+      rm -f "$NOTES_FILE"
+    fi
+
+    "$GENERATE_APPCAST" \
+      --download-url-prefix "https://github.com/kwamerex101/listen_to_me/releases/download/v$VERSION/" \
+      --embed-release-notes \
+      -o "$DIST/appcast.xml" \
+      "$ARCHIVE_DIR"
+
+    rm -rf "$ARCHIVE_DIR"
+
+    if [[ -f "$DIST/appcast.xml" ]]; then
+      APPCAST_GENERATED=1
+      echo "==> Appcast: $DIST/appcast.xml"
+    else
+      echo "⚠️  WARNING: generate_appcast ran but $DIST/appcast.xml was not produced." >&2
+    fi
+  fi
+fi
+
 echo ""
 echo "==> Done."
 echo "    App:  $APP_PATH"
 echo "    DMG:  $DIST/$DMG_NAME"
+if [[ "$APPCAST_GENERATED" == "1" ]]; then
+  echo "    Appcast: $DIST/appcast.xml"
+  echo "    Upload BOTH dist/$DMG_NAME and dist/appcast.xml to the GitHub Release v$VERSION."
+fi
 if [[ "$NOTARIZED" == "1" ]]; then
   echo "    Signed (Developer ID) + notarized + stapled — double-click to install."
 elif [[ "$DEV_ID" == "1" ]]; then
