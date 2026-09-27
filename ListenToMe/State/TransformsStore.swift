@@ -30,9 +30,7 @@ final class TransformsStore: ObservableObject {
     @Published private(set) var transforms: [Transform] = []
 
     private let legacyURL: URL = {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let dir = base.appendingPathComponent("ListenToMe", isDirectory: true)
-        return dir.appendingPathComponent("transforms.json")
+        RuntimeEnvironment.appSupportDirectory.appendingPathComponent("transforms.json")
     }()
 
     private init() { load() }

@@ -2,6 +2,12 @@
 
 All notable user-facing changes per release. Format inspired by [Keep a Changelog](https://keepachangelog.com/), version numbers follow [SemVer](https://semver.org/) at the bundle level.
 
+## Unreleased
+
+### Fixed
+
+- Running the developer test suite no longer touches your real history, dictionary, snippets or styles.
+
 ## 0.21.1 (build 49)
 
 ### Fixed

@@ -33,9 +33,7 @@ final class SnippetsStore: ObservableObject {
     @Published private(set) var snippets: [Snippet] = []
 
     private let legacyURL: URL = {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let dir = base.appendingPathComponent("ListenToMe", isDirectory: true)
-        return dir.appendingPathComponent("snippets.json")
+        RuntimeEnvironment.appSupportDirectory.appendingPathComponent("snippets.json")
     }()
 
     private init() { load() }
