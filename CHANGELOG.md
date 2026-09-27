@@ -2,13 +2,18 @@
 
 All notable user-facing changes per release. Format inspired by [Keep a Changelog](https://keepachangelog.com/), version numbers follow [SemVer](https://semver.org/) at the bundle level.
 
+## Unreleased
+
+### Fixed
+
+- Running the developer test suite no longer touches your real history, dictionary, snippets or styles.
+
 ## 0.21.1 (build 49)
 
 ### Fixed
 
 - The setup window is a normal size again (it could stretch to the full height of the screen).
 - If you never finished the setup window, the 0.21.0 update could treat you as a new user and switch you to Parakeet. Existing setups are now recognized from your saved name, downloaded Whisper model or history too.
-- Running the developer test suite no longer touches your real history, dictionary, snippets or styles.
 
 ## 0.21.0 (build 48)
 
