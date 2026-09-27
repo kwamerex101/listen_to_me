@@ -20,10 +20,13 @@ final class TranscriptionEngineTests: XCTestCase {
         super.tearDown()
     }
 
-    func test_default_is_server() {
-        // When no preference has ever been written, default is .server
-        // — preserves the warm path that ships in v0.13.0.
-        XCTAssertEqual(Preferences.shared.transcriptionEngine, .server)
+    func test_default_is_parakeet_for_unset_pref() {
+        // PR C: the getter's own unset-fallback is now .parakeet (new
+        // installs try the faster on-device engine first). Whether an
+        // *existing* user stays on .server is decided separately, by the
+        // one-time migration in PreferencesEngineMigrationTests below.
+        // This test only covers the raw getter with nothing stored.
+        XCTAssertEqual(Preferences.shared.transcriptionEngine, .parakeet)
     }
 
     func test_persists_across_reads() {
@@ -62,12 +65,12 @@ final class TranscriptionEngineTests: XCTestCase {
                       "linked label '\(Preferences.TranscriptionEngine.linked.label)' should signal its capability")
     }
 
-    func test_unknown_raw_value_falls_back_to_server() {
+    func test_unknown_raw_value_falls_back_to_parakeet() {
         // If a future build adds a new engine and a downgrade reads
         // a raw value the current build doesn't recognize, Preferences
-        // should return .server rather than crashing.
+        // should return the current default rather than crashing.
         UserDefaults.standard.set("future-engine-x", forKey: Self.testKey)
-        XCTAssertEqual(Preferences.shared.transcriptionEngine, .server)
+        XCTAssertEqual(Preferences.shared.transcriptionEngine, .parakeet)
     }
 }
 
@@ -129,5 +132,140 @@ final class TranscriptionAccuracyPrefTests: XCTestCase {
     func test_beam_size_mapping() {
         XCTAssertEqual(Preferences.TranscriptionAccuracy.fast.beamSize, 1)
         XCTAssertEqual(Preferences.TranscriptionAccuracy.accurate.beamSize, 5)
+    }
+}
+
+/// Tests for the PR C engine-default migration: existing users must keep
+/// their engine when the unset-fallback flips from `.server` to
+/// `.parakeet`. `defaultEngineForMigration` is the pure decision function;
+/// `migrateEngineDefaultIfNeeded` is the UserDefaults-touching wrapper
+/// around it, run once at launch.
+final class PreferencesEngineMigrationTests: XCTestCase {
+
+    private static let engineKey = "wf.transcriptionEngine"
+    private static let migratedKey = "wf.engineDefaultMigrated"
+    private static let onboardingKey = "wf.hasCompletedOnboarding"
+
+    override func setUp() {
+        super.setUp()
+        UserDefaults.standard.removeObject(forKey: Self.engineKey)
+        UserDefaults.standard.removeObject(forKey: Self.migratedKey)
+        UserDefaults.standard.removeObject(forKey: Self.onboardingKey)
+    }
+    override func tearDown() {
+        UserDefaults.standard.removeObject(forKey: Self.engineKey)
+        UserDefaults.standard.removeObject(forKey: Self.migratedKey)
+        UserDefaults.standard.removeObject(forKey: Self.onboardingKey)
+        super.tearDown()
+    }
+
+    // MARK: - Pure decision function
+
+    func test_freshInstall_decidesParakeet() {
+        XCTAssertEqual(Preferences.defaultEngineForMigration(hasCompletedOnboarding: false), .parakeet)
+    }
+
+    func test_existingOnboardedUser_decidesServer() {
+        XCTAssertEqual(Preferences.defaultEngineForMigration(hasCompletedOnboarding: true), .server)
+    }
+
+    // MARK: - migrateEngineDefaultIfNeeded
+
+    func test_migration_pinsExistingOnboardedUser_toServer() {
+        Preferences.shared.hasCompletedOnboarding = true
+        // Engine pref left unset, as a real existing user would have it
+        // before this migration ever ran.
+        Preferences.shared.migrateEngineDefaultIfNeeded()
+        XCTAssertEqual(Preferences.shared.transcriptionEngine, .server)
+    }
+
+    func test_migration_leavesFreshInstall_onParakeetDefault() {
+        Preferences.shared.hasCompletedOnboarding = false
+        Preferences.shared.migrateEngineDefaultIfNeeded()
+        // Nothing needed to be written: the getter's own fallback already
+        // resolves to .parakeet for a fresh install.
+        XCTAssertNil(UserDefaults.standard.object(forKey: Self.engineKey))
+        XCTAssertEqual(Preferences.shared.transcriptionEngine, .parakeet)
+    }
+
+    func test_migration_neverOverridesAnExplicitlyStoredValue() {
+        Preferences.shared.hasCompletedOnboarding = true
+        Preferences.shared.transcriptionEngine = .linked
+        Preferences.shared.migrateEngineDefaultIfNeeded()
+        XCTAssertEqual(Preferences.shared.transcriptionEngine, .linked)
+    }
+
+    func test_migration_runsOnlyOnce() {
+        Preferences.shared.hasCompletedOnboarding = true
+        Preferences.shared.migrateEngineDefaultIfNeeded()
+        XCTAssertEqual(Preferences.shared.transcriptionEngine, .server)
+
+        // A later run must not re-derive from hasCompletedOnboarding.
+        // Simulate the user explicitly picking Parakeet afterward, then
+        // confirm a second migration call leaves it alone.
+        Preferences.shared.transcriptionEngine = .parakeet
+        Preferences.shared.migrateEngineDefaultIfNeeded()
+        XCTAssertEqual(Preferences.shared.transcriptionEngine, .parakeet)
+    }
+}
+
+/// Tests for `Preferences.ParakeetModel` (PR C): the version picker's
+/// mapping to FluidAudio's `AsrModelVersion`, display names, and default.
+final class ParakeetModelPrefTests: XCTestCase {
+
+    private static let key = "wf.parakeetModel"
+
+    override func setUp() {
+        super.setUp()
+        UserDefaults.standard.removeObject(forKey: Self.key)
+    }
+    override func tearDown() {
+        UserDefaults.standard.removeObject(forKey: Self.key)
+        super.tearDown()
+    }
+
+    func test_default_is_v3() {
+        // v3 stays the default so nothing changes for anyone already using
+        // Parakeet.
+        XCTAssertEqual(Preferences.shared.parakeetModel, .v3)
+    }
+
+    func test_persists_across_reads() {
+        Preferences.shared.parakeetModel = .v2
+        XCTAssertEqual(Preferences.shared.parakeetModel, .v2)
+        Preferences.shared.parakeetModel = .v3
+        XCTAssertEqual(Preferences.shared.parakeetModel, .v3)
+    }
+
+    func test_unknown_raw_value_falls_back_to_v3() {
+        UserDefaults.standard.set("tdt-v99", forKey: Self.key)
+        XCTAssertEqual(Preferences.shared.parakeetModel, .v3)
+    }
+
+    func test_maps_to_fluidAudio_version() {
+        XCTAssertEqual(Preferences.ParakeetModel.v3.asrModelVersion, .v3)
+        XCTAssertEqual(Preferences.ParakeetModel.v2.asrModelVersion, .v2)
+    }
+
+    func test_all_cases_have_non_empty_labels() {
+        for model in Preferences.ParakeetModel.allCases {
+            XCTAssertFalse(model.label.isEmpty, "\(model.rawValue) has empty label")
+            XCTAssertFalse(model.shortLabel.isEmpty, "\(model.rawValue) has empty shortLabel")
+        }
+    }
+
+    func test_v2_label_signals_englishOnly() {
+        XCTAssertTrue(Preferences.ParakeetModel.v2.label.lowercased().contains("english"))
+    }
+
+    func test_v3_label_signals_multilingual() {
+        XCTAssertTrue(Preferences.ParakeetModel.v3.label.lowercased().contains("language"))
+    }
+
+    func test_shortLabels_used_by_benchmark_are_short() {
+        // ParakeetEngine.modelDisplayName surfaces this in the benchmark's
+        // compact model-name column, so keep it terse.
+        XCTAssertEqual(Preferences.ParakeetModel.v3.shortLabel, "TDT v3")
+        XCTAssertEqual(Preferences.ParakeetModel.v2.shortLabel, "TDT v2")
     }
 }

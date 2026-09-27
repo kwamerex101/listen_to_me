@@ -16,7 +16,7 @@ Privacy-first, fully on-device dictation for macOS — speak into any app, relea
 
 At a glance:
 
-- **On-device transcription** with Whisper (warm server or in-process) or Parakeet on the Apple Neural Engine.
+- **On-device transcription** with Whisper (warm server or in-process) or Parakeet on the Apple Neural Engine. Parakeet is the default for new installs; anyone updating from an earlier version keeps the engine they already had.
 - **Optional on-device cleanup** with a local Gemma model. Cloud Claude is strictly opt-in.
 - **Flexible output**: paste into the active app, copy to the clipboard, or save to Apple Notes (three modes).
 - **Smart text post-processing**: custom dictionary and casing, repeated-word collapse, spoken operators, auto-promoted corrections.
@@ -33,9 +33,9 @@ Full details below.
 
 ### Transcription engines
 
-- **Whisper server (default)** — bundled `whisper-server` binary keeps the model warm between dictations. First dictation loads the model (~1–8 s on a cold cache); every subsequent one is HTTP-only. Falls back to `whisper-cli` on error.
+- **Parakeet (Neural Engine, default for new installs):** FluidAudio Core ML model runs on the Apple Neural Engine at ~0.09 s/utterance. Two versions: TDT v3 (25 languages) or TDT v2 (English only, a little more accurate, 2.1% WER on LibriSpeech test-clean vs 2.5% for v3), switchable in Settings → Models. Opt-in dictionary biasing uses CTC word-spotting to favor your saved vocabulary terms, and works the same on either version.
+- **Whisper server:** bundled `whisper-server` binary keeps the model warm between dictations. First dictation loads the model (~1-8 s on a cold cache); every subsequent one is HTTP-only. Falls back to `whisper-cli` on error. The default for anyone who already had it before Parakeet became the new default; an update never switches you off it.
 - **Whisper linked** — in-process `libwhisper` path enables streaming partial transcripts and lower per-call overhead. Fast (greedy decode) or Accurate (beam search, ~25% slower) mode selectable.
-- **Parakeet TDT v3 (Neural Engine)** — FluidAudio Core ML model runs on the Apple Neural Engine at ~0.09 s/utterance. Opt-in dictionary biasing uses CTC word-spotting to favor your saved vocabulary terms.
 - **Whisper models** — Base (148 MB, default), Small, Large-v3-turbo (1.6 GB); SHA-256 verified download. Delete any downloaded model from Settings → Models to reclaim disk space.
 
 ### Transcript cleanup
@@ -267,7 +267,7 @@ Open Settings with ⌘, or via the menu bar icon → Open ListenToMe….
 |---|---|
 | **General** | Hotkey binding (Fn+⌘ / Fn+⌥ / ⌃+⌘ / ⌃+⌥), appearance (Light/Dark/System), pill position reset, launch at login |
 | **Dictation** | Microphone device, max recording duration (30–600 s, default 120), AI cleanup mode and intensity, cloud vs on-device backend, Anthropic API key, cleanup timeout (5–60 s), output destination and Notes mode/folder/title |
-| **Models** | Transcription engine (Whisper Server / Whisper Linked / Parakeet ANE), Whisper model download and deletion, Parakeet model download and deletion, Parakeet dictionary boost toggle, on-device LLM (Gemma E2B or 12B) download and deletion, Engine Benchmark (A/B WER + latency) |
+| **Models** | Transcription engine (Whisper Server / Whisper Linked / Parakeet ANE), Parakeet version (TDT v3 / TDT v2), Whisper model download and deletion, Parakeet model download and deletion, Parakeet dictionary boost toggle, on-device LLM (Gemma E2B or 12B) download and deletion, Engine Benchmark (A/B WER + latency) |
 | **Privacy** | History retention (0–365 days, default 90), encrypt history at rest (AES-GCM), context-aware tone toggle (default off), voice commands toggle (default off), automatic update checks toggle + "Check Now", diagnostics log toggle (default off), **Uninstall & delete all data** |
 | **About** | Version and build number, on-device processing note |
 

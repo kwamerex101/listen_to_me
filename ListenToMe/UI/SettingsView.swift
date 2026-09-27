@@ -64,6 +64,7 @@ struct SettingsView: View {
     @ObservedObject private var llmManager = LLMModelManager.shared
     @ObservedObject private var parakeet = ParakeetEngine.shared
     @State private var parakeetVocabBoost: Bool = Preferences.shared.parakeetVocabBoost
+    @State private var parakeetModel: Preferences.ParakeetModel = Preferences.shared.parakeetModel
     @State private var outputDestination: OutputDestination = Preferences.shared.outputDestination
     @State private var noteMode: NoteMode = Preferences.shared.noteMode
     @State private var noteTitleDraft: String = Preferences.shared.noteTitle
@@ -157,6 +158,7 @@ struct SettingsView: View {
             voiceCommandsEnabled = Preferences.shared.voiceCommandsEnabled
             transcriptionEngine = Preferences.shared.transcriptionEngine
             parakeetVocabBoost = Preferences.shared.parakeetVocabBoost
+            parakeetModel = Preferences.shared.parakeetModel
             outputDestination = Preferences.shared.outputDestination
             noteMode = Preferences.shared.noteMode
             noteTitleDraft = Preferences.shared.noteTitle
@@ -504,6 +506,26 @@ struct SettingsView: View {
                 }
                 // Parakeet model status (download lives here, like Whisper's).
                 if transcriptionEngine == .parakeet {
+                    row(label: "Parakeet version",
+                        description: "v2 is English only and a little more accurate. v3 also understands 24 other European languages.") {
+                        Picker("", selection: $parakeetModel) {
+                            ForEach(Preferences.ParakeetModel.allCases, id: \.self) { model in
+                                Text(model.label).tag(model)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                        .frame(width: DT.controlPickerWidth)
+                        .onChange(of: parakeetModel) { _, new in
+                            Preferences.shared.parakeetModel = new
+                            // Mirrors the Whisper-model switch below: drop the
+                            // loaded version so the next call downloads/loads
+                            // the newly-selected one instead of staying warm
+                            // on the old model.
+                            ParakeetEngine.shared.shutdown()
+                            Task { try? await ParakeetEngine.shared.ensureReady() }
+                        }
+                    }
                     row(label: "Parakeet model") {
                         parakeetStatusView
                     }
