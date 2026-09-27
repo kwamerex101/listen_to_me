@@ -2,10 +2,10 @@ import AVFoundation
 import FluidAudio
 import Foundation
 
-/// Parakeet TDT v3 ASR via FluidAudio (Core ML / Apple Neural Engine).
-/// Wave 8 scope: powers the in-Settings A/B benchmark against Whisper only —
-/// NOT wired into the dictation pipeline until the benchmark proves it out
-/// (see docs/plans/2026-06-12-wave8-parakeet-adr.md).
+/// Parakeet ASR via FluidAudio (Core ML / Apple Neural Engine). Wired into
+/// the dictation pipeline (WhisperRunner routes `.parakeet` here, falling
+/// back to the whisper CLI on any failure) and also powers the in-Settings
+/// A/B benchmark against Whisper.
 ///
 /// Lifecycle mirrors WhisperLib/LocalLLMEngine: published status for SwiftUI,
 /// lazy load, model download into our Application Support tree (FluidAudio's
@@ -14,10 +14,10 @@ import Foundation
 final class ParakeetEngine: ObservableObject {
     static let shared = ParakeetEngine()
 
-    /// User-facing name for the model version this engine loads (`.v3`
-    /// below). Kept here, next to the version it describes, rather than
-    /// hard-coded wherever the UI wants to show it.
-    static let modelDisplayName = "TDT v3"
+    /// User-facing name for the model version currently loaded (or about to
+    /// load), read from `Preferences.shared.parakeetModel`. Used by the
+    /// benchmark UI's model-name column.
+    static var modelDisplayName: String { Preferences.shared.parakeetModel.shortLabel }
 
     enum Status: Equatable {
         case missing
@@ -35,6 +35,11 @@ final class ParakeetEngine: ObservableObject {
     private var ctcModels: CtcModels?
     private var slidingManager: SlidingWindowAsrManager?
     private var configuredTerms: Set<String> = []
+    /// The model version currently loaded into `manager`/`models`, if any.
+    /// Compared against `Preferences.shared.parakeetModel` on `ensureReady()`
+    /// so a version switch in Settings reloads the right model instead of
+    /// silently keeping the old one warm.
+    private var loadedVersion: Preferences.ParakeetModel?
     private init() {}
 
     /// Models live alongside our other model trees. FluidAudio manages the
@@ -47,10 +52,16 @@ final class ParakeetEngine: ObservableObject {
 
     var isReady: Bool { manager != nil }
 
-    /// Download (if needed) + load the v3 models. Safe to call repeatedly;
-    /// no-ops when already ready. Progress is published for the benchmark UI.
+    /// Download (if needed) + load the selected model version
+    /// (`Preferences.shared.parakeetModel`, default v3). Safe to call
+    /// repeatedly; no-ops when the right version is already ready. If a
+    /// different version is loaded (the user switched in Settings), unloads
+    /// it first so this call loads the newly-selected one. Progress is
+    /// published for the benchmark UI.
     func ensureReady() async throws {
-        if manager != nil { return }
+        let selected = Preferences.shared.parakeetModel
+        if manager != nil, loadedVersion == selected { return }
+        if manager != nil { shutdown() }
         if case .downloading = status { return }
         if case .loading = status { return }
 
@@ -58,7 +69,7 @@ final class ParakeetEngine: ObservableObject {
         do {
             let models = try await AsrModels.downloadAndLoad(
                 to: Self.modelsDirectory,
-                version: .v3,
+                version: selected.asrModelVersion,
                 progressHandler: { progress in
                     Task { @MainActor in
                         // Only regress-proof updates; download phases restart %.
@@ -74,6 +85,7 @@ final class ParakeetEngine: ObservableObject {
             try await mgr.loadModels(models)
             manager = mgr
             self.models = models
+            loadedVersion = selected
             status = .ready
         } catch {
             status = .failed(message: error.localizedDescription)
@@ -133,6 +145,16 @@ final class ParakeetEngine: ObservableObject {
 
     /// Build/refresh the CTC + sliding stack for the given term set. Rebuilds
     /// the vocabulary only when the set changed (cheap to skip otherwise).
+    ///
+    /// Works the same for either Parakeet model version: the CTC
+    /// keyword-spotting model (`CtcModels`, variant `.ctc110m` by default,
+    /// see FluidAudio's `CtcModels.swift`) is a separate model from the TDT
+    /// decoder and never varies with `AsrModelVersion`, and
+    /// `SlidingWindowAsrManager.configureVocabularyBoosting` sizes its
+    /// rescorer purely from `vocabulary.terms.count` (the user's own
+    /// dictionary size), never from the TDT model's vocabulary or tokenizer
+    /// (see FluidAudio's `SlidingWindowAsrManager.swift`, roughly lines
+    /// 86-115). So v2 needs no special-casing here.
     private func ensureVocabConfigured(terms: [String], models: AsrModels) async throws {
         let termSet = Set(terms)
         if slidingManager != nil, configuredTerms == termSet { return }
@@ -176,6 +198,7 @@ final class ParakeetEngine: ObservableObject {
         slidingManager = nil
         ctcModels = nil
         configuredTerms = []
+        loadedVersion = nil
         if status == .ready { status = .missing }
     }
 

@@ -4,6 +4,14 @@ All notable user-facing changes per release. Format inspired by [Keep a Changelo
 
 ## Unreleased
 
+### Added
+
+- Parakeet TDT v2 is now a second option alongside v3 in Settings → Models. v2 is English only but a little more accurate; v3 still understands 24 other languages and stays the default for anyone already on Parakeet.
+
+### Changed
+
+- New installs now start on Parakeet (Neural Engine) instead of Whisper: it's faster and made about half as many mistakes in the built-in benchmark. It downloads its model (about 600 MB) during setup. If you're updating from an earlier version, your current engine is unchanged; this only affects a first-time setup.
+
 ### Improved
 
 - The engine benchmark in Settings is now a fair comparison: the Whisper row always runs Whisper (even when Parakeet is your engine), both engines warm up before anything is timed, "3pm" is no longer scored as a mistake, the average counts every word instead of averaging percentages, each result shows which model ran, and a new "Use my dictionary" switch shows how your Dictionary words help.

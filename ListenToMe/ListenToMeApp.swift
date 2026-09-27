@@ -92,6 +92,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
 
+        // PR C: one-time migration pinning existing users to `.server`
+        // before Parakeet becomes the new-install default below. Must run
+        // before anything else reads `transcriptionEngine`.
+        Preferences.shared.migrateEngineDefaultIfNeeded()
+
         // Apply user's theme preference before any UI lands so the first
         // paint is correct and we avoid a flash to the system appearance.
         Preferences.shared.appearance.apply()

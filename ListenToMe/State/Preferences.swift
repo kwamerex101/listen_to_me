@@ -1,4 +1,5 @@
 import AppKit
+import FluidAudio
 import Foundation
 
 enum CleanupMode: String, CaseIterable {
@@ -146,6 +147,8 @@ final class Preferences {
     private let kSelectedWhisperModel = "wf.selectedWhisperModel"
     private let kTranscriptionAccuracy = "wf.transcriptionAccuracy"
     private let kParakeetVocabBoost = "wf.parakeetVocabBoost"
+    private let kParakeetModel = "wf.parakeetModel"
+    private let kEngineDefaultMigrated = "wf.engineDefaultMigrated"
     private let kLLMBackend = "wf.llmBackend"
     private let kSelectedLocalLLMModel = "wf.selectedLocalLLMModel"
     private let kCleanupIntensity = "wf.cleanupIntensity"
@@ -264,13 +267,17 @@ final class Preferences {
         set { defaults.set(newValue, forKey: kVoiceCommandsEnabled) }
     }
 
-    /// Transcription engine selection. `.server` (default) keeps the
-    /// well-tested whisper-server warm path that ships in v0.13.0.
-    /// `.linked` switches to the in-process libwhisper path for
-    /// streaming partial transcripts and lower per-call overhead.
-    /// We default to .server so an upgrade can't break the dictation
-    /// pipeline if the linked path has a model-load issue on a given
-    /// machine; opt in via Settings → AI Cleanup → Transcription engine.
+    /// Transcription engine selection. `.server` keeps the well-tested
+    /// whisper-server warm path that ships in v0.13.0. `.linked` switches to
+    /// the in-process libwhisper path for streaming partial transcripts and
+    /// lower per-call overhead. `.parakeet` runs on the Apple Neural Engine.
+    ///
+    /// New installs default to `.parakeet` (PR C): fastest, on-device, no
+    /// whisper binary needed. Anyone who already had an engine chosen (or
+    /// who was onboarded before this default changed) keeps it: see
+    /// `migrateEngineDefaultIfNeeded()`, which runs once at launch and pins
+    /// existing users to `.server` explicitly so this fallback default can
+    /// never silently switch them.
     enum TranscriptionEngine: String, CaseIterable {
         case server, linked, parakeet
 
@@ -289,10 +296,41 @@ final class Preferences {
 
     var transcriptionEngine: TranscriptionEngine {
         get {
-            let raw = defaults.string(forKey: kTranscriptionEngine) ?? TranscriptionEngine.server.rawValue
-            return TranscriptionEngine(rawValue: raw) ?? .server
+            let raw = defaults.string(forKey: kTranscriptionEngine) ?? TranscriptionEngine.parakeet.rawValue
+            return TranscriptionEngine(rawValue: raw) ?? .parakeet
         }
         set { defaults.set(newValue.rawValue, forKey: kTranscriptionEngine) }
+    }
+
+    /// Pure decision function for the one-time engine-default migration
+    /// below. Kept free of UserDefaults so it's trivially unit-testable:
+    /// a user who already finished onboarding before Parakeet became the
+    /// new-install default keeps `.server`; anyone else (a fresh install)
+    /// gets the new default, `.parakeet`.
+    static func defaultEngineForMigration(hasCompletedOnboarding: Bool) -> TranscriptionEngine {
+        hasCompletedOnboarding ? .server : .parakeet
+    }
+
+    /// One-time migration, run at launch before anything reads
+    /// `transcriptionEngine`. `transcriptionEngine`'s unset-fallback used to
+    /// be `.server` and is now `.parakeet` (new installs should try the
+    /// faster on-device engine); an existing user who never explicitly
+    /// picked an engine must not be silently moved off Whisper by that
+    /// change. If the engine pref is unset and the user already completed
+    /// onboarding, we persist `.server` explicitly so their behavior is
+    /// unchanged; a fresh install needs nothing written since the getter's
+    /// new fallback already gives it `.parakeet`. Gated on
+    /// `kEngineDefaultMigrated` so it only ever runs once, even though a
+    /// later explicit engine choice is stored under the same key and would
+    /// otherwise look identical to "still unset".
+    func migrateEngineDefaultIfNeeded() {
+        guard !defaults.bool(forKey: kEngineDefaultMigrated) else { return }
+        defaults.set(true, forKey: kEngineDefaultMigrated)
+        guard defaults.object(forKey: kTranscriptionEngine) == nil else { return }
+        let resolved = Self.defaultEngineForMigration(hasCompletedOnboarding: hasCompletedOnboarding)
+        if resolved != .parakeet {
+            defaults.set(resolved.rawValue, forKey: kTranscriptionEngine)
+        }
     }
 
     /// Parakeet-only: bias transcription toward the user dictionary using
@@ -303,6 +341,46 @@ final class Preferences {
     var parakeetVocabBoost: Bool {
         get { defaults.bool(forKey: kParakeetVocabBoost) }
         set { defaults.set(newValue, forKey: kParakeetVocabBoost) }
+    }
+
+    /// Which Parakeet TDT model FluidAudio loads. `.v3` (25 languages) stays
+    /// the default so nothing changes for anyone already using Parakeet.
+    /// `.v2` is English-only but a little more accurate (2.1% WER on
+    /// LibriSpeech test-clean vs 2.5% for v3, per FluidAudio's
+    /// Documentation/Benchmarks.md). Both versions download into their own
+    /// subfolder, so switching back and forth doesn't re-download.
+    enum ParakeetModel: String, CaseIterable {
+        case v3, v2
+
+        var label: String {
+            switch self {
+            case .v3: return "TDT v3 (25 languages)"
+            case .v2: return "TDT v2 (English only, more accurate)"
+            }
+        }
+
+        /// Short form for the benchmark's model-name column.
+        var shortLabel: String {
+            switch self {
+            case .v3: return "TDT v3"
+            case .v2: return "TDT v2"
+            }
+        }
+
+        var asrModelVersion: AsrModelVersion {
+            switch self {
+            case .v3: return .v3
+            case .v2: return .v2
+            }
+        }
+    }
+
+    var parakeetModel: ParakeetModel {
+        get {
+            let raw = defaults.string(forKey: kParakeetModel) ?? ParakeetModel.v3.rawValue
+            return ParakeetModel(rawValue: raw) ?? .v3
+        }
+        set { defaults.set(newValue.rawValue, forKey: kParakeetModel) }
     }
 
     /// Decoder strategy for the FINAL transcription pass. Streaming
