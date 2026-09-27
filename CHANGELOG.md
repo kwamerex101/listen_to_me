@@ -18,6 +18,7 @@ All notable user-facing changes per release. Format inspired by [Keep a Changelo
 
 ### Fixed
 
+- "Delete Parakeet model" in Settings now actually frees the space. It was deleting an empty folder and leaving the downloaded model (about 460 MB) on disk.
 - The engine benchmark no longer crashes when an engine hears nothing on a card.
 - With a Whisper engine, dictated text no longer has a line break in the middle of a sentence. Whisper splits speech into chunks and was putting each one on its own line; they're now joined into normal sentences, with a new paragraph only after a long pause.
 
