@@ -38,6 +38,16 @@ enum WERCalculator {
             pre = pre.replacingOccurrences(of: pat, with: repl)
         }
 
+        // "3pm"/"10am" glue the hour to the abbreviation into one token, and
+        // "3:00 pm"/"3:00pm" carry a redundant ":00". Neither is a real
+        // mishear, just a formatting choice ("3pm" and "3:00 pm" should both
+        // normalize the same as "three pm"). Drop the ":00" first, then
+        // split any remaining digit run still glued to am/pm.
+        pre = pre.replacingOccurrences(of: #"(\d{1,2}):00\s*(am|pm)\b"#,
+                                       with: "$1 $2", options: .regularExpression)
+        pre = pre.replacingOccurrences(of: #"(\d{1,2})(am|pm)\b"#,
+                                       with: "$1 $2", options: .regularExpression)
+
         var words: [String] = []
         var current = ""
         for ch in pre {
@@ -54,12 +64,18 @@ enum WERCalculator {
         return words.map { spelling[$0] ?? digitWords[$0] ?? $0 }
     }
 
-    /// Word-level Levenshtein distance / reference length. 0.0 = perfect.
-    /// Empty reference: 0 if hypothesis also empty, else 1.
-    static func wer(reference: String, hypothesis: String) -> Double {
+    /// Word-level edit distance plus the reference word count it was
+    /// measured against. Shared by `wer` (a single card) and by callers that
+    /// need to pool errors across several cards instead of averaging
+    /// per-card percentages (a mean of means skews toward whichever card
+    /// happened to have fewer reference words).
+    static func errorCount(reference: String, hypothesis: String) -> (errors: Int, referenceWords: Int) {
         let ref = normalize(reference)
         let hyp = normalize(hypothesis)
-        if ref.isEmpty { return hyp.isEmpty ? 0.0 : 1.0 }
+        if ref.isEmpty { return (hyp.isEmpty ? 0 : 1, 0) }
+        // Nothing recognized: every reference word is a deletion. Also keeps
+        // the DP below from forming the invalid range 1...0.
+        if hyp.isEmpty { return (ref.count, ref.count) }
 
         // Classic two-row DP.
         var prev = Array(0...hyp.count)
@@ -74,6 +90,14 @@ enum WERCalculator {
             }
             swap(&prev, &curr)
         }
-        return Double(prev[hyp.count]) / Double(ref.count)
+        return (prev[hyp.count], ref.count)
+    }
+
+    /// Word-level Levenshtein distance / reference length. 0.0 = perfect.
+    /// Empty reference: 0 if hypothesis also empty, else 1.
+    static func wer(reference: String, hypothesis: String) -> Double {
+        let (errors, words) = errorCount(reference: reference, hypothesis: hypothesis)
+        if words == 0 { return errors == 0 ? 0.0 : 1.0 }
+        return Double(errors) / Double(words)
     }
 }

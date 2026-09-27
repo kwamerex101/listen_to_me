@@ -30,13 +30,18 @@ struct WhisperRunner {
     /// way a misbehaving Dictionary entry could cause trouble.
     private static let maxPromptChars = 1024
 
-    func transcribe(wav: URL, prompt: String? = nil) async throws -> String {
+    /// - Parameter engine: overrides `Preferences.shared.transcriptionEngine`
+    ///   for this one call (nil, the default, reads the user's setting as
+    ///   before). Used by the benchmark to force a specific Whisper engine
+    ///   regardless of what the user has selected, so the "Whisper" row
+    ///   never silently runs Parakeet.
+    func transcribe(wav: URL, prompt: String? = nil, engine engineOverride: Preferences.TranscriptionEngine? = nil) async throws -> String {
         // Engine selection. Default .server (warm subprocess); .linked is
         // opt-in (in-process, streaming); .parakeet is the Core ML / ANE
         // engine (Wave 8). Any failure on the chosen engine falls back to the
         // CLI subprocess so dictation never breaks.
         let (engine, accuracy) = await MainActor.run {
-            (Preferences.shared.transcriptionEngine, Preferences.shared.transcriptionAccuracy)
+            (engineOverride ?? Preferences.shared.transcriptionEngine, Preferences.shared.transcriptionAccuracy)
         }
 
         // Parakeet path. One-shot Core ML / ANE; needs no whisper model or

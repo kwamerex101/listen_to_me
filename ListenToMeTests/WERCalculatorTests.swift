@@ -72,4 +72,67 @@ final class WERCalculatorTests: XCTestCase {
             hypothesis: "Their team knew the routes through the harbour would take two hours."),
             1.0 / 12.0, accuracy: 0.0001)
     }
+
+    // MARK: - glued digit + am/pm ("3pm") normalization
+
+    func test_glued_digit_ampm_forms_all_equal_three_pm() {
+        let expected = WERCalculator.normalize("three pm")
+        XCTAssertEqual(WERCalculator.normalize("3pm"), expected)
+        XCTAssertEqual(WERCalculator.normalize("3 PM"), expected)
+        XCTAssertEqual(WERCalculator.normalize("3:00pm"), expected)
+        XCTAssertEqual(WERCalculator.normalize("3:00 p.m."), expected)
+    }
+
+    func test_glued_digit_ampm_splits_into_number_and_marker() {
+        XCTAssertEqual(WERCalculator.normalize("10am"), ["ten", "am"])
+    }
+
+    func test_glued_digit_ampm_not_an_error_end_to_end() {
+        XCTAssertEqual(WERCalculator.wer(
+            reference: "The meeting is scheduled for three PM on Tuesday afternoon.",
+            hypothesis: "The meeting is scheduled for 3pm on Tuesday afternoon."), 0.0)
+    }
+
+    // MARK: - errorCount (pooled WER building block)
+
+    func test_errorCount_matches_wer_for_a_single_card() {
+        let (errors, words) = WERCalculator.errorCount(
+            reference: "send the report monday", hypothesis: "send the report tuesday")
+        XCTAssertEqual(errors, 1)
+        XCTAssertEqual(words, 4)
+    }
+
+    func test_errorCount_empty_reference() {
+        XCTAssertEqual(WERCalculator.errorCount(reference: "", hypothesis: "").errors, 0)
+        XCTAssertEqual(WERCalculator.errorCount(reference: "", hypothesis: "").referenceWords, 0)
+        XCTAssertEqual(WERCalculator.errorCount(reference: "", hypothesis: "noise").errors, 1)
+    }
+
+    func test_pooled_aggregate_is_not_a_mean_of_percentages() {
+        // Card A: 1 error / 10 words (10%). Card B: 3 errors / 20 words (15%).
+        // Pooled: 4 errors / 30 words ≈ 13.3%, not the mean (12.5%) of the two.
+        let a = WERCalculator.errorCount(
+            reference: "one two three four five six seven eight nine ten",
+            hypothesis: "one two three four five six seven eight nine wrong")
+        let b = WERCalculator.errorCount(
+            reference: "alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november oscar papa quebec romeo sierra tango",
+            hypothesis: "alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november oscar papa quebec wrong wrong wrong")
+        XCTAssertEqual(a.errors, 1)
+        XCTAssertEqual(a.referenceWords, 10)
+        XCTAssertEqual(b.errors, 3)
+        XCTAssertEqual(b.referenceWords, 20)
+
+        let pooledErrors = a.errors + b.errors
+        let pooledWords = a.referenceWords + b.referenceWords
+        let pooledWER = Double(pooledErrors) / Double(pooledWords)
+        XCTAssertEqual(pooledWER, 4.0 / 30.0, accuracy: 0.0001)
+        XCTAssertNotEqual(pooledWER, ((1.0 / 10.0) + (3.0 / 20.0)) / 2.0, accuracy: 0.0001)
+    }
+
+    func test_emptyHypothesis_countsEveryReferenceWordAsDeleted() {
+        let (errors, words) = WERCalculator.errorCount(reference: "send the report", hypothesis: "")
+        XCTAssertEqual(errors, 3)
+        XCTAssertEqual(words, 3)
+        XCTAssertEqual(WERCalculator.wer(reference: "send the report", hypothesis: ""), 1.0)
+    }
 }

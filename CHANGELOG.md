@@ -4,8 +4,13 @@ All notable user-facing changes per release. Format inspired by [Keep a Changelo
 
 ## Unreleased
 
+### Improved
+
+- The engine benchmark in Settings is now a fair comparison: the Whisper row always runs Whisper (even when Parakeet is your engine), both engines warm up before anything is timed, "3pm" is no longer scored as a mistake, the average counts every word instead of averaging percentages, each result shows which model ran, and a new "Use my dictionary" switch shows how your Dictionary words help.
+
 ### Fixed
 
+- The engine benchmark no longer crashes when an engine hears nothing on a card.
 - With a Whisper engine, dictated text no longer has a line break in the middle of a sentence. Whisper splits speech into chunks and was putting each one on its own line; they're now joined into normal sentences, with a new paragraph only after a long pause.
 
 ## 0.20.1 (build 47)

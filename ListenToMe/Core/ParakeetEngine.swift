@@ -14,6 +14,11 @@ import Foundation
 final class ParakeetEngine: ObservableObject {
     static let shared = ParakeetEngine()
 
+    /// User-facing name for the model version this engine loads (`.v3`
+    /// below). Kept here, next to the version it describes, rather than
+    /// hard-coded wherever the UI wants to show it.
+    static let modelDisplayName = "TDT v3"
+
     enum Status: Equatable {
         case missing
         case downloading(progress: Double)
