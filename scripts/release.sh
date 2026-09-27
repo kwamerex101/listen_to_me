@@ -134,6 +134,34 @@ echo "==> Verifying signature..."
 # sed consumes the whole stream, and `|| true` keeps this purely informational.
 codesign -dv "$APP_PATH" 2>&1 | sed -n '1,5p' || true
 
+# ---- Notarize the app -------------------------------------------------------
+# The app is notarized and stapled on its own BEFORE it goes into the DMG, so
+# the copy people drag to Applications carries its own ticket and passes
+# Gatekeeper on first launch even with no network. Stapling the DMG alone
+# doesn't do that: the ticket stays on the disk image.
+CAN_NOTARIZE=0
+if [[ "$DEV_ID" == "1" ]]; then
+  if [[ "${SKIP_NOTARIZE:-0}" == "1" ]]; then
+    echo "==> SKIP_NOTARIZE=1: Developer-ID signed but not notarized."
+  elif xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
+    CAN_NOTARIZE=1
+  else
+    echo "==> No notarytool profile '$NOTARY_PROFILE' found: Developer-ID signed but NOT notarized."
+    echo "    Create one: xcrun notarytool store-credentials $NOTARY_PROFILE \\"
+    echo "                  --apple-id <you> --team-id <TEAMID> --password <app-specific-password>"
+  fi
+fi
+
+if [[ "$CAN_NOTARIZE" == "1" ]]; then
+  echo "==> Notarizing the app (profile: $NOTARY_PROFILE)..."
+  APP_ZIP="$DIST/ListenToMe-notarize.zip"
+  rm -f "$APP_ZIP"
+  ditto -c -k --keepParent "$APP_PATH" "$APP_ZIP"
+  xcrun notarytool submit "$APP_ZIP" --keychain-profile "$NOTARY_PROFILE" --wait
+  rm -f "$APP_ZIP"
+  xcrun stapler staple "$APP_PATH"
+fi
+
 # ---- Package DMG -------------------------------------------------------------
 echo "==> Creating DMG..."
 STAGE="$DIST/dmg-stage"
@@ -149,25 +177,18 @@ hdiutil create \
 
 rm -rf "$STAGE"
 
-# ---- Notarize ----------------------------------------------------------------
+# ---- Notarize the DMG --------------------------------------------------------
 NOTARIZED=0
 if [[ "$DEV_ID" == "1" ]]; then
   # Sign the DMG itself so the staple has something to attach to.
   codesign --force --timestamp --sign "$SIGN_IDENTITY" "$DIST/$DMG_NAME"
-  if [[ "${SKIP_NOTARIZE:-0}" == "1" ]]; then
-    echo "==> SKIP_NOTARIZE=1 — Developer-ID signed but not notarized."
-  elif xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
-    echo "==> Notarizing (profile: $NOTARY_PROFILE)..."
-    xcrun notarytool submit "$DIST/$DMG_NAME" --keychain-profile "$NOTARY_PROFILE" --wait
-    xcrun stapler staple "$DIST/$DMG_NAME"
-    xcrun stapler staple "$APP_PATH" || true
-    NOTARIZED=1
-    echo "==> Notarized + stapled."
-  else
-    echo "==> No notarytool profile '$NOTARY_PROFILE' found — DMG is Developer-ID signed but NOT notarized."
-    echo "    Create one: xcrun notarytool store-credentials $NOTARY_PROFILE \\"
-    echo "                  --apple-id <you> --team-id <TEAMID> --password <app-specific-password>"
-  fi
+fi
+if [[ "$CAN_NOTARIZE" == "1" ]]; then
+  echo "==> Notarizing the DMG (profile: $NOTARY_PROFILE)..."
+  xcrun notarytool submit "$DIST/$DMG_NAME" --keychain-profile "$NOTARY_PROFILE" --wait
+  xcrun stapler staple "$DIST/$DMG_NAME"
+  NOTARIZED=1
+  echo "==> Notarized + stapled (app and DMG)."
 fi
 
 # ---- Appcast -------------------------------------------------------------
