@@ -2,6 +2,12 @@
 
 All notable user-facing changes per release. Format inspired by [Keep a Changelog](https://keepachangelog.com/), version numbers follow [SemVer](https://semver.org/) at the bundle level.
 
+## Unreleased
+
+### Fixed
+
+- With a Whisper engine, dictated text no longer has a line break in the middle of a sentence. Whisper splits speech into chunks and was putting each one on its own line; they're now joined into normal sentences, with a new paragraph only after a long pause.
+
 ## 0.20.1 (build 47)
 
 ### Fixed

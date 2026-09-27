@@ -76,4 +76,57 @@ final class WhisperServerTests: XCTestCase {
         // Malformed/truncated file smaller than the header, must not go negative.
         XCTAssertEqual(WhisperServer.inferenceTimeout(wavBytes: 10), 30)
     }
+
+    // MARK: - transcriptText
+
+    private func jsonData(_ object: Any) -> Data {
+        try! JSONSerialization.data(withJSONObject: object)
+    }
+
+    @MainActor
+    func test_transcriptText_verboseJsonContiguousSegments_joinsToOneLine() {
+        // Real whisper-server verbose_json segments, contiguous timestamps
+        // (each segment's start == the previous segment's end).
+        let segments: [[String: Any]] = [
+            ["start": 0.0, "end": 3.41, "text": " Please send the quarterly report to Rex and Sarah in a CRA,"],
+            ["start": 3.41, "end": 4.68, "text": " because the deployment failed"],
+            ["start": 4.68, "end": 10.64, "text": " after the second attempt when the API server timed out."],
+            ["start": 10.64, "end": 13.14, "text": " New paragraph starts here after a long pause."],
+        ]
+        let data = jsonData(["text": "unused-since-segments-take-priority", "segments": segments])
+        let text = WhisperServer.transcriptText(from: data)
+        XCTAssertNotNil(text)
+        XCTAssertFalse(text!.contains("\n"))
+        XCTAssertFalse(text!.contains("  "))
+        XCTAssertTrue(text!.hasPrefix("Please"))
+        XCTAssertTrue(text!.hasSuffix("pause."))
+    }
+
+    @MainActor
+    func test_transcriptText_segmentGapAtLeast1_5s_insertsOneParagraphBreak() {
+        let segments: [[String: Any]] = [
+            ["start": 0.0, "end": 2.0, "text": "First segment."],
+            ["start": 4.0, "end": 6.0, "text": " Second segment."],
+        ]
+        let data = jsonData(["segments": segments])
+        XCTAssertEqual(WhisperServer.transcriptText(from: data), "First segment.\n\nSecond segment.")
+    }
+
+    @MainActor
+    func test_transcriptText_textOnly_flattensOneSegmentPerLine() {
+        let data = jsonData(["text": " a\n b\n"])
+        XCTAssertEqual(WhisperServer.transcriptText(from: data), "a b")
+    }
+
+    @MainActor
+    func test_transcriptText_emptySegmentsArray_isEmptyString() {
+        let data = jsonData(["segments": [[String: Any]]()])
+        XCTAssertEqual(WhisperServer.transcriptText(from: data), "")
+    }
+
+    @MainActor
+    func test_transcriptText_garbageData_isNil() {
+        let data = "not json at all".data(using: .utf8)!
+        XCTAssertNil(WhisperServer.transcriptText(from: data))
+    }
 }
