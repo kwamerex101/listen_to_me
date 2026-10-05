@@ -71,6 +71,39 @@ final class SnippetsStore: ObservableObject {
         }
     }
 
+    /// Re-insert a previously removed snippet (undo for `remove(id:)`) at
+    /// `index` (clamped), reusing its id and createdAt so the SQLite row
+    /// and the newest-first ordering come back as they were. Skipped if
+    /// the id or keyword already exists (the user re-added it meanwhile;
+    /// the UNIQUE keyword column would reject the insert anyway).
+    func restore(_ snippet: Snippet, at index: Int? = nil) {
+        guard !snippets.contains(where: { $0.id == snippet.id }),
+              !snippets.contains(where: { $0.keyword.lowercased() == snippet.keyword.lowercased() })
+        else { return }
+        let idx = min(max(index ?? 0, 0), snippets.count)
+        snippets.insert(snippet, at: idx)
+        upsert(snippet)
+    }
+
+    /// Edit an existing snippet in place. Empty keyword/expansion and a
+    /// keyword that collides (case-insensitive) with another snippet are
+    /// rejected. Returns whether the update was applied.
+    @discardableResult
+    func update(id: UUID, keyword: String, expansion: String) -> Bool {
+        let k = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+        let e = expansion.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !k.isEmpty, !e.isEmpty,
+              let idx = snippets.firstIndex(where: { $0.id == id }),
+              !snippets.contains(where: { $0.id != id && $0.keyword.lowercased() == k.lowercased() })
+        else { return false }
+        var updated = snippets[idx]
+        updated.keyword = k
+        updated.expansion = e
+        snippets[idx] = updated
+        upsert(updated)
+        return true
+    }
+
     /// Replace each snippet keyword with its expansion, case-insensitive
     /// with word-boundary matching so we don't accidentally replace
     /// substrings. Keywords with more words are applied first so

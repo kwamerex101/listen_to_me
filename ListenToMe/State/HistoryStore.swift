@@ -103,6 +103,18 @@ final class HistoryStore: ObservableObject {
         save()
     }
 
+    /// Re-insert a previously removed record (undo for `remove(id:)`),
+    /// keeping the list newest-first by timestamp. No-op if a record with
+    /// the same id is already present. Persists through `save()` because
+    /// the record usually lands mid-list, which an NDJSON append can't
+    /// express; `save()` handles encryption the same way `add` does.
+    func restore(_ record: TranscriptRecord) {
+        guard !records.contains(where: { $0.id == record.id }) else { return }
+        let idx = records.firstIndex(where: { $0.timestamp < record.timestamp }) ?? records.count
+        records.insert(record, at: idx)
+        save()
+    }
+
     /// Wipe every record from memory and truncate the on-disk NDJSON file.
     /// Cancels any pending debounced save so the empty state is written
     /// immediately via an atomic zero-byte write rather than a stale

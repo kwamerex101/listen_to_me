@@ -61,7 +61,13 @@ enum WfSection: String, CaseIterable, Identifiable {
 }
 
 struct MainView: View {
-    @State private var selection: WfSection = .home
+    @State private var selection: WfSection
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    init() {
+        // A freshly built window opened via `open(section:)` starts there.
+        _selection = State(initialValue: MainWindowController.shared.takePendingSection() ?? .home)
+    }
 
     var body: some View {
         // GeometryReader at the root drives the responsive size class for the
@@ -73,7 +79,7 @@ struct MainView: View {
                 SidebarView(selection: $selection, compact: isCompact)
                     .frame(width: isCompact ? DT.sidebarCompactWidth : DT.sidebarRegularWidth)
                     .glassWindowBackground(.sidebar, fallback: Color(.controlBackgroundColor))
-                    .animation(.easeInOut(duration: 0.18), value: isCompact)
+                    .animation(reduceMotion ? nil : Motion.sidebar, value: isCompact)
 
                 Divider()
 
@@ -97,6 +103,13 @@ struct MainView: View {
             // ask `@Environment(\.windowWidth)` and respond with explicit
             // size-class behaviour instead of re-measuring.
             .environment(\.windowWidth, geo.size.width)
+        }
+        // An already-open window is told which section to show (e.g. the
+        // menu bar's Settings…).
+        .onReceive(NotificationCenter.default.publisher(for: .selectMainSection)) { note in
+            if let raw = note.object as? String, let section = WfSection(rawValue: raw) {
+                selection = section
+            }
         }
         // SwiftUI floor matches the AppKit window contentMinSize. The window
         // controller hard-clamps user resizes against this.

@@ -68,7 +68,7 @@ struct SidebarView: View {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(DT.accent)
                 Text("ListenToMe")
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(DT.sectionTitle)
                 Spacer()
             }
         }
@@ -100,9 +100,19 @@ private struct NavRow: View {
                 .hoverableRow()
         }
         .buttonStyle(.pressable)
-        .help(compact ? section.label : "")
+        // ⌘1…⌘6 follow `WfSection.allCases` order (sidebar order).
+        .keyboardShortcut(shortcutKey, modifiers: .command)
+        .help("\(section.label) (⌘\(shortcutNumber))")
         .accessibilityLabel(section.label)
         .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private var shortcutNumber: Int {
+        (WfSection.allCases.firstIndex(of: section) ?? 0) + 1
+    }
+
+    private var shortcutKey: KeyEquivalent {
+        KeyEquivalent(Character("\(shortcutNumber)"))
     }
 
     /// Symbol shown for this row's current state — the filled / coloured

@@ -1,6 +1,11 @@
 import AppKit
 import SwiftUI
 
+extension Notification.Name {
+    /// `object` is a `WfSection.rawValue`.
+    static let selectMainSection = Notification.Name("ListenToMe.selectMainSection")
+}
+
 @MainActor
 final class MainWindowController: NSObject {
     static let shared = MainWindowController()
@@ -31,6 +36,22 @@ final class MainWindowController: NSObject {
     /// Sourced from `DT.windowMin{Width,Height}` so the AppKit window and
     /// the SwiftUI frame in MainView share one value.
     fileprivate static let minContentSize = NSSize(width: DT.windowMinWidth, height: DT.windowMinHeight)
+
+    /// Section a not-yet-built window should start on; consumed by MainView.
+    private var pendingSection: WfSection?
+
+    func takePendingSection() -> WfSection? {
+        defer { pendingSection = nil }
+        return pendingSection
+    }
+
+    /// Opens the window and selects `section` (new or already-open window).
+    func open(section: WfSection) {
+        pendingSection = section
+        open()
+        NotificationCenter.default.post(name: .selectMainSection, object: section.rawValue)
+        pendingSection = nil
+    }
 
     func open() {
         if window == nil {

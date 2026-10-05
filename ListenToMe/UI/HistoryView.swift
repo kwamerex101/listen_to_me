@@ -8,6 +8,10 @@ struct HistoryView: View {
     @ObservedObject private var history = HistoryStore.shared
 
     @State private var query = ""
+    /// `query` after a short pause; filtering reads this so each keystroke
+    /// doesn't re-walk the whole record set.
+    @State private var debouncedQuery = ""
+    @State private var debounceTask: Task<Void, Never>?
     /// nil = all apps; "__other__" matches records with no bundleId.
     @State private var appFilter: String?
     /// How many matching records are currently rendered. Grows in pages as
@@ -15,19 +19,22 @@ struct HistoryView: View {
     /// tree at once. Reset to one page whenever the filter changes.
     @State private var visibleCount = Self.pageSize
     @State private var showClearConfirm = false
+    @FocusState private var searchFocused: Bool
+    @StateObject private var undo = UndoCenter()
+
+    // Memoized filter + grouping results, refreshed by `recompute()` only
+    // when records, the debounced query, the app filter or the page window
+    // change, not on every body evaluation.
+    @State private var groups: [DayGroup] = []
+    @State private var matchCount = 0
+    @State private var shownCount = 0
+    @State private var total = 0
+    @State private var computed = false
 
     private static let pageSize = 50
 
     var body: some View {
-        // Filter once per body evaluation — `filtered` walks the whole
-        // record set, so computing it in each subview property would
-        // triple the work on every keystroke.
-        let filtered = self.filtered
-        let total = history.records.filter { !$0.dismissed }.count
-        // Window to the current page before grouping/rendering. prefix is
-        // cheap; the win is not building views for the off-window records.
-        let windowed = Array(filtered.prefix(visibleCount))
-        let hasMore = filtered.count > windowed.count
+        let hasMore = matchCount > shownCount
 
         return ScrollView {
             LazyVStack(alignment: .leading, spacing: DT.space6) {
@@ -38,16 +45,16 @@ struct HistoryView: View {
                     iconTint: .orange
                 )
 
-                filterBar(matchCount: filtered.count, total: total)
+                filterBar(matchCount: matchCount, total: total)
 
-                if filtered.isEmpty {
+                if computed && matchCount == 0 {
                     emptyState
                 } else {
-                    ForEach(dayGroups(from: windowed), id: \.day) { group in
+                    ForEach(groups, id: \.day) { group in
                         daySection(group)
                     }
                     if hasMore {
-                        loadMoreFooter(shown: windowed.count, total: filtered.count)
+                        loadMoreFooter(shown: shownCount, total: matchCount)
                     }
                 }
             }
@@ -57,10 +64,31 @@ struct HistoryView: View {
             .frame(maxWidth: DT.pageMaxWidth, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .titleBarScrollEdge()
+        .undoToast(undo)
+        // Cmd+F focuses the search field. Invisible rather than `.hidden()`,
+        // which can drop the shortcut.
+        .background(
+            Button("") { searchFocused = true }
+                .keyboardShortcut("f", modifiers: .command)
+                .opacity(0)
+                .frame(width: 0, height: 0)
+                .accessibilityHidden(true)
+        )
+        .onAppear { recompute() }
+        .onChange(of: history.records) { _, _ in recompute() }
+        .onChange(of: query) { _, newValue in scheduleDebounce(newValue) }
         // A filter change resets the window — otherwise a search that matches
         // few records would still report a stale large visibleCount.
-        .onChange(of: query) { _, _ in visibleCount = Self.pageSize }
-        .onChange(of: appFilter) { _, _ in visibleCount = Self.pageSize }
+        .onChange(of: debouncedQuery) { _, _ in
+            visibleCount = Self.pageSize
+            recompute()
+        }
+        .onChange(of: appFilter) { _, _ in
+            visibleCount = Self.pageSize
+            recompute()
+        }
+        .onChange(of: visibleCount) { _, _ in recompute() }
         .confirmationDialog(
             "Clear all history?",
             isPresented: $showClearConfirm,
@@ -73,6 +101,43 @@ struct HistoryView: View {
         } message: {
             Text("This permanently deletes every dictation record. This can't be undone.")
         }
+    }
+
+    /// Delete with a short undo window; restore re-inserts the exact record.
+    private func delete(_ record: TranscriptRecord) {
+        history.remove(id: record.id)
+        undo.show("Transcript deleted") { history.restore(record) }
+    }
+
+    private func scheduleDebounce(_ newValue: String) {
+        debounceTask?.cancel()
+        if newValue.isEmpty {
+            debouncedQuery = ""
+            return
+        }
+        debounceTask = Task {
+            try? await Task.sleep(for: .milliseconds(150))
+            guard !Task.isCancelled else { return }
+            debouncedQuery = newValue
+        }
+    }
+
+    private func clearQuery() {
+        debounceTask?.cancel()
+        query = ""
+        debouncedQuery = ""
+    }
+
+    private func recompute() {
+        let filtered = self.filtered
+        // Window to the current page before grouping/rendering. prefix is
+        // cheap; the win is not building views for the off-window records.
+        let windowed = Array(filtered.prefix(visibleCount))
+        matchCount = filtered.count
+        shownCount = windowed.count
+        total = history.records.reduce(0) { $0 + ($1.dismissed ? 0 : 1) }
+        groups = dayGroups(from: windowed)
+        computed = true
     }
 
     /// Bottom sentinel: auto-loads the next page when it scrolls into view
@@ -106,8 +171,8 @@ struct HistoryView: View {
                 let key = record.bundleId ?? "__other__"
                 if key != appFilter { return false }
             }
-            if !query.isEmpty {
-                return record.finalText.localizedCaseInsensitiveContains(query)
+            if !debouncedQuery.isEmpty {
+                return record.finalText.localizedCaseInsensitiveContains(debouncedQuery)
             }
             return true
         }
@@ -153,9 +218,10 @@ struct HistoryView: View {
                 TextField("Search transcripts", text: $query)
                     .textFieldStyle(.plain)
                     .font(DT.body)
+                    .focused($searchFocused)
                 if !query.isEmpty {
                     Button {
-                        query = ""
+                        clearQuery()
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .font(.system(size: 12))
@@ -253,7 +319,7 @@ struct HistoryView: View {
 
             LazyVStack(spacing: 0) {
                 ForEach(group.records) { record in
-                    RecordRow(record: record, showApp: true)
+                    RecordRow(record: record, showApp: true, onDelete: delete)
                     if record.id != group.records.last?.id {
                         Divider().background(DT.separator)
                     }
@@ -279,26 +345,19 @@ struct HistoryView: View {
     // MARK: - Empty state
 
     private var emptyState: some View {
-        VStack(spacing: DT.space3) {
-            Image(systemName: query.isEmpty && appFilter == nil ? "clock" : "magnifyingglass")
-                .font(.system(size: 24))
-                .foregroundStyle(.tertiary)
-            Text(query.isEmpty && appFilter == nil
-                 ? "No dictations yet. Hold \(Preferences.shared.hotkeyBinding.label) anywhere to start."
-                 : "No transcripts match.")
-                .font(DT.body)
-                .foregroundStyle(.secondary)
-            if !query.isEmpty || appFilter != nil {
-                Button("Clear filters") {
-                    query = ""
-                    appFilter = nil
-                }
-                .buttonStyle(.pressable)
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, DT.space12)
-        .card()
+        let isFiltered = !debouncedQuery.isEmpty || appFilter != nil
+        return EmptyState(
+            icon: isFiltered ? "magnifyingglass" : "clock",
+            title: isFiltered ? "No transcripts match" : "No dictations yet",
+            subtitle: isFiltered
+                ? nil
+                : "Hold \(Preferences.shared.hotkeyBinding.label) anywhere to start.",
+            actionTitle: isFiltered ? "Clear filters" : nil,
+            action: isFiltered ? {
+                clearQuery()
+                appFilter = nil
+            } : nil
+        )
         .transition(.opacity.combined(with: .scale(scale: 0.97)))
     }
 }

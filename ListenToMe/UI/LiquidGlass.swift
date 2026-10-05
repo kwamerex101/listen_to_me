@@ -20,8 +20,8 @@ enum LiquidGlass {
 }
 
 extension View {
-    /// Elevated card surface — delegates to CardSurface (a standard material
-    /// on macOS 26, solid fill below). Cards are content, not chrome, so they
+    /// Elevated card surface. Delegates to CardSurface (solid fill plus a
+    /// hairline on every macOS version). Cards are content, not chrome, so they
     /// are deliberately NOT Liquid Glass (Apple HIG: glass belongs to the
     /// navigation/control layer). Kept as a drop-in alias for `.card()`.
     func glassCard(cornerRadius: CGFloat = DT.radiusLg) -> some View {

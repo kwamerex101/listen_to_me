@@ -7,6 +7,7 @@ struct DictionaryView: View {
     @FocusState private var focused: Bool
     @State private var candidatesExpanded = true
     @State private var promotedExpanded = true
+    @StateObject private var undo = UndoCenter()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -39,6 +40,21 @@ struct DictionaryView: View {
             .padding(.horizontal, DT.space10)
             .padding(.bottom, DT.space10)
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .titleBarScrollEdge()
+        .undoToast(undo)
+    }
+
+    /// Remove an entry and offer to put it back at its old position.
+    private func remove(_ entry: DictionaryEntry) {
+        let index = store.entries.firstIndex(where: { $0.id == entry.id })
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.2)) {
+            store.remove(id: entry.id)
+        }
+        undo.show("“\(entry.word)” removed") {
+            withAnimation(reduceMotion ? nil : .snappy(duration: 0.2)) {
+                store.restore(entry, at: index)
+            }
         }
     }
 
@@ -237,11 +253,7 @@ struct DictionaryView: View {
                     .foregroundStyle(.tertiary)
             }
             Spacer()
-            Button(action: {
-                withAnimation(reduceMotion ? nil : .snappy(duration: 0.2)) {
-                    store.remove(id: entry.id)
-                }
-            }) {
+            Button(action: { remove(entry) }) {
                 Image(systemName: "xmark.circle.fill")
                     .font(.system(size: 14))
                     .foregroundStyle(.tertiary)
@@ -269,7 +281,7 @@ struct DictionaryView: View {
 
                     VStack(spacing: 0) {
                         ForEach(manual) { entry in
-                            manualRow(entry.word)
+                            manualRow(entry)
                             if entry.id != manual.last?.id {
                                 Divider().background(DT.separator)
                             }
@@ -281,19 +293,15 @@ struct DictionaryView: View {
         }
     }
 
-    private func manualRow(_ word: String) -> some View {
+    private func manualRow(_ entry: DictionaryEntry) -> some View {
         HStack {
             Image(systemName: "text.cursor")
                 .font(.system(size: 11))
                 .foregroundStyle(.tertiary)
-            Text(word)
+            Text(entry.word)
                 .font(DT.body)
             Spacer()
-            Button(action: {
-                withAnimation(reduceMotion ? nil : .snappy(duration: 0.2)) {
-                    store.remove(word)
-                }
-            }) {
+            Button(action: { remove(entry) }) {
                 Image(systemName: "xmark.circle.fill")
                     .font(.system(size: 14))
                     .foregroundStyle(.tertiary)
@@ -302,7 +310,7 @@ struct DictionaryView: View {
             }
             .buttonStyle(.pressable)
             .help("Remove word")
-            .accessibilityLabel("Remove \(word)")
+            .accessibilityLabel("Remove \(entry.word)")
         }
         .padding(.horizontal, DT.space5)
         .padding(.vertical, DT.space4)
@@ -318,7 +326,7 @@ struct DictionaryView: View {
             HStack(spacing: 6) {
                 SectionEyebrow(title: title)
                 Text("\(count)")
-                    .font(.system(size: 10, weight: .semibold).monospacedDigit())
+                    .font(DT.micro.monospacedDigit())
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 1)

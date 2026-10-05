@@ -4,9 +4,16 @@ import SwiftUI
 /// Color is a hash of the bundleId so repeat apps get the same tint
 /// across launches without persisting anything extra. Shared by the
 /// Home "Where you dictate" card and the History app filter.
+@MainActor
 enum AppDisplay {
+    /// `runningApplications(withBundleIdentifier:)` is a live system query,
+    /// so resolve each bundleId once. A name resolved while the app wasn't
+    /// running keeps its bundleId-suffix fallback for the session.
+    private static var cache: [String: (String, Color)] = [:]
+
     static func nameAndTint(for bundleId: String?) -> (String, Color) {
         guard let bundleId else { return ("Other", .gray) }
+        if let hit = cache[bundleId] { return hit }
         let name = NSRunningApplication
             .runningApplications(withBundleIdentifier: bundleId)
             .first?.localizedName
@@ -17,7 +24,9 @@ enum AppDisplay {
         // which would reshuffle the colours on every launch.
         var hash: UInt64 = 5381
         for byte in bundleId.utf8 { hash = (hash &* 33) &+ UInt64(byte) }
-        return (name, palette[Int(hash % UInt64(palette.count))])
+        let result = (name, palette[Int(hash % UInt64(palette.count))])
+        cache[bundleId] = result
+        return result
     }
 }
 
@@ -29,6 +38,9 @@ struct RecordRow: View {
     /// lists records across many apps, so identity matters there; Home's
     /// Today section keeps the row compact.
     var showApp: Bool = false
+    /// Called instead of deleting directly, so the host can offer undo.
+    /// nil falls back to a plain `HistoryStore.remove`.
+    var onDelete: ((TranscriptRecord) -> Void)?
 
     @ObservedObject private var history = HistoryStore.shared
     @ObservedObject private var transformsStore = TransformsStore.shared
@@ -36,6 +48,8 @@ struct RecordRow: View {
     @State private var copied = false
     @State private var transforming = false
     @State private var transformedFlash = false
+    /// Short reason shown (as help text) while the failure icon is up.
+    @State private var transformError: String?
 
     private static let fmt: DateFormatter = {
         let f = DateFormatter()
@@ -54,7 +68,7 @@ struct RecordRow: View {
                     HStack(spacing: 4) {
                         Circle().fill(tint).frame(width: 6, height: 6)
                         Text(name)
-                            .font(.system(size: 10))
+                            .font(DT.micro)
                             .foregroundStyle(.tertiary)
                             .lineLimit(1)
                     }
@@ -88,7 +102,9 @@ struct RecordRow: View {
                     actionButton(
                         icon: "trash",
                         help: "Delete transcript",
-                        action: { history.remove(id: record.id) }
+                        action: {
+                            if let onDelete { onDelete(record) } else { history.remove(id: record.id) }
+                        }
                     )
                 }
                 .opacity(hovered ? 1 : 0.5)
@@ -156,9 +172,10 @@ struct RecordRow: View {
             }
         } label: {
             Image(systemName: transforming ? "ellipsis.circle"
-                                           : (transformedFlash ? "checkmark" : "wand.and.stars"))
+                                           : (transformError != nil ? "exclamationmark.triangle"
+                                              : (transformedFlash ? "checkmark" : "wand.and.stars")))
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(transformError != nil ? DT.statusWarning : Color.secondary)
                 .frame(width: 26, height: 26)
                 .background(
                     RoundedRectangle(cornerRadius: 6, style: .continuous)
@@ -168,8 +185,10 @@ struct RecordRow: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .help("Polish / Transform")
-        .accessibilityLabel("Polish or transform transcript")
+        .help(transformError.map { "Transform failed: \($0)" }
+              ?? (transformedFlash ? "Copied to clipboard" : "Polish / Transform"))
+        .accessibilityLabel(transformError.map { "Transform failed: \($0)" }
+                            ?? (transformedFlash ? "Copied to clipboard" : "Polish or transform transcript"))
         .disabled(transforming)
     }
 
@@ -193,8 +212,17 @@ struct RecordRow: View {
                 NSLog("[ListenToMe] transform '\(label)' → pasteboard (\(result.count) chars)")
             } catch {
                 transforming = false
+                transformError = Self.shortReason(error)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) { transformError = nil }
                 NSLog("[ListenToMe] transform '\(label)' failed: \(error)")
             }
         }
+    }
+
+    /// One-line, length-capped reason for the failure tooltip.
+    private static func shortReason(_ error: Error) -> String {
+        let text = error.localizedDescription
+            .split(whereSeparator: \.isNewline).first.map(String.init) ?? "unknown error"
+        return text.count > 80 ? String(text.prefix(80)) + "…" : text
     }
 }
