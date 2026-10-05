@@ -21,9 +21,10 @@ enum Motion {
     /// Content swap (id transition). Critically damped: status changes
     /// should settle without bouncing.
     static let phaseSwap  = Animation.spring(response: 0.30, dampingFraction: 1.0)
-    /// Press-pop scale beat when recording starts.
-    static let pressUp    = Animation.spring(response: 0.18, dampingFraction: 0.55)
-    static let pressDown  = Animation.spring(response: 0.32, dampingFraction: 0.55)
+    /// Press-pop scale beat when recording starts: a quick lift that
+    /// settles without wobble.
+    static let pressUp    = Animation.spring(response: 0.18, dampingFraction: 0.8)
+    static let pressDown  = Animation.spring(response: 0.30, dampingFraction: 1.0)
     /// Success spring for the checkmark scale-in.
     static let successPop = Animation.spring(response: 0.32, dampingFraction: 0.55)
     /// Halo expand-and-fade after a successful paste.

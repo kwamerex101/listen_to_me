@@ -28,6 +28,8 @@ All notable user-facing changes per release. Format inspired by [Keep a Changelo
 - History search is faster, and a failed transform now says so instead of silently reverting.
 - Content fades out under the title bar, cards are lighter and quicker to draw, small text is easier to read, and empty states look the same everywhere.
 - Long names in the Home header wrap instead of being cut off.
+- The pill's start-of-recording pop and the permission card icon settle without wobbling, and the polishing dots hold still when Reduce Motion is on.
+- Voice corrections in the correction window show "Transcribing…" while they work, and say what went wrong (no audio, no speech heard, microphone unavailable) instead of failing silently.
 
 ### Fixed
 

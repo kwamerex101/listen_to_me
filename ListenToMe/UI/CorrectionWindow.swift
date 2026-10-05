@@ -150,9 +150,15 @@ private struct CorrectionView: View {
     /// flip the visual state. On second toggle: stop, transcribe with
     /// Whisper, and replace the popover's text with the new transcription.
     private func toggleVoice() {
-        if voiceRecording {
-            voiceRecording = false
-            guard let wav = AudioRecorder.shared.stop() else { return }
+        switch voiceState {
+        case .transcribing:
+            return
+        case .recording:
+            guard let wav = AudioRecorder.shared.stop() else {
+                fail("No audio captured")
+                return
+            }
+            voiceState = .transcribing
             let prompt = DictionaryStore.shared.whisperPrompt
             Task { @MainActor in
                 do {
@@ -165,22 +171,52 @@ private struct CorrectionView: View {
                     let edited = VoiceEditor.apply(
                         raw,
                         terms: VoiceEditor.canonicalTerms(from: DictionaryStore.shared.entries.map(\.word)))
-                    if !edited.isEmpty { text = edited }
+                    if edited.isEmpty {
+                        fail("No speech heard")
+                    } else {
+                        text = edited
+                        voiceState = .idle
+                    }
                 } catch {
-                    // Silent on error — user can still type to correct.
+                    NSLog("[ListenToMe] correction voice transcribe failed: \(error)")
+                    fail("Couldn't transcribe, try again")
                 }
             }
-        } else {
+        case .idle, .failed:
             do {
                 _ = try AudioRecorder.shared.start()
-                voiceRecording = true
+                voiceState = .recording
             } catch {
-                voiceRecording = false
+                NSLog("[ListenToMe] correction voice start failed: \(error)")
+                fail("Microphone unavailable")
             }
         }
     }
 
-    @State private var voiceRecording = false
+    /// Show an inline error and clear it after 3s, unless a newer state
+    /// has replaced it by then.
+    private func fail(_ message: String) {
+        let failure = VoiceState.failed(message)
+        voiceState = failure
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(3))
+            if voiceState == failure { voiceState = .idle }
+        }
+    }
+
+    private enum VoiceState: Equatable {
+        case idle, recording, transcribing, failed(String)
+    }
+
+    @State private var voiceState: VoiceState = .idle
+
+    private var voiceAccessibilityLabel: String {
+        switch voiceState {
+        case .recording: return "Stop dictating"
+        case .transcribing: return "Transcribing"
+        case .idle, .failed: return "Dictate a replacement"
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -200,23 +236,54 @@ private struct CorrectionView: View {
                 // use, then append on subsequent voice rounds).
                 Button(action: toggleVoice) {
                     HStack(spacing: 4) {
-                        Image(systemName: voiceRecording ? "stop.circle.fill" : "mic.fill")
-                            .font(.system(size: 11, weight: .semibold))
-                        Text(voiceRecording ? "Stop" : "Voice")
-                            .font(.system(size: 11, weight: .semibold))
+                        switch voiceState {
+                        case .recording:
+                            Image(systemName: "stop.circle.fill")
+                                .font(.system(size: 11, weight: .semibold))
+                            Text("Stop")
+                                .font(.system(size: 11, weight: .semibold))
+                        case .transcribing:
+                            ProgressView()
+                                .controlSize(.mini)
+                                .tint(.white)
+                            Text("Transcribing…")
+                                .font(.system(size: 11, weight: .semibold))
+                        case .idle, .failed:
+                            Image(systemName: "mic.fill")
+                                .font(.system(size: 11, weight: .semibold))
+                            Text("Voice")
+                                .font(.system(size: 11, weight: .semibold))
+                        }
                     }
-                    .foregroundStyle(voiceRecording ? Color.red : DT.onPanel)
+                    .foregroundStyle(voiceState == .recording ? Color.red : DT.onPanel)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
                     .background(
-                        Capsule().fill(Color.white.opacity(voiceRecording ? 0.18 : 0.10))
+                        Capsule().fill(Color.white.opacity(voiceState == .recording ? 0.18 : 0.10))
                     )
                 }
                 .buttonStyle(.plain)
+                .disabled(voiceState == .transcribing)
+                .accessibilityLabel(voiceAccessibilityLabel)
 
-                Text("⌘↵ Apply  ·  Esc Cancel")
-                    .font(.system(size: 11, weight: .regular))
-                    .foregroundStyle(DT.onPanelTertiary)
+                Group {
+                    if case .failed(let msg) = voiceState {
+                        HStack(spacing: 4) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                            Text(msg)
+                        }
+                        .font(.system(size: 11, weight: .regular))
+                        .foregroundStyle(DT.statusWarning)
+                        .transition(.opacity)
+                        .accessibilityElement(children: .combine)
+                    } else {
+                        Text("⌘↵ Apply  ·  Esc Cancel")
+                            .font(.system(size: 11, weight: .regular))
+                            .foregroundStyle(DT.onPanelTertiary)
+                            .transition(.opacity)
+                    }
+                }
+                .animation(.easeOut(duration: 0.15), value: voiceState)
             }
 
             // CORR-03: TextEditor allows multi-line edits. Plain Return
@@ -273,9 +340,9 @@ private struct CorrectionView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // Stop voice capture if the popover dismisses unexpectedly.
         .onDisappear {
-            if voiceRecording {
+            if voiceState == .recording {
                 AudioRecorder.shared.cancel()
-                voiceRecording = false
+                voiceState = .idle
             }
         }
         .background(
