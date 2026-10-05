@@ -11,7 +11,21 @@ final class CorrectionWindow: NSPanel {
     /// Height accommodates 4 lines of body text — long enough for most
     /// corrections without dominating the screen. The TextEditor inside
     /// scrolls beyond that.
-    static let windowSize = NSSize(width: 540, height: 160)
+    static let windowSize = NSSize(
+        width: 540 - 16 + 2 * cardPadding,
+        height: 160 - 16 + 2 * cardPadding + buttonRowHeight
+    )
+
+    /// Transparent margin around the card so its drop shadow (radius 16,
+    /// y 8) is not clipped by the window bounds.
+    static let cardPadding: CGFloat = 24
+
+    /// Height of the Cancel/Apply row plus its spacing under the editor.
+    static let buttonRowHeight: CGFloat = 34
+
+    /// Bumped on every show/dismiss so a stale fade-out completion can tell
+    /// it was superseded and must not order the window out.
+    private var visibilityGeneration = 0
 
     private var onApply: ((String) -> Void)?
     private var onCancel: (() -> Void)?
@@ -62,14 +76,44 @@ final class CorrectionWindow: NSPanel {
         positionAboveDock()
         // Bring the app forward so the TextField actually focuses.
         NSApp.activate(ignoringOtherApps: true)
+        visibilityGeneration += 1
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if reduceMotion {
+            alphaValue = 1
+            makeKeyAndOrderFront(nil)
+            return
+        }
+        alphaValue = 0
         makeKeyAndOrderFront(nil)
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.15
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            animator().alphaValue = 1
+        }
     }
 
     func dismiss() {
-        orderOut(nil)
         onApply = nil
         onCancel = nil
-        contentView = nil
+        visibilityGeneration += 1
+        let generation = visibilityGeneration
+
+        let finish = { [weak self] in
+            guard let self, self.visibilityGeneration == generation else { return }
+            self.orderOut(nil)
+            self.alphaValue = 1
+            self.contentView = nil
+        }
+
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion || !isVisible {
+            finish()
+            return
+        }
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.12
+            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            animator().alphaValue = 0
+        }, completionHandler: finish)
     }
 
     private func positionAboveDock() {
@@ -80,7 +124,9 @@ final class CorrectionWindow: NSPanel {
         // Sit just above the pill, which lives at the bottom of `visibleFrame`.
         // The pill window is 260pt tall; the visual pill within it is ~34pt
         // anchored at its bottom. Stack the correction window 50pt above.
-        let y = visible.minY + 50
+        // The window carries `cardPadding` of transparent margin, so shift
+        // down by (padding - 8) to keep the card where it always sat.
+        let y = visible.minY + 50 - (Self.cardPadding - 8)
         setFrame(NSRect(x: x, y: y, width: s.width, height: s.height), display: true)
     }
 }
@@ -170,7 +216,7 @@ private struct CorrectionView: View {
 
                 Text("⌘↵ Apply  ·  Esc Cancel")
                     .font(.system(size: 11, weight: .regular))
-                    .foregroundStyle(.white.opacity(0.45))
+                    .foregroundStyle(.white.opacity(0.6))
             }
 
             // CORR-03: TextEditor allows multi-line edits. Plain Return
@@ -210,6 +256,17 @@ private struct CorrectionView: View {
                     }
                     return .ignored
                 }
+
+            // Mouse-accessible equivalents of the keyboard shortcuts.
+            HStack(spacing: 10) {
+                Spacer()
+                Button("Cancel") { onCancel() }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundStyle(.white.opacity(0.7))
+                Button("Apply") { onApply(text) }
+                    .buttonStyle(.primary)
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -230,6 +287,9 @@ private struct CorrectionView: View {
                 .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.5), radius: 16, x: 0, y: 8)
-        .padding(8)
+        // Esc cancels even when the editor has lost focus (e.g. after
+        // clicking a button).
+        .onExitCommand { onCancel() }
+        .padding(CorrectionWindow.cardPadding)
     }
 }

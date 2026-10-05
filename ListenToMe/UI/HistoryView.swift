@@ -6,7 +6,6 @@ import SwiftUI
 /// the app identity shown since History spans many targets.
 struct HistoryView: View {
     @ObservedObject private var history = HistoryStore.shared
-    @Environment(\.windowWidth) private var windowWidth
 
     @State private var query = ""
     /// nil = all apps; "__other__" matches records with no bundleId.
@@ -53,7 +52,7 @@ struct HistoryView: View {
                 }
             }
             .padding(.top, DT.safeAreaTop)
-            .padding(.horizontal, isNarrow ? DT.space6 : DT.space10)
+            .padding(.horizontal, DT.space10)
             .padding(.bottom, DT.space10)
             .frame(maxWidth: DT.pageMaxWidth, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -94,8 +93,6 @@ struct HistoryView: View {
         .padding(.vertical, DT.space4)
         .onAppear { visibleCount += Self.pageSize }
     }
-
-    private var isNarrow: Bool { windowWidth < DT.narrowBreakpoint }
 
     // MARK: - Filtering
 
@@ -163,8 +160,11 @@ struct HistoryView: View {
                         Image(systemName: "xmark.circle.fill")
                             .font(.system(size: 12))
                             .foregroundStyle(.tertiary)
+                            .frame(width: 24, height: 24)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("Clear search")
                 }
             }
             .padding(.horizontal, DT.space3)
@@ -272,7 +272,7 @@ struct HistoryView: View {
 
     private static let dayFmt: DateFormatter = {
         let f = DateFormatter()
-        f.dateFormat = "EEEE, MMM d"
+        f.setLocalizedDateFormatFromTemplate("EEEEMMMd")
         return f
     }()
 

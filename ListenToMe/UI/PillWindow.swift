@@ -38,6 +38,23 @@ final class PillWindow: NSPanel {
     /// Deferred window shrink scheduled by an animated `applyDesiredSize`.
     private var pendingShrink: DispatchWorkItem?
 
+    /// What callers last asked of `setInteractive(_:)`. Combined with
+    /// `idleHotZoneActive` in `updateMouseHandling()`.
+    private var requestedInteractive = false
+
+    /// True while the cursor is near the idle pill. Lets hover, wake-from-dot
+    /// and drag work at idle without the window swallowing clicks in its
+    /// transparent margins the rest of the time.
+    private var idleHotZoneActive = false
+
+    private var globalMouseMonitor: Any?
+    private var localMouseMonitor: Any?
+
+    /// Slop around the visible idle pill that counts as "near". Must stay
+    /// larger than the pill so SwiftUI's onHover sees its exit event before
+    /// the window turns click-through.
+    private static let idleHotZoneInset: CGFloat = 14
+
     private init() {
         super.init(
             contentRect: NSRect(origin: .zero, size: Self.initialSize),
@@ -52,11 +69,11 @@ final class PillWindow: NSPanel {
         hasShadow = false           // SwiftUI renders its own shadow
         backgroundColor = .clear
         isOpaque = false
-        // We let mouse events through to the SwiftUI host so .onHover fires
-        // on the pill itself (Phase 5 hover lift). Click-through cost is
-        // negligible at idle. setInteractive() flips this for callers that
-        // want to disable interaction entirely (e.g. during hotkey hold).
-        ignoresMouseEvents = false
+        // Mouse handling is owned by `updateMouseHandling()`: interactive when
+        // a caller asked for it or the cursor is near the idle pill, otherwise
+        // click-through. Start interactive until the first caller says otherwise.
+        requestedInteractive = true
+        updateMouseHandling()
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
 
         let host = NSHostingView(rootView: PillView())
@@ -72,6 +89,7 @@ final class PillWindow: NSPanel {
         )
 
         subscribeToAppState()
+        installMouseMonitors()
     }
 
     // MARK: - Sizing & anchoring
@@ -266,12 +284,63 @@ final class PillWindow: NSPanel {
         }
     }
 
-    /// Enable or disable mouse events on the window. Pill window passes
-    /// hover/clicks through by default to its SwiftUI host; callers flip
-    /// this off during transient phases where the user must not be able
-    /// to grab the chip (e.g. during hotkey hold).
+    /// Request mouse events on the window. Callers flip this off during
+    /// transient phases where the user must not be able to grab the chip
+    /// (e.g. during hotkey hold). At idle the window still turns interactive
+    /// when the cursor nears the pill (see `idleHotZoneActive`), so hover
+    /// lift, wake-from-dot and drag keep working after a dictation.
     func setInteractive(_ enabled: Bool) {
-        ignoresMouseEvents = !enabled
+        requestedInteractive = enabled
+        updateMouseHandling()
+        // Re-check the hot zone now: if the pill just returned to idle under
+        // a still cursor, no mouse-move arrives to open it, and SwiftUI would
+        // never see the hover exit.
+        Task { @MainActor in self.refreshIdleHotZone() }
+    }
+
+    /// Single place that writes `ignoresMouseEvents`.
+    private func updateMouseHandling() {
+        ignoresMouseEvents = !(requestedInteractive || idleHotZoneActive)
+    }
+
+    // MARK: - Idle hot zone
+
+    /// Mouse-moved monitors need no Accessibility permission. The global one
+    /// sees moves over other apps (the window is click-through then); the
+    /// local one covers moves while the cursor is over our own window.
+    private func installMouseMonitors() {
+        let mask: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged]
+        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] _ in
+            Task { @MainActor in self?.refreshIdleHotZone() }
+        }
+        localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
+            Task { @MainActor in self?.refreshIdleHotZone() }
+            return event
+        }
+    }
+
+    /// Screen-space rect of the idle pill (48x12, bottom edge on the anchor).
+    private func idlePillScreenRect() -> NSRect {
+        let anchor = currentAnchor()
+        let w: CGFloat = 48, h: CGFloat = 12
+        return NSRect(x: anchor.x - w / 2, y: anchor.y, width: w, height: h)
+    }
+
+    @MainActor
+    private func refreshIdleHotZone() {
+        let s = AppState.shared
+        var active = false
+        if case .idle = s.phase, !s.showPermissionPrompt {
+            let zone = idlePillScreenRect().insetBy(dx: -Self.idleHotZoneInset,
+                                                    dy: -Self.idleHotZoneInset)
+            let inside = zone.contains(NSEvent.mouseLocation)
+            // A fast drag can outrun the window for a frame; hold the zone
+            // open while a button is down and it was already active.
+            active = inside || (idleHotZoneActive && NSEvent.pressedMouseButtons != 0)
+        }
+        guard active != idleHotZoneActive else { return }
+        idleHotZoneActive = active
+        updateMouseHandling()
     }
 
     // MARK: - Reactive resize

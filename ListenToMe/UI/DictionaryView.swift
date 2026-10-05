@@ -7,6 +7,7 @@ struct DictionaryView: View {
     @FocusState private var focused: Bool
     @State private var candidatesExpanded = true
     @State private var promotedExpanded = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ScrollView {
@@ -68,9 +69,12 @@ struct DictionaryView: View {
                     Image(systemName: "xmark")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.tertiary)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.pressable)
                 .help("Dismiss")
+                .accessibilityLabel("Dismiss tip")
             }
             .padding(DT.space4)
             .background(
@@ -100,7 +104,6 @@ struct DictionaryView: View {
 
             Button(action: commit) { Text("Add") }
                 .buttonStyle(.primary)
-                .keyboardShortcut(.return, modifiers: [])
                 .disabled(newWord.trimmingCharacters(in: .whitespaces).isEmpty)
         }
     }
@@ -234,17 +237,25 @@ struct DictionaryView: View {
                     .foregroundStyle(.tertiary)
             }
             Spacer()
-            Button(action: { store.remove(id: entry.id) }) {
+            Button(action: {
+                withAnimation(reduceMotion ? nil : .snappy(duration: 0.2)) {
+                    store.remove(id: entry.id)
+                }
+            }) {
                 Image(systemName: "xmark.circle.fill")
                     .font(.system(size: 14))
                     .foregroundStyle(.tertiary)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.pressable)
             .help("Remove from dictionary")
+            .accessibilityLabel("Remove \(entry.word) from dictionary")
         }
         .padding(.horizontal, DT.space5)
         .padding(.vertical, DT.space4)
         .hoverableRow(cornerRadius: 0)
+        .transition(.opacity.combined(with: .move(edge: .top)))
     }
 
     // MARK: - Manual section
@@ -278,17 +289,25 @@ struct DictionaryView: View {
             Text(word)
                 .font(DT.body)
             Spacer()
-            Button(action: { store.remove(word) }) {
+            Button(action: {
+                withAnimation(reduceMotion ? nil : .snappy(duration: 0.2)) {
+                    store.remove(word)
+                }
+            }) {
                 Image(systemName: "xmark.circle.fill")
                     .font(.system(size: 14))
                     .foregroundStyle(.tertiary)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.pressable)
             .help("Remove word")
+            .accessibilityLabel("Remove \(word)")
         }
         .padding(.horizontal, DT.space5)
         .padding(.vertical, DT.space4)
         .hoverableRow(cornerRadius: 0)
+        .transition(.opacity.combined(with: .move(edge: .top)))
     }
 
     // MARK: - Helpers
@@ -324,7 +343,9 @@ struct DictionaryView: View {
     private func commit() {
         let w = newWord.trimmingCharacters(in: .whitespaces)
         guard !w.isEmpty else { return }
-        store.add(w)
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.2)) {
+            store.add(w)
+        }
         newWord = ""
         focused = true
     }

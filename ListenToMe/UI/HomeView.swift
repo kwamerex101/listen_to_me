@@ -10,6 +10,12 @@ struct HomeView: View {
     /// gauge sweep, sparkline draw). Flipped once on first appear;
     /// under reduce-motion everything starts in its final state.
     @State private var appeared = false
+    /// False while the app is in the background, so the hero's
+    /// repeatForever bars stop running.
+    @State private var appActive = true
+    /// MainView remounts this view on every tab switch (`.id(selection)`),
+    /// so the entrance is gated to play once per app launch.
+    private static var hasPlayedEntrance = false
 
     var body: some View {
         ScrollView {
@@ -30,7 +36,7 @@ struct HomeView: View {
                 todaySection
             }
             .padding(.top, DT.safeAreaTop)
-            .padding(.horizontal, isNarrow ? DT.space6 : DT.space10)
+            .padding(.horizontal, DT.space10)
             .padding(.bottom, DT.space10)
             // Cap the content width on very wide screens so the page reads
             // as a focused dashboard instead of stretching infinitely. The
@@ -39,10 +45,17 @@ struct HomeView: View {
             .frame(maxWidth: DT.pageMaxWidth, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
+            appActive = false
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            appActive = true
+        }
         .onAppear {
-            if reduceMotion {
+            if reduceMotion || Self.hasPlayedEntrance {
                 appeared = true
             } else {
+                Self.hasPlayedEntrance = true
                 withAnimation(.spring(response: 0.8, dampingFraction: 0.9)) {
                     appeared = true
                 }
@@ -50,15 +63,12 @@ struct HomeView: View {
         }
     }
 
-    private var isNarrow: Bool { windowWidth < DT.narrowBreakpoint }
     private var isCompact: Bool { windowWidth < DT.compactBreakpoint }
 
     // MARK: - Hero
 
     private var heroCard: some View {
-        let showDecorWaveform = !isNarrow
-
-        return ZStack(alignment: .topLeading) {
+        ZStack(alignment: .topLeading) {
             RoundedRectangle(cornerRadius: DT.radiusXl, style: .continuous)
                 .fill(DT.heroGradient)
 
@@ -66,18 +76,15 @@ struct HomeView: View {
                 .fill(DT.heroGlow)
                 .allowsHitTesting(false)
 
-            if showDecorWaveform {
-                HStack {
-                    Spacer()
-                    heroWaveform
-                        .frame(width: 220, height: 100)
-                        .padding(.trailing, DT.space8)
-                        .opacity(0.55)
-                }
-                .frame(maxHeight: .infinity)
-                .allowsHitTesting(false)
-                .transition(.opacity)
+            HStack {
+                Spacer()
+                heroWaveform
+                    .frame(width: 220, height: 100)
+                    .padding(.trailing, DT.space8)
+                    .opacity(0.55)
             }
+            .frame(maxHeight: .infinity)
+            .allowsHitTesting(false)
 
             VStack(alignment: .leading, spacing: DT.space3) {
                 Text("Ready when you are.")
@@ -106,7 +113,6 @@ struct HomeView: View {
             .padding(DT.space7)
         }
         .frame(height: 220)
-        .animation(.easeInOut(duration: 0.18), value: showDecorWaveform)
     }
 
     private var heroCTA: some View {
@@ -135,7 +141,7 @@ struct HomeView: View {
         GeometryReader { geo in
             HStack(spacing: 4) {
                 ForEach(0..<18, id: \.self) { i in
-                    HeroBar(index: i, maxHeight: geo.size.height, animate: !reduceMotion)
+                    HeroBar(index: i, maxHeight: geo.size.height, animate: !reduceMotion && appActive)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
@@ -161,16 +167,24 @@ struct HomeView: View {
                 .fill(Color.white.opacity(0.55))
                 .frame(width: 4, height: base)
                 .scaleEffect(y: up ? 1.18 : 0.92, anchor: .center)
-                .onAppear {
-                    guard animate else { return }
-                    withAnimation(
-                        .easeInOut(duration: 1.4 + Double(index % 5) * 0.13)
-                        .repeatForever(autoreverses: true)
-                        .delay(Double(index) * 0.09)
-                    ) {
-                        up = true
-                    }
+                .onAppear { setBreathing(animate) }
+                .onChange(of: animate) { _, on in setBreathing(on) }
+        }
+
+        /// Start or stop the repeatForever loop. Stopping swaps in a
+        /// short non-repeating animation, which replaces the loop.
+        private func setBreathing(_ on: Bool) {
+            if on {
+                withAnimation(
+                    .easeInOut(duration: 1.4 + Double(index % 5) * 0.13)
+                    .repeatForever(autoreverses: true)
+                    .delay(Double(index) * 0.09)
+                ) {
+                    up = true
                 }
+            } else {
+                withAnimation(.easeOut(duration: 0.2)) { up = false }
+            }
         }
     }
 
@@ -524,6 +538,8 @@ struct HomeView: View {
     private func growthChip(_ g: Double) -> some View {
         let positive = g >= 0
         let pct = Int(abs(g) * 100)
+        // A decline is not an error: neutral grey, not red.
+        let tint = g > 0 ? DT.statusSuccess : DT.textSecondary
         return HStack(spacing: 4) {
             Image(systemName: positive ? "arrow.up.right" : "arrow.down.right")
                 .font(.system(size: 9, weight: .bold))
@@ -533,12 +549,17 @@ struct HomeView: View {
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
         }
-        .foregroundStyle(positive ? Color.green : Color.red)
+        .foregroundStyle(tint)
         .padding(.horizontal, 8)
         .padding(.vertical, 3)
         .background(
             Capsule()
-                .fill((positive ? Color.green : Color.red).opacity(0.12))
+                .fill(tint.opacity(0.12))
+        )
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(
+            pct == 0 ? "No change versus last week"
+                : "\(g > 0 ? "Up" : "Down") \(pct) percent versus last week"
         )
     }
 }
@@ -653,6 +674,7 @@ struct ActivityHeatmap: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Drives the column-by-column entrance stagger.
     @State private var appeared = false
+    private static var hasPlayedStagger = false
 
     /// Map a 0..1 intensity to a discrete colour bucket (4 visible levels +
     /// neutral). Mirrors GitHub's contribution graph palette but in our
@@ -672,14 +694,30 @@ struct ActivityHeatmap: View {
     private let labelColumnWidth: CGFloat = 28
     private let gap: CGFloat = 4
 
-    var body: some View {
-        GeometryReader { geo in
-            // Lay out by computing a single cell size that fills the
-            // available width given `weeks` columns + the label gutter.
-            let availableW = geo.size.width - labelColumnWidth
-            let totalGap = gap * CGFloat(max(weeks - 1, 0))
-            let cell = max(10, min(28, (availableW - totalGap) / CGFloat(max(weeks, 1))))
+    /// Width of the grid area, measured so the cell size (and with it the
+    /// frame height) comes from one computation.
+    /// Last width seen, so a remount (every tab switch) starts at the right
+    /// cell size instead of flashing small and jumping.
+    private static var lastMeasuredWidth: CGFloat = 0
+    @State private var measuredWidth: CGFloat = ActivityHeatmap.lastMeasuredWidth
 
+    /// Single cell size that fills the available width given `weeks`
+    /// columns + the label gutter. Drives both the cells and the frame
+    /// height so the grid never clips or overlaps.
+    private func measure(_ w: CGFloat) {
+        measuredWidth = w
+        Self.lastMeasuredWidth = w
+    }
+
+    private var cell: CGFloat {
+        let availableW = measuredWidth - labelColumnWidth
+        let totalGap = gap * CGFloat(max(weeks - 1, 0))
+        return max(10, min(28, (availableW - totalGap) / CGFloat(max(weeks, 1))))
+    }
+
+    var body: some View {
+        let cell = self.cell
+        return Group {
             let columns = weekColumns()
             let topWords = max(1, metrics.map { $0.words }.max() ?? 1)
             let cal = Calendar.current
@@ -719,10 +757,28 @@ struct ActivityHeatmap: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        // Heatmap height = 7 rows × cell + 6 gaps. Compute a sensible
-        // intrinsic height so the card doesn't collapse to zero.
-        .frame(height: 7 * 22 + 6 * gap)
-        .onAppear { appeared = true }
+        .background(
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear { measure(geo.size.width) }
+                    .onChange(of: geo.size.width) { _, w in measure(w) }
+            }
+        )
+        // Heatmap height = 7 rows × cell + 6 gaps, from the same `cell`
+        // the grid uses.
+        .frame(height: 7 * cell + 6 * gap)
+        .onAppear {
+            // Stagger plays once per launch; later tab visits show the
+            // final state immediately.
+            if Self.hasPlayedStagger {
+                var t = Transaction()
+                t.disablesAnimations = true
+                withTransaction(t) { appeared = true }
+            } else {
+                Self.hasPlayedStagger = true
+                appeared = true
+            }
+        }
     }
 
     /// One heatmap day-cell with hover feedback — slight scale + accent
@@ -780,7 +836,7 @@ struct ActivityHeatmap: View {
 
     private static let displayFmt: DateFormatter = {
         let f = DateFormatter()
-        f.dateFormat = "MMM d"
+        f.setLocalizedDateFormatFromTemplate("MMMd")
         return f
     }()
 }

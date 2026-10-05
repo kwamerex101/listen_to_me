@@ -4,6 +4,7 @@ struct SnippetsView: View {
     @ObservedObject private var store = SnippetsStore.shared
     @State private var newKeyword: String = ""
     @State private var newExpansion: String = ""
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ScrollView {
@@ -43,6 +44,7 @@ struct SnippetsView: View {
                 .padding(.vertical, 10)
                 .formField()
                 .frame(maxWidth: 260)
+                .onSubmit(commit)
 
             Image(systemName: "arrow.right")
                 .font(.system(size: 11, weight: .semibold))
@@ -55,6 +57,7 @@ struct SnippetsView: View {
                 .padding(.vertical, 10)
                 .formField()
                 .frame(maxWidth: .infinity)
+                .onSubmit(commit)
 
             Button(action: commit) { Text("Add") }
                 .buttonStyle(.primary)
@@ -90,21 +93,34 @@ struct SnippetsView: View {
                 .lineLimit(2)
                 .truncationMode(.tail)
             Spacer(minLength: 0)
-            Button(action: { store.remove(id: snippet.id) }) {
+            Button(action: {
+                withAnimation(reduceMotion ? nil : .snappy(duration: 0.2)) {
+                    store.remove(id: snippet.id)
+                }
+            }) {
                 Image(systemName: "xmark.circle.fill")
                     .font(.system(size: 14))
                     .foregroundStyle(.tertiary)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.pressable)
             .help("Remove snippet")
+            .accessibilityLabel("Remove snippet")
         }
         .padding(.horizontal, DT.space5)
         .padding(.vertical, DT.space4)
         .hoverableRow(cornerRadius: 0)
+        .transition(.opacity.combined(with: .move(edge: .top)))
     }
 
     private func commit() {
-        store.add(keyword: newKeyword, expansion: newExpansion)
+        let keyword = newKeyword.trimmingCharacters(in: .whitespaces)
+        let expansion = newExpansion.trimmingCharacters(in: .whitespaces)
+        guard !keyword.isEmpty, !expansion.isEmpty else { return }
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.2)) {
+            store.add(keyword: newKeyword, expansion: newExpansion)
+        }
         newKeyword = ""
         newExpansion = ""
     }

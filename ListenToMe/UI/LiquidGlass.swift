@@ -82,6 +82,37 @@ extension View {
         }
     }
 
+    /// Partial-transcript preview chip. Same recipe as the pill (clear glass
+    /// over a 35% black dim) on macOS 26; solid black with a 1pt stroke below.
+    @ViewBuilder
+    func previewGlassBackground(cornerRadius: CGFloat) -> some View {
+        if #available(macOS 26.0, *) {
+            self
+                .background(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .fill(Color.black.opacity(0.35))
+                )
+                .glassEffect(
+                    Glass.clear,
+                    in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.25), lineWidth: 0.5)
+                )
+        } else {
+            self
+                .background(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .fill(Color.black.opacity(0.85))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
+                )
+        }
+    }
+
     /// Window / large-panel backing. macOS 26 → an NSVisualEffectView material
     /// so glass layered above it refracts the desktop; older → a solid color.
     @ViewBuilder

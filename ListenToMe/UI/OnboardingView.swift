@@ -12,7 +12,10 @@ struct OnboardingView: View {
     let onFinish: () -> Void
 
     @State private var step = 0
+    /// True while navigating Back, so the step transition slides the other way.
+    @State private var goingBack = false
     private let stepCount = 5
+    private static let stepAnimation = Animation.spring(response: 0.35, dampingFraction: 1.0)
 
     @ObservedObject private var modelManager = WhisperModelManager.shared
     @ObservedObject private var appState = AppState.shared
@@ -42,11 +45,12 @@ struct OnboardingView: View {
                     reduceMotion
                     ? .opacity
                     : .asymmetric(
-                        insertion: .move(edge: .trailing).combined(with: .opacity),
-                        removal:   .move(edge: .leading).combined(with: .opacity)
+                        insertion: .opacity.combined(with: .offset(x: goingBack ? -24 : 24)),
+                        removal:   .opacity.combined(with: .offset(x: goingBack ? 24 : -24))
                     )
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .clipped()
                 .padding(.horizontal, DT.space7)
                 .padding(.top, DT.space7)
             footer
@@ -420,12 +424,24 @@ struct OnboardingView: View {
                 .font(DT.caption)
                 .foregroundStyle(.secondary)
 
+                // Back, only after the first step.
+                if step > 0 {
+                    Button("Back") {
+                        goingBack = true
+                        withAnimation(reduceMotion ? nil : Self.stepAnimation) {
+                            step -= 1
+                        }
+                    }
+                    .buttonStyle(.secondary)
+                }
+
                 // Primary CTA.
                 Button(step == stepCount - 1 ? "Done" : "Continue") {
                     if step == stepCount - 1 {
                         onFinish()
                     } else {
-                        withAnimation(reduceMotion ? nil : Motion.tabFade) {
+                        goingBack = false
+                        withAnimation(reduceMotion ? nil : Self.stepAnimation) {
                             step += 1
                         }
                     }

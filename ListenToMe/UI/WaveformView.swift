@@ -14,47 +14,50 @@ private func perceptualLevel(_ v: Float) -> CGFloat {
 
 struct WaveformView: View {
     let levels: [Float]        // N samples, each 0…1
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        HStack(spacing: 3) {
-            ForEach(0..<levels.count, id: \.self) { i in
-                Capsule()
-                    .fill(Color.white.opacity(0.9))
-                    .frame(width: 3, height: barHeight(levels[i]))
-                    .animation(reduceMotion ? nil : .easeOut(duration: 0.06),
-                               value: levels[i])
-            }
-        }
-        .frame(height: 24)
-        .accessibilityHidden(true)   // decorative; the pill carries the label
-    }
-
-    private func barHeight(_ v: Float) -> CGFloat {
-        return 3 + perceptualLevel(v) * 21
+        BarsCanvas(levels: levels, barWidth: 3, spacing: 3,
+                   minHeight: 3, heightRange: 21, opacity: 0.9)
+            .frame(height: 24)
+            .accessibilityHidden(true)   // decorative; the pill carries the label
     }
 }
 
 /// Small waveform used in the compact recording pill. Thinner bars, smaller max height.
 struct CompactWaveformView: View {
     let levels: [Float]
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        HStack(spacing: 2) {
-            ForEach(0..<levels.count, id: \.self) { i in
-                Capsule()
-                    .fill(Color.white.opacity(0.85))
-                    .frame(width: 2, height: barHeight(levels[i]))
-                    .animation(reduceMotion ? nil : .easeOut(duration: 0.06),
-                               value: levels[i])
+        BarsCanvas(levels: levels, barWidth: 2, spacing: 2,
+                   minHeight: 2, heightRange: 12, opacity: 0.85)
+            .frame(height: 16)
+            .accessibilityHidden(true)   // decorative; the pill carries the label
+    }
+}
+
+/// Draws the bars in one `Canvas` pass. The levels update ~30Hz inside the
+/// glass pill, so this avoids diffing and animating a view per bar.
+private struct BarsCanvas: View {
+    let levels: [Float]
+    let barWidth: CGFloat
+    let spacing: CGFloat
+    let minHeight: CGFloat
+    let heightRange: CGFloat
+    let opacity: Double
+
+    var body: some View {
+        Canvas { ctx, size in
+            let n = levels.count
+            guard n > 0 else { return }
+            let total = CGFloat(n) * barWidth + CGFloat(n - 1) * spacing
+            var x = (size.width - total) / 2
+            for v in levels {
+                let h = minHeight + perceptualLevel(v) * heightRange
+                let rect = CGRect(x: x, y: (size.height - h) / 2, width: barWidth, height: h)
+                ctx.fill(Path(roundedRect: rect, cornerRadius: barWidth / 2),
+                         with: .color(.white.opacity(opacity)))
+                x += barWidth + spacing
             }
         }
-        .frame(height: 16)
-        .accessibilityHidden(true)   // decorative; the pill carries the label
-    }
-
-    private func barHeight(_ v: Float) -> CGFloat {
-        return 2 + perceptualLevel(v) * 12
     }
 }

@@ -165,6 +165,9 @@ struct PillView: View {
         shrinkTimer?.invalidate()
         shrinkTimer = nil
         if isShrunkToDot {
+            if !reduceMotion {
+                withAnimation(Motion.idleBreath) { idleBreathOn = true }
+            }
             // Shrink/wake is functional (the pill genuinely changes size),
             // so it still happens under reduce-motion — just without the
             // spring.
@@ -184,6 +187,9 @@ struct PillView: View {
         guard isIdleAndCalm, !hovered else { return }
         shrinkTimer = Timer.scheduledTimer(withTimeInterval: shrinkAfter, repeats: false) { _ in
             Task { @MainActor in
+                // Replaces the repeatForever transaction so the glass stops
+                // re-rendering while the pill is a dot.
+                withAnimation(.easeOut(duration: 0.3)) { idleBreathOn = false }
                 withAnimation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.78)) {
                     isShrunkToDot = true
                 }
@@ -270,7 +276,7 @@ struct PillView: View {
     /// Composite scale from press-pop, idle breath, and hover lift.
     /// Hover bump is small (≤4%) so it reads as "alive" rather than "expanding".
     private var rootScale: CGFloat {
-        let breathFactor: CGFloat = (isIdleAndCalm && idleBreathOn) ? 0.97 : 1.0
+        let breathFactor: CGFloat = (isIdleAndCalm && !isShrunkToDot && idleBreathOn) ? 0.97 : 1.0
         let hoverFactor:  CGFloat = hovered ? 1.04 : 1.0
         return pressPop * breathFactor * hoverFactor
     }
@@ -381,7 +387,7 @@ struct PillView: View {
     /// Hover adds a small bump so the edge crispens when the cursor enters.
     private var borderOpacity: Double {
         let base: Double
-        if isIdleAndCalm {
+        if isIdleAndCalm && !isShrunkToDot {
             base = idleBreathOn ? 0.6 : 0.3
         } else {
             base = 0.45
@@ -491,25 +497,17 @@ struct PillView: View {
                 }
                 .buttonStyle(PressableStyle())
 
-                ZStack {
-                    CompactWaveformView(levels: levelBuffer)
-                        .opacity(silenceDimmed ? 0.4 : 1.0)
-                    if silenceDimmed {
-                        Image(systemName: "mic.slash")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.7))
-                            .transition(.opacity.combined(with: .scale))
-                    }
-                }
-                .frame(maxWidth: .infinity)
+                CompactWaveformView(levels: levelBuffer)
+                    .opacity(silenceDimmed ? 0.4 : 1.0)
+                    .frame(maxWidth: .infinity)
 
                 Button(action: { AppState.shared.onStopTap?() }) {
                     ZStack {
                         Circle()
-                            .fill(Color.red)
+                            .fill(DT.statusRecording)
                             .frame(width: 24, height: 24)
                             .scaleEffect(stopButtonScale)
-                            .shadow(color: .red.opacity(recordPulse ? 0.55 : 0.15),
+                            .shadow(color: DT.statusRecording.opacity(recordPulse ? 0.55 : 0.15),
                                     radius: recordPulse ? 6 : 2)
                             .animation(Motion.stopReact, value: smoothedLevel)
                         RoundedRectangle(cornerRadius: 2, style: .continuous)
@@ -542,7 +540,7 @@ struct PillView: View {
             HStack(spacing: 12) {
                 Image(systemName: "sparkles")
                     .font(.system(size: 14))
-                    .foregroundStyle(.purple)
+                    .foregroundStyle(DT.statusProcessing)
                     .symbolEffect(.pulse)
                 Text("Cleaning up…")
                     .font(.system(size: 13, weight: .medium))
@@ -555,9 +553,9 @@ struct PillView: View {
             HStack(spacing: 10) {
                 Image(systemName: "sparkles")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.purple.opacity(0.9))
+                    .foregroundStyle(DT.statusProcessing.opacity(0.9))
                 Text(rawPreview)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.white.opacity(0.85))
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -571,7 +569,7 @@ struct PillView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "checkmark")
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.green)
+                        .foregroundStyle(DT.statusSuccess)
                     Text("Edit")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(.white.opacity(0.9))
@@ -581,13 +579,13 @@ struct PillView: View {
                 ZStack {
                     // Halo behind the checkmark: green ring expands and fades.
                     Circle()
-                        .strokeBorder(Color.green.opacity(0.85), lineWidth: 2)
+                        .strokeBorder(DT.statusSuccess.opacity(0.85), lineWidth: 2)
                         .frame(width: 22, height: 22)
                         .scaleEffect(haloScale)
                         .opacity(haloOpacity)
                     Image(systemName: "checkmark")
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.green)
+                        .foregroundStyle(DT.statusSuccess)
                 }
                 .transition(.opacity)
             }
@@ -596,9 +594,9 @@ struct PillView: View {
             HStack(spacing: 12) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 14))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(DT.statusWarning)
                 Text(message)
-                    .font(.system(size: 12))
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.white.opacity(0.92))
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -623,7 +621,7 @@ struct PillView: View {
                     .font(.system(size: 13))
                     .foregroundStyle(.white.opacity(0.55))
                 Text("No speech")
-                    .font(.system(size: 12))
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.white.opacity(0.6))
                 Spacer(minLength: 0)
             }
@@ -706,17 +704,9 @@ struct PillView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .frame(maxWidth: 360)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Color.black.opacity(0.78))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
-                )
-                .shadow(color: .black.opacity(0.35), radius: 6, x: 0, y: 3)
+                .previewGlassBackground(cornerRadius: 10)
                 .padding(.bottom, 8)
-                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                .transition(.opacity.combined(with: .offset(y: 8)))
                 .animation(.easeOut(duration: 0.18), value: state.partialText)
                 .accessibilityLabel("Live partial transcript")
                 .accessibilityValue(state.partialText)
@@ -873,7 +863,7 @@ private struct PolishingDots: View {
         HStack(spacing: 3) {
             ForEach(0..<3, id: \.self) { i in
                 Circle()
-                    .fill(Color.purple.opacity(phase == i ? 0.95 : 0.35))
+                    .fill(DT.statusProcessing.opacity(phase == i ? 0.95 : 0.35))
                     .frame(width: 4, height: 4)
                     .animation(.easeInOut(duration: 0.3), value: phase)
             }

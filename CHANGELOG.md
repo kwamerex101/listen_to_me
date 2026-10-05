@@ -10,9 +10,20 @@ All notable user-facing changes per release. Format inspired by [Keep a Changelo
 - Hovering the pill after a dictation keeps it on screen and shows an "Edit" button.
 - Status changes in the pill swap more smoothly, without bouncing.
 - The polishing state shows a sparkle icon instead of a checkmark, since nothing has been pasted yet.
+- You can hover and drag the idle pill again at any time, not only before your first dictation. Clicks near it still pass through to the app underneath.
+- The pill stops its idle "breathing" once it shrinks to a dot, the live transcript preview matches the pill's glass look, and the waveform draws more smoothly.
+- The "mic off" icon no longer appears during a quiet pause while recording.
+- The correction window fades in and out and has Apply and Cancel buttons; Esc closes it from anywhere.
+- Setup has a Back button and no longer sits on top of System Settings when you go to grant a permission.
+- The sidebar highlight slides between sections, Dictionary and Snippets rows animate in and out, and Return adds a snippet.
+- Home's entrance animation plays once per launch instead of on every visit.
+- Times and dates follow your system's 12 or 24 hour and date format settings.
+- A lower dictation week is no longer shown in red on Home.
+- Better VoiceOver labels and larger click targets on icon-only buttons.
 
 ### Fixed
 
+- The activity heatmap on Home no longer overflows its card on wide windows.
 - The pill no longer blinks when it returns to idle, and its window resizes in step with the pill.
 - A sound and haptic tap now play when a cleaned-up dictation is pasted.
 - Setup can always be skipped, including on the last step, and the microphone row now asks for permission directly.

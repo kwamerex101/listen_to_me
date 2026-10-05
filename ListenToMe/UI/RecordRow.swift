@@ -39,7 +39,7 @@ struct RecordRow: View {
 
     private static let fmt: DateFormatter = {
         let f = DateFormatter()
-        f.dateFormat = "hh:mm a"
+        f.setLocalizedDateFormatFromTemplate("jmm")
         return f
     }()
 
@@ -91,7 +91,7 @@ struct RecordRow: View {
                         action: { history.remove(id: record.id) }
                     )
                 }
-                .opacity(hovered ? 1 : 0.32)
+                .opacity(hovered ? 1 : 0.5)
                 .animation(Motion.hoverFade, value: hovered)
             }
         }
@@ -121,6 +121,7 @@ struct RecordRow: View {
         }
         .buttonStyle(.pressable)
         .help(help)
+        .accessibilityLabel(help)
     }
 
     private func copyText() {
@@ -168,6 +169,7 @@ struct RecordRow: View {
         .menuIndicator(.hidden)
         .fixedSize()
         .help("Polish / Transform")
+        .accessibilityLabel("Polish or transform transcript")
         .disabled(transforming)
     }
 

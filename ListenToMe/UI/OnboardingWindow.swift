@@ -29,7 +29,9 @@ final class OnboardingWindow: NSPanel {
         titleVisibility = .hidden
         titlebarAppearsTransparent = true
         isMovableByWindowBackground = true
-        level = .floating
+        // Normal level so System Settings can come in front when the user
+        // opens a permission pane from the Permissions step.
+        level = .normal
         hidesOnDeactivate = false
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         delegate = windowDelegate

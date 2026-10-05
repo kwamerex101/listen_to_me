@@ -6,6 +6,9 @@ struct SidebarView: View {
     /// based on the window width crossing DT.compactBreakpoint.
     var compact: Bool = false
 
+    @Namespace private var selectionNS
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Logo / brand row
@@ -20,7 +23,7 @@ struct SidebarView: View {
             // Main nav
             VStack(spacing: 2) {
                 ForEach([WfSection.home, .history, .dictionary, .snippets, .style], id: \.self) { section in
-                    NavRow(section: section, selected: selection == section, compact: compact) {
+                    NavRow(section: section, selected: selection == section, compact: compact, namespace: selectionNS) {
                         selection = section
                     }
                 }
@@ -34,7 +37,7 @@ struct SidebarView: View {
 
             // Bottom nav
             VStack(spacing: 2) {
-                NavRow(section: .settings, selected: selection == .settings, compact: compact) {
+                NavRow(section: .settings, selected: selection == .settings, compact: compact, namespace: selectionNS) {
                     selection = .settings
                 }
             }
@@ -42,6 +45,8 @@ struct SidebarView: View {
             .padding(.bottom, DT.space4)
             .padding(.top, DT.space2)
         }
+        // Slides the selected-row highlight between rows.
+        .animation(reduceMotion ? nil : Motion.selection, value: selection)
         // Clip so collapsing transitions don't bleed across the divider.
         .clipped()
     }
@@ -74,6 +79,7 @@ private struct NavRow: View {
     let section: WfSection
     let selected: Bool
     let compact: Bool
+    let namespace: Namespace.ID
     let action: () -> Void
 
     var body: some View {
@@ -82,16 +88,21 @@ private struct NavRow: View {
                 .frame(maxWidth: .infinity, alignment: compact ? .center : .leading)
                 .padding(.horizontal, compact ? 0 : 12)
                 .padding(.vertical, compact ? 10 : 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(selected ? Color.primary.opacity(0.09) : Color.clear)
-                )
+                .background {
+                    if selected {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color.primary.opacity(0.09))
+                            .matchedGeometryEffect(id: "selection", in: namespace)
+                    }
+                }
                 .foregroundStyle(.primary)
                 .contentShape(Rectangle())
                 .hoverableRow()
         }
         .buttonStyle(.pressable)
         .help(compact ? section.label : "")
+        .accessibilityLabel(section.label)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     /// Symbol shown for this row's current state — the filled / coloured
