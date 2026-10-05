@@ -32,6 +32,59 @@ enum SettingsTab: String, CaseIterable {
     }
 }
 
+/// One row of the settings search index. Search is a jump-to list: picking
+/// a result switches to the owning tab, it does not scroll to the row.
+struct SettingsSearchEntry {
+    let title: String
+    let keywords: String
+    let tab: SettingsTab
+
+    /// Hand-maintained: add an entry when a settings row is added.
+    static let all: [SettingsSearchEntry] = [
+        .init(title: "Your name", keywords: "greeting home profile", tab: .general),
+        .init(title: "Dictation hotkey", keywords: "shortcut key fn push to talk hold", tab: .general),
+        .init(title: "Theme", keywords: "appearance dark light mode", tab: .general),
+        .init(title: "Sound cues", keywords: "audio tones beep chime", tab: .general),
+        .init(title: "Pill position", keywords: "floating pill move reset drag", tab: .general),
+        .init(title: "Launch at login", keywords: "startup open at sign in", tab: .general),
+        .init(title: "Accessibility", keywords: "permission insert text paste", tab: .general),
+        .init(title: "Automatically check for updates", keywords: "auto update sparkle version", tab: .general),
+        .init(title: "Check for updates", keywords: "last checked check now sparkle", tab: .general),
+        .init(title: "Microphone", keywords: "input device audio", tab: .dictation),
+        .init(title: "Language", keywords: "english locale", tab: .dictation),
+        .init(title: "Max recording duration", keywords: "limit auto stop length", tab: .dictation),
+        .init(title: "Output destination", keywords: "where text goes notes paste", tab: .dictation),
+        .init(title: "Note mode", keywords: "apple notes append daily", tab: .dictation),
+        .init(title: "Note name", keywords: "apple notes title", tab: .dictation),
+        .init(title: "Notes folder", keywords: "apple notes", tab: .dictation),
+        .init(title: "Notes permission", keywords: "apple notes automation", tab: .dictation),
+        .init(title: "AI cleanup mode", keywords: "polish when smart", tab: .dictation),
+        .init(title: "Cleanup intensity", keywords: "light aggressive edits", tab: .dictation),
+        .init(title: "Cloud backend", keywords: "claude cli api cleanup", tab: .dictation),
+        .init(title: "Anthropic API key", keywords: "claude secret token", tab: .dictation),
+        .init(title: "Cleanup timeout", keywords: "polish seconds slow", tab: .dictation),
+        .init(title: "Cleanup engine", keywords: "on-device local cloud llm polish", tab: .dictation),
+        .init(title: "On-device cleanup model", keywords: "gemma local llm download", tab: .dictation),
+        .init(title: "Transcription engine", keywords: "whisper parakeet linked", tab: .models),
+        .init(title: "Parakeet version", keywords: "v2 v3 languages", tab: .models),
+        .init(title: "Parakeet model", keywords: "download neural engine", tab: .models),
+        .init(title: "Boost dictionary terms", keywords: "vocabulary ctc", tab: .models),
+        .init(title: "Whisper model", keywords: "download size", tab: .models),
+        .init(title: "Model status", keywords: "downloaded delete download", tab: .models),
+        .init(title: "Accuracy", keywords: "beam search", tab: .models),
+        .init(title: "Live partial transcripts", keywords: "streaming preview", tab: .models),
+        .init(title: "History retention", keywords: "delete old transcripts days", tab: .privacy),
+        .init(title: "Encrypt history at rest", keywords: "aes encryption", tab: .privacy),
+        .init(title: "Context-aware tone", keywords: "browser url apple event", tab: .privacy),
+        .init(title: "Voice commands", keywords: "shell log today open run", tab: .privacy),
+        .init(title: "Diagnostics log", keywords: "debug logging", tab: .privacy),
+        .init(title: "Version", keywords: "build about", tab: .about),
+        .init(title: "Processing", keywords: "on-device privacy", tab: .about),
+        .init(title: "Engine benchmark", keywords: "a/b compare speed", tab: .about),
+        .init(title: "Uninstall and delete all data", keywords: "remove erase", tab: .about),
+    ]
+}
+
 struct SettingsView: View {
     @State private var cleanupMode: CleanupMode = Preferences.shared.cleanupMode
     @State private var cleanupIntensity: Preferences.CleanupIntensity = Preferences.shared.cleanupIntensity
@@ -76,6 +129,11 @@ struct SettingsView: View {
     @State private var pendingDelete: DeletableModel?
     @State private var showUninstallSheet = false
     @State private var uninstallIncludesDailyNotes = false
+    @State private var uninstallConfirmText = ""
+
+    /// Jump-to search over the settings index (see `SettingsSearchEntry`).
+    @State private var searchQuery = ""
+    @FocusState private var searchFocused: Bool
 
     /// The on-disk models a user can reclaim space from.
     private enum DeletableModel: String, Identifiable {
@@ -116,15 +174,24 @@ struct SettingsView: View {
                     iconTint: .gray
                 )
 
-                tabBar
+                searchField
+
+                if isSearching {
+                    searchResultsList
+                        .frame(maxWidth: 720, alignment: .leading)
+                } else {
+                    tabBar
+                }
 
                 Group {
-                    switch selectedTab {
-                    case .general:   generalTab
-                    case .dictation: dictationTab
-                    case .models:    modelsTab
-                    case .privacy:   privacyTab
-                    case .about:     aboutTab
+                    if !isSearching {
+                        switch selectedTab {
+                        case .general:   generalTab
+                        case .dictation: dictationTab
+                        case .models:    modelsTab
+                        case .privacy:   privacyTab
+                        case .about:     aboutTab
+                        }
                     }
                 }
                 .id(selectedTab)
@@ -139,38 +206,17 @@ struct SettingsView: View {
             .padding(.bottom, 40)
         }
         .onAppear {
-            accessibilityGranted = HotkeyMonitor.isAccessibilityGranted()
-            launchAtLogin = LaunchAtLogin.isEnabled
-            cleanupMode = Preferences.shared.cleanupMode
-            cleanupIntensity = Preferences.shared.cleanupIntensity
-            hotkey = Preferences.shared.hotkeyBinding
-            soundEnabled = Preferences.shared.soundEnabled
-            appearance = Preferences.shared.appearance
-            cleanupBackend = Preferences.shared.cleanupBackend
-            apiKeyDraft = Preferences.shared.anthropicAPIKey ?? ""
-            apiKeySaved = !apiKeyDraft.isEmpty
-            diagnosticsEnabled = Preferences.shared.diagnosticsEnabled
-            automaticallyChecksForUpdates = Updater.shared.automaticallyChecks
-            lastUpdateCheck = Updater.shared.lastCheck
-            historyRetentionDays = Double(Preferences.shared.historyRetentionDays)
-            historyEncryptionEnabled = Preferences.shared.historyEncryptionEnabled
-            contextAwareToneEnabled = Preferences.shared.contextAwareToneEnabled
-            voiceCommandsEnabled = Preferences.shared.voiceCommandsEnabled
-            transcriptionEngine = Preferences.shared.transcriptionEngine
-            parakeetVocabBoost = Preferences.shared.parakeetVocabBoost
-            parakeetModel = Preferences.shared.parakeetModel
-            outputDestination = Preferences.shared.outputDestination
-            noteMode = Preferences.shared.noteMode
-            noteTitleDraft = Preferences.shared.noteTitle
-            noteFolderDraft = Preferences.shared.noteFolder
-            userNameDraft = Preferences.shared.userName
-            streamingPartialsEnabled = Preferences.shared.streamingPartialsEnabled
-            selectedWhisperModel = Preferences.shared.selectedWhisperModel
-            transcriptionAccuracy = Preferences.shared.transcriptionAccuracy
-            availableInputs = AudioInputDevices.available()
-            let savedUID = Preferences.shared.inputDeviceUID ?? ""
-            inputDeviceUID = (savedUID.isEmpty || availableInputs.contains(where: { $0.uid == savedUID })) ? savedUID : ""
-            modelManager.refreshStatus()
+            hydrateFromPreferences(includeDrafts: true)
+        }
+        // Prefs can change outside this view (menu bar cleanup mode,
+        // onboarding hotkey). Re-sync while the page is open; drafts and
+        // OS-backed state are left alone so typing is never overwritten.
+        .onReceive(
+            NotificationCenter.default
+                .publisher(for: UserDefaults.didChangeNotification)
+                .receive(on: RunLoop.main)
+        ) { _ in
+            hydrateFromPreferences(includeDrafts: false)
         }
         .confirmationDialog(
             "Delete \(pendingDelete?.label ?? "model")?",
@@ -187,6 +233,60 @@ struct SettingsView: View {
         }
     }
 
+    /// Assigns only when the value differs, so re-hydration never triggers
+    /// an `.onChange` write-back for a value that is already current.
+    private func sync<T: Equatable>(_ state: Binding<T>, _ value: T) {
+        if state.wrappedValue != value { state.wrappedValue = value }
+    }
+
+    /// Pulls Preferences into the @State mirrors. `includeDrafts` is true
+    /// only on appear: text-field drafts (name, note title/folder, API key)
+    /// and OS/keychain-backed state (login item, Accessibility, input
+    /// devices) are not touched by the UserDefaults-driven refresh, since
+    /// overwriting a half-typed draft or re-running a side-effecting
+    /// `.onChange` would fight the user.
+    private func hydrateFromPreferences(includeDrafts: Bool) {
+        let p = Preferences.shared
+        sync($cleanupMode, p.cleanupMode)
+        sync($cleanupIntensity, p.cleanupIntensity)
+        sync($hotkey, p.hotkeyBinding)
+        sync($soundEnabled, p.soundEnabled)
+        sync($appearance, p.appearance)
+        sync($maxRecordingSec, Double(p.maxRecordingSec))
+        sync($cleanupTimeoutSec, Double(p.cleanupTimeoutSec))
+        sync($cleanupBackend, p.cleanupBackend)
+        sync($diagnosticsEnabled, p.diagnosticsEnabled)
+        sync($automaticallyChecksForUpdates, Updater.shared.automaticallyChecks)
+        sync($lastUpdateCheck, Updater.shared.lastCheck)
+        sync($historyRetentionDays, Double(p.historyRetentionDays))
+        sync($historyEncryptionEnabled, p.historyEncryptionEnabled)
+        sync($contextAwareToneEnabled, p.contextAwareToneEnabled)
+        sync($voiceCommandsEnabled, p.voiceCommandsEnabled)
+        sync($transcriptionEngine, p.transcriptionEngine)
+        sync($parakeetVocabBoost, p.parakeetVocabBoost)
+        sync($parakeetModel, p.parakeetModel)
+        sync($outputDestination, p.outputDestination)
+        sync($noteMode, p.noteMode)
+        sync($streamingPartialsEnabled, p.streamingPartialsEnabled)
+        sync($selectedWhisperModel, p.selectedWhisperModel)
+        sync($transcriptionAccuracy, p.transcriptionAccuracy)
+        sync($llmBackend, p.llmBackend)
+        sync($selectedLocalLLMModel, p.selectedLocalLLMModel)
+
+        guard includeDrafts else { return }
+        accessibilityGranted = HotkeyMonitor.isAccessibilityGranted()
+        launchAtLogin = LaunchAtLogin.isEnabled
+        apiKeyDraft = p.anthropicAPIKey ?? ""
+        apiKeySaved = !apiKeyDraft.isEmpty
+        noteTitleDraft = p.noteTitle
+        noteFolderDraft = p.noteFolder
+        userNameDraft = p.userName
+        availableInputs = AudioInputDevices.available()
+        let savedUID = p.inputDeviceUID ?? ""
+        inputDeviceUID = (savedUID.isEmpty || availableInputs.contains(where: { $0.uid == savedUID })) ? savedUID : ""
+        modelManager.refreshStatus()
+    }
+
     private func performDelete(_ model: DeletableModel) {
         switch model {
         case .whisper:  modelManager.deleteModel()
@@ -194,6 +294,98 @@ struct SettingsView: View {
         case .parakeet: parakeet.deleteModel()
         }
         pendingDelete = nil
+    }
+
+    // MARK: - Search
+
+    private var trimmedQuery: String { searchQuery.trimmingCharacters(in: .whitespaces) }
+    private var isSearching: Bool { !trimmedQuery.isEmpty }
+
+    private var searchResults: [SettingsSearchEntry] {
+        let q = trimmedQuery
+        guard !q.isEmpty else { return [] }
+        return Array(
+            SettingsSearchEntry.all.filter {
+                $0.title.localizedCaseInsensitiveContains(q)
+                    || $0.keywords.localizedCaseInsensitiveContains(q)
+            }.prefix(8)
+        )
+    }
+
+    private func jump(to entry: SettingsSearchEntry) {
+        searchQuery = ""
+        searchFocused = false
+        if reduceMotion {
+            selectedTabRaw = entry.tab.rawValue
+        } else {
+            withAnimation(Motion.selection) { selectedTabRaw = entry.tab.rawValue }
+        }
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+            TextField("Search settings", text: $searchQuery)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13))
+                .focused($searchFocused)
+                .onSubmit {
+                    if let first = searchResults.first { jump(to: first) }
+                }
+                .onExitCommand { searchQuery = "" }
+            if isSearching {
+                Button {
+                    searchQuery = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
+            }
+            // Hidden ⌘F target; the field itself has no shortcut hook.
+            Button("") { searchFocused = true }
+                .keyboardShortcut("f", modifiers: .command)
+                .frame(width: 0, height: 0)
+                .opacity(0)
+                .accessibilityHidden(true)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .formField()
+        .frame(maxWidth: 320, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private var searchResultsList: some View {
+        let results = searchResults
+        if results.isEmpty {
+            Text("No settings match “\(trimmedQuery)”")
+                .font(DT.caption)
+                .foregroundStyle(.secondary)
+        } else {
+            VStack(spacing: 0) {
+                ForEach(Array(results.enumerated()), id: \.offset) { _, entry in
+                    Button { jump(to: entry) } label: {
+                        HStack {
+                            Text(entry.title).font(DT.bodyStrong)
+                            Spacer(minLength: DT.space5)
+                            Text(entry.tab.label)
+                                .font(DT.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, DT.space4)
+                        .padding(.vertical, DT.space3)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .hoverableRow()
+                }
+            }
+            .card()
+        }
     }
 
     // MARK: - Tab bar
@@ -307,7 +499,8 @@ struct SettingsView: View {
                             Button("Reset") {
                                 PillWindow.shared.resetPositionToDefault()
                             }
-                            .buttonStyle(.pressable)
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
                         }
                     }
                 }
@@ -337,10 +530,38 @@ struct SettingsView: View {
                                     NSWorkspace.shared.open(url)
                                 }
                             }
-                            .buttonStyle(.pressable)
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
                         }
                     }
                     .animation(Motion.tabFade, value: accessibilityGranted)
+                }
+                .hoverableRow()
+            }
+
+            section(title: "Updates") {
+                row(label: "Automatically check for updates",
+                    description: "Checks github.com for a newer signed version. Sends your app version; no other data.") {
+                    Toggle("", isOn: $automaticallyChecksForUpdates)
+                        .labelsHidden()
+                        .onChange(of: automaticallyChecksForUpdates) { _, new in
+                            guard new != Updater.shared.automaticallyChecks else { return }
+                            Updater.shared.automaticallyChecks = new
+                        }
+                }
+                row(label: "Last checked") {
+                    HStack(spacing: 10) {
+                        Text(lastCheckedLabel)
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                        Button("Check Now") {
+                            Updater.shared.checkForUpdates()
+                            lastUpdateCheck = Updater.shared.lastCheck
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(!Updater.shared.canCheck)
+                    }
                 }
                 .hoverableRow()
             }
@@ -445,7 +666,8 @@ struct SettingsView: View {
                                 apiKeySaved = !trimmed.isEmpty
                             }
                         }
-                        .buttonStyle(.pressable)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
                         .disabled(apiKeyDraft == (Preferences.shared.anthropicAPIKey ?? ""))
                         if apiKeySaved {
                             Button("Clear") {
@@ -453,7 +675,9 @@ struct SettingsView: View {
                                 apiKeyDraft = ""
                                 apiKeySaved = false
                             }
-                            .buttonStyle(.pressable)
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .tint(DT.statusError)
                         }
                     }
                     // Clear button appears/disappears with save state —
@@ -497,6 +721,7 @@ struct SettingsView: View {
                     .labelsHidden()
                     .frame(width: DT.controlPickerWidth)
                     .onChange(of: transcriptionEngine) { _, new in
+                        guard new != Preferences.shared.transcriptionEngine else { return }
                         Preferences.shared.transcriptionEngine = new
                         // Pre-fetch/warm Parakeet so the first dictation isn't
                         // blocked on the model download/load.
@@ -518,6 +743,7 @@ struct SettingsView: View {
                         .labelsHidden()
                         .frame(width: DT.controlPickerWidth)
                         .onChange(of: parakeetModel) { _, new in
+                            guard new != Preferences.shared.parakeetModel else { return }
                             Preferences.shared.parakeetModel = new
                             // Mirrors the Whisper-model switch below: drop the
                             // loaded version so the next call downloads/loads
@@ -551,6 +777,7 @@ struct SettingsView: View {
                         .pickerStyle(.menu)
                         .labelsHidden()
                         .onChange(of: selectedWhisperModel) { _, new in
+                            guard new != Preferences.shared.selectedWhisperModel else { return }
                             Preferences.shared.selectedWhisperModel = new
                             WhisperLib.shared.shutdown()
                             WhisperServer.shared.shutdown()
@@ -675,6 +902,7 @@ struct SettingsView: View {
                 .labelsHidden()
                 .frame(width: DT.controlPickerWidth)
                 .onChange(of: llmBackend) { _, new in
+                    guard new != Preferences.shared.llmBackend else { return }
                     Preferences.shared.llmBackend = new
                     if new == .local {
                         let file = selectedLocalLLMModel.filename
@@ -710,6 +938,7 @@ struct SettingsView: View {
                     .frame(width: DT.controlPickerWidth)
                     .disabled(!modelFitsRAM(selectedLocalLLMModel) && selectedLocalLLMModel == .gemma4_12B)
                     .onChange(of: selectedLocalLLMModel) { _, new in
+                        guard new != Preferences.shared.selectedLocalLLMModel else { return }
                         Preferences.shared.selectedLocalLLMModel = new
                         LocalLLMEngine.shared.shutdown()
                         LocalLLMEngine.shared.activeModelPath =
@@ -752,7 +981,8 @@ struct SettingsView: View {
                         Button("Apply") {
                             HistoryStore.shared.enforceRetention()
                         }
-                        .buttonStyle(.pressable)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
                     }
                 }
                 row(label: "Encrypt history at rest",
@@ -760,6 +990,7 @@ struct SettingsView: View {
                     Toggle("", isOn: $historyEncryptionEnabled)
                         .labelsHidden()
                         .onChange(of: historyEncryptionEnabled) { _, new in
+                            guard new != Preferences.shared.historyEncryptionEnabled else { return }
                             Preferences.shared.historyEncryptionEnabled = new
                             // Triggers a one-time rewrite of
                             // history.ndjson (encrypt on enable,
@@ -780,6 +1011,9 @@ struct SettingsView: View {
                             Preferences.shared.contextAwareToneEnabled = new
                         }
                 }
+            }
+
+            section(title: "Voice commands") {
                 row(label: "Voice commands",
                     description: "Recognize spoken commands like \"log today: …\", \"open …\", and \"shell: …\". \"Log today\" writes to your Documents folder and \"shell\" runs a terminal command, so this is off by default.") {
                     Toggle("", isOn: $voiceCommandsEnabled)
@@ -788,31 +1022,12 @@ struct SettingsView: View {
                             Preferences.shared.voiceCommandsEnabled = new
                         }
                 }
-            }
-
-            section(title: "Updates") {
-                row(label: "Automatically check for updates",
-                    description: "Checks github.com for a newer signed version. Sends your app version; no other data.") {
-                    Toggle("", isOn: $automaticallyChecksForUpdates)
-                        .labelsHidden()
-                        .onChange(of: automaticallyChecksForUpdates) { _, new in
-                            Updater.shared.automaticallyChecks = new
-                        }
-                }
-                row(label: "Last checked") {
-                    HStack(spacing: 10) {
-                        Text(lastCheckedLabel)
-                            .font(.system(size: 13))
-                            .foregroundStyle(.secondary)
-                        Button("Check Now") {
-                            Updater.shared.checkForUpdates()
-                            lastUpdateCheck = Updater.shared.lastCheck
-                        }
-                        .buttonStyle(.pressable)
-                        .disabled(!Updater.shared.canCheck)
-                    }
-                }
-                .hoverableRow()
+                Text("Lets spoken commands write files and run terminal commands on your Mac. Only enable if you trust everyone who can speak near it.")
+                    .font(DT.caption)
+                    .foregroundStyle(DT.statusWarning)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, DT.space4)
+                    .padding(.bottom, DT.space3)
             }
 
             section(title: "Diagnostics") {
@@ -837,8 +1052,9 @@ struct SettingsView: View {
                 row(label: "Uninstall & delete all data",
                     description: "Removes downloaded models, history, dictionary, settings, and stored keys, and moves the app to the Trash.") {
                     Button("Remove…") { showUninstallSheet = true }
-                        .buttonStyle(.pressable)
-                        .foregroundStyle(DT.statusError)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .tint(DT.statusError)
                 }
                 .hoverableRow()
             }
@@ -852,26 +1068,47 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: DT.space4) {
             Text("Remove ListenToMe?")
                 .font(.system(size: 17, weight: .semibold))
-            Text("This permanently deletes all downloaded models, your dictation history, your custom dictionary, settings, and the API/encryption keys stored in your Keychain. The app is moved to the Trash. This cannot be undone (history is not recoverable).")
+            Text("This permanently deletes your data and moves the app to the Trash. It cannot be undone, and history is not recoverable.")
                 .font(.system(size: 13)).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach([
+                    "Downloaded models, history, and dictionary",
+                    "Settings and the login item",
+                    "API and encryption keys in your Keychain",
+                    "The app itself (moved to the Trash)"
+                ], id: \.self) { item in
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text("•")
+                        Text(item)
+                    }
+                    .font(.system(size: 13))
+                }
+            }
             Toggle("Also delete my daily notes (~/Documents/daily)", isOn: $uninstallIncludesDailyNotes)
                 .font(.system(size: 13))
-            Text("macOS permission grants (Microphone, Accessibility, Automation) can't be removed automatically — we'll open System Settings so you can clear them.")
+            Text("macOS permission grants (Microphone, Accessibility, Automation) can't be removed automatically. We'll open System Settings so you can clear them.")
                 .font(.system(size: 12)).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            TextField("Type REMOVE to confirm", text: $uninstallConfirmText)
+                .textFieldStyle(.roundedBorder)
+                .autocorrectionDisabled()
             HStack {
                 Spacer()
                 Button("Cancel") {
                     showUninstallSheet = false
                     uninstallIncludesDailyNotes = false
+                    uninstallConfirmText = ""
                 }
-                    .keyboardShortcut(.cancelAction)
-                Button("Remove everything") {
+                .keyboardShortcut(.cancelAction)
+                Button("Remove everything", role: .destructive) {
                     showUninstallSheet = false
+                    uninstallConfirmText = ""
                     Uninstaller.performUninstall(includeDailyNotes: uninstallIncludesDailyNotes)
                 }
-                .foregroundStyle(DT.statusError)
+                .buttonStyle(.borderedProminent)
+                .tint(DT.statusError)
+                .disabled(uninstallConfirmText.trimmingCharacters(in: .whitespaces) != "REMOVE")
             }
         }
         .padding(20)
@@ -916,7 +1153,8 @@ struct SettingsView: View {
                     .font(.system(size: 13))
                     .foregroundStyle(DT.statusWarning)
                 Button("Download") { modelManager.startDownload() }
-                    .buttonStyle(.pressable)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
             }
         case .downloading(let progress):
             HStack(spacing: 10) {
@@ -927,7 +1165,8 @@ struct SettingsView: View {
                     .font(.system(size: 12, design: .monospaced))
                     .foregroundStyle(.secondary)
                 Button("Cancel") { modelManager.cancelDownload() }
-                    .buttonStyle(.pressable)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
             }
         case .failed(let message):
             HStack(spacing: 10) {
@@ -936,7 +1175,8 @@ struct SettingsView: View {
                     .foregroundStyle(DT.statusError)
                     .lineLimit(2)
                 Button("Retry") { modelManager.startDownload() }
-                    .buttonStyle(.pressable)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
             }
         }
     }
@@ -959,8 +1199,9 @@ struct SettingsView: View {
     /// confirmation dialog rather than deleting immediately.
     private func deleteButton(_ model: DeletableModel) -> some View {
         Button("Delete") { pendingDelete = model }
-            .buttonStyle(.pressable)
-            .foregroundStyle(DT.statusError)
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .tint(DT.statusError)
     }
 
     @ViewBuilder
@@ -979,7 +1220,8 @@ struct SettingsView: View {
                     .font(.system(size: 13))
                     .foregroundStyle(DT.statusWarning)
                 Button("Download") { llmManager.startDownload() }
-                    .buttonStyle(.pressable)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
             }
         case .downloading(let progress):
             HStack(spacing: 10) {
@@ -990,7 +1232,8 @@ struct SettingsView: View {
                     .font(.system(size: 12, design: .monospaced))
                     .foregroundStyle(.secondary)
                 Button("Cancel") { llmManager.cancelDownload() }
-                    .buttonStyle(.pressable)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
             }
         case .failed(let message):
             HStack(spacing: 10) {
@@ -999,7 +1242,8 @@ struct SettingsView: View {
                     .foregroundStyle(DT.statusError)
                     .lineLimit(2)
                 Button("Retry") { llmManager.startDownload() }
-                    .buttonStyle(.pressable)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
             }
         }
     }
@@ -1020,7 +1264,8 @@ struct SettingsView: View {
                     .font(.system(size: 13))
                     .foregroundStyle(DT.statusWarning)
                 Button("Download") { Task { try? await parakeet.ensureReady() } }
-                    .buttonStyle(.pressable)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
             }
         case .downloading(let progress):
             HStack(spacing: 10) {
@@ -1043,7 +1288,8 @@ struct SettingsView: View {
                     .foregroundStyle(DT.statusError)
                     .lineLimit(2)
                 Button("Retry") { Task { try? await parakeet.ensureReady() } }
-                    .buttonStyle(.pressable)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
             }
         }
     }

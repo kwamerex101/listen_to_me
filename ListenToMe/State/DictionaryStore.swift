@@ -83,6 +83,15 @@ final class DictionaryStore: ObservableObject {
         save()
     }
 
+    /// Re-insert a previously removed entry (undo for `remove`) at `index`
+    /// (clamped), keeping its id, origin and promotion metadata. Skipped
+    /// if the id is already present.
+    func restore(_ entry: DictionaryEntry, at index: Int? = nil) {
+        guard !entries.contains(where: { $0.id == entry.id }) else { return }
+        entries.insert(entry, at: min(max(index ?? 0, 0), entries.count))
+        save()
+    }
+
     func add(promoted word: String, promotedFrom: String, bundleId: String?) {
         // Dedup: skip if already promoted with this word
         guard !entries.contains(where: { $0.word == word && $0.origin == .promoted }) else { return }

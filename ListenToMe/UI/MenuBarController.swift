@@ -42,10 +42,18 @@ final class MenuBarController {
         let openWindow = NSMenuItem(
             title: "Open ListenToMe…",
             action: #selector(openMainWindow),
-            keyEquivalent: ","
+            keyEquivalent: "o"
         )
         openWindow.target = self
         menu.addItem(openWindow)
+
+        let openSettings = NSMenuItem(
+            title: "Settings…",
+            action: #selector(openSettingsWindow),
+            keyEquivalent: ","
+        )
+        openSettings.target = self
+        menu.addItem(openSettings)
 
         menu.addItem(.separator())
 
@@ -200,6 +208,10 @@ final class MenuBarController {
 
     @objc private func openMainWindow() {
         MainWindowController.shared.open()
+    }
+
+    @objc private func openSettingsWindow() {
+        MainWindowController.shared.open(section: .settings)
     }
 
     @objc private func toggleLaunchAtLogin() {
