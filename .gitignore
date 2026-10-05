@@ -1,6 +1,7 @@
 # Xcode
 build/
 build-release/
+build-test/
 DerivedData/
 .spm/
 TestResults.xcresult/
