@@ -250,7 +250,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // A failure should be felt, not just seen — success already
                 // taps, this balances it. Fired centrally so every .error
                 // path (mic, record, transcribe, command, cleanup) gets it.
-                if case .error = phase { Haptics.error() }
+                if case .error = phase {
+                    Haptics.error()
+                    // Let the pill be hovered/clicked (recovery action) even
+                    // when the error fired from idle, where it is click-through.
+                    PillWindow.shared.setInteractive(true)
+                }
             }
 
         // First-run onboarding. Deferred one runloop tick so the menu bar +
@@ -871,6 +876,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     HistoryStore.shared.add(rawText: raw, finalText: finalText,
                                              durationMs: durMs, bundleId: nil)
                     if self.isCurrent(id) {
+                        Haptics.success()
+                        SoundCue.success()
                         self.state.phase = .success(preview: "Copied (app changed)")
                         self.autoReset(after: 2.0)
                     }
@@ -884,6 +891,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     HistoryStore.shared.add(rawText: raw, finalText: finalText,
                                              durationMs: durMs, bundleId: token.bundleId)
                     if self.isCurrent(id) {
+                        Haptics.success()
+                        SoundCue.success()
                         self.state.phase = .success(preview: String(finalText.prefix(30)))
                         self.autoReset(after: 3.0)
                     }
@@ -1097,6 +1106,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func handlePillTap() {
         switch state.phase {
         case .success: break
+        case .error(let message):
+            switch PillErrorAction.forMessage(message) {
+            case .openMicrophoneSettings:
+                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
+                    NSWorkspace.shared.open(url)
+                }
+            case .openApp:
+                MainWindowController.shared.open()
+            case nil:
+                return
+            }
+            state.phase = .idle
+            PillWindow.shared.setInteractive(false)
+            return
         default: return
         }
         guard let token = lastPasteToken, !token.pastedText.isEmpty else { return }
@@ -1155,12 +1178,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         autoReset(after: 1.5)
     }
 
-    private func autoReset(after seconds: Double = 1.4) {
+    private func autoReset(after seconds: Double = 3.0) {
         autoResetTask?.cancel()
         autoResetTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(seconds))
             if Task.isCancelled { return }
             guard let self else { return }
+            // Hold while the cursor is over a success/error pill so it never
+            // vanishes under the cursor, then give a short grace after leaving.
+            // Capped at ~15s: if the window turns click-through under the
+            // cursor, the hover-exit event never arrives.
+            var waited = false
+            var polls = 0
+            while self.state.pillHovered, self.isSuccessOrError(self.state.phase), polls < 60 {
+                waited = true
+                polls += 1
+                try? await Task.sleep(for: .milliseconds(250))
+                if Task.isCancelled { return }
+            }
+            if waited {
+                try? await Task.sleep(for: .seconds(0.8))
+                if Task.isCancelled { return }
+            }
             // Auto-reset must never yank an active recording/transcription
             // (or the correction popover / suggestion banner) back to idle.
             // (Phase 4 A4: the .suggestion banner also cancels this task on
@@ -1170,6 +1209,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Idle pill is click-through again so it doesn't intercept stray
             // clicks on whatever's underneath.
             PillWindow.shared.setInteractive(false)
+        }
+    }
+
+    private func isSuccessOrError(_ phase: Phase) -> Bool {
+        switch phase {
+        case .success, .error: return true
+        default: return false
         }
     }
 

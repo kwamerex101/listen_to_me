@@ -35,6 +35,9 @@ final class PillWindow: NSPanel {
     /// rounding error. Cleared on `isFinal`.
     private var dragStartAnchor: CGPoint?
 
+    /// Deferred window shrink scheduled by an animated `applyDesiredSize`.
+    private var pendingShrink: DispatchWorkItem?
+
     private init() {
         super.init(
             contentRect: NSRect(origin: .zero, size: Self.initialSize),
@@ -154,33 +157,38 @@ final class PillWindow: NSPanel {
     /// currently-desired size. Used at launch, on screen-config change,
     /// and whenever AppState publishes a relevant value.
     ///
-    /// `animated` (phase-driven resizes only): the SwiftUI pill content
-    /// springs between phase sizes over ~300 ms, but an instant
-    /// `setFrame` clips that spring mid-flight whenever the window
-    /// shrinks — the visible stutter on recording→success. An ease-out
-    /// frame animation tuned to the same envelope as `Motion.phaseSize`
-    /// keeps the clip region ahead of the content. Launch, drag, and
+    /// `animated` (phase-driven resizes only): the SwiftUI spring on the
+    /// pill content is the only motion. The window grows instantly so the
+    /// content never clips, and shrinks after the ~300ms spring settles, so
+    /// AppKit never re-lays out the glass per frame. Launch, drag, and
     /// display-config repositions stay instant.
     @MainActor
     func applyDesiredSize(animated: Bool = false) {
+        pendingShrink?.cancel()
+        pendingShrink = nil
         let size = currentDesiredSize()
         let anchor = resolvedAnchor()
-        let newFrame = NSRect(origin: origin(forAnchor: anchor, size: size), size: size)
-        guard newFrame != frame else { return }
-        // Rapid back-to-back phase flips can start a new frame animation
-        // while one is in flight; AppKit retargets the animator to the
-        // newest frame (last-writer-wins), which is the behavior we want,
-        // so no explicit serialization here.
         let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        if animated && !reduceMotion {
-            NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.28
-                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                self.animator().setFrame(newFrame, display: true)
-            }
-        } else {
+        if !animated || reduceMotion {
+            let newFrame = NSRect(origin: origin(forAnchor: anchor, size: size), size: size)
+            guard newFrame != frame else { return }
             setFrame(newFrame, display: true, animate: false)
+            return
         }
+        let grow = NSSize(width: max(size.width, frame.width),
+                          height: max(size.height, frame.height))
+        let growFrame = NSRect(origin: origin(forAnchor: anchor, size: grow), size: grow)
+        if growFrame != frame {
+            setFrame(growFrame, display: true, animate: false)
+        }
+        guard grow != size else { return }
+        // Shrink once the content spring has settled. Re-reads the desired
+        // size at fire time so a phase change in between is never stale.
+        let work = DispatchWorkItem { [weak self] in
+            Task { @MainActor in self?.applyDesiredSize() }
+        }
+        pendingShrink = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.38, execute: work)
     }
 
     /// Place window so the chip lands at the resolved anchor; show it.
@@ -217,6 +225,8 @@ final class PillWindow: NSPanel {
     /// On `isFinal`, persist the resulting anchor.
     @MainActor
     func applyDrag(translation: CGSize, isFinal: Bool) {
+        pendingShrink?.cancel()
+        pendingShrink = nil
         if dragStartAnchor == nil {
             dragStartAnchor = currentAnchor()
         }
@@ -235,7 +245,10 @@ final class PillWindow: NSPanel {
             }
         }
         let size = currentDesiredSize()
-        setFrameOrigin(origin(forAnchor: newAnchor, size: size))
+        // Full frame, not just origin: a deferred shrink may have been
+        // cancelled above, so the window can still be at its grown size.
+        setFrame(NSRect(origin: origin(forAnchor: newAnchor, size: size), size: size),
+                 display: true, animate: false)
         if isFinal {
             Preferences.shared.pillAnchor = newAnchor
             dragStartAnchor = nil

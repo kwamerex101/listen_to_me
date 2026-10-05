@@ -13,8 +13,11 @@ enum AppDisplay {
             ?? bundleId.components(separatedBy: ".").last
             ?? bundleId
         let palette: [Color] = [.blue, .teal, .indigo, .pink, .orange, .purple, .green, .mint, .cyan, .red]
-        let hash = abs(bundleId.hashValue)
-        return (name, palette[hash % palette.count])
+        // djb2 over the UTF-8 bytes: `hashValue` is randomised per process,
+        // which would reshuffle the colours on every launch.
+        var hash: UInt64 = 5381
+        for byte in bundleId.utf8 { hash = (hash &* 33) &+ UInt64(byte) }
+        return (name, palette[Int(hash % UInt64(palette.count))])
     }
 }
 

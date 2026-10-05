@@ -19,6 +19,10 @@ enum PillMetrics {
     /// between preview and pill, rounded up.
     static let partialPreviewHeight: CGFloat = 60
 
+    /// Success pill width while hovered: room for the checkmark plus the
+    /// "Edit" affordance.
+    static let successHoverWidth: CGFloat = 104
+
     /// Whether the pill renders without horizontal/vertical inner padding —
     /// matches `isCompact` in PillView.
     static func isCompact(phase: Phase) -> Bool {
@@ -31,7 +35,8 @@ enum PillMetrics {
     /// Visible pill width for a given app state. Mirrors PillView.pillWidth.
     static func pillWidth(phase: Phase,
                           showPermissionPrompt: Bool,
-                          shrunkToDot: Bool) -> CGFloat {
+                          shrunkToDot: Bool,
+                          hovered: Bool = false) -> CGFloat {
         if showPermissionPrompt { return permissionCardSize.width }
         if shrunkToDot, case .idle = phase { return 10 }
         switch phase {
@@ -40,7 +45,7 @@ enum PillMetrics {
         case .transcribing: return 176
         case .cleaning:     return 176
         case .polishing:    return 200
-        case .success:      return 60
+        case .success:      return hovered ? successHoverWidth : 60
         case .error:        return 280
         case .noSpeech:     return 150
         case .correcting:   return 48
@@ -69,7 +74,8 @@ enum PillMetrics {
                            partialPreviewVisible: Bool) -> CGSize {
         let pw = pillWidth(phase: phase,
                            showPermissionPrompt: showPermissionPrompt,
-                           shrunkToDot: false)
+                           shrunkToDot: false,
+                           hovered: true)   // reserve the wider success width up front
         let ph = pillHeight(phase: phase,
                             showPermissionPrompt: showPermissionPrompt,
                             shrunkToDot: false)

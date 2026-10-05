@@ -4,8 +4,19 @@ All notable user-facing changes per release. Format inspired by [Keep a Changelo
 
 ## Unreleased
 
+### Changed
+
+- Errors stay on screen longer, and "Mic permission needed" or "Model missing" can be clicked to open the fix.
+- Hovering the pill after a dictation keeps it on screen and shows an "Edit" button.
+- Status changes in the pill swap more smoothly, without bouncing.
+- The polishing state shows a sparkle icon instead of a checkmark, since nothing has been pasted yet.
+
 ### Fixed
 
+- The pill no longer blinks when it returns to idle, and its window resizes in step with the pill.
+- A sound and haptic tap now play when a cleaned-up dictation is pasted.
+- Setup can always be skipped, including on the last step, and the microphone row now asks for permission directly.
+- App colours in History stay the same between launches.
 - Running the developer test suite no longer touches your real history, dictionary, snippets or styles.
 
 ## 0.21.1 (build 49)
