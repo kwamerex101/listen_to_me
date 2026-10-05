@@ -793,12 +793,16 @@ struct PillView: View {
                         .font(.system(size: 15, weight: .bold))
                         .foregroundStyle(.red)
                 }
-                .scaleEffect(permissionIconPop ? 1.0 : 0.1)
+                .scaleEffect(permissionIconPop ? 1.0 : 0.6)
                 .opacity(permissionIconPop ? 1 : 0)
                 .onAppear {
                     permissionIconPop = false
-                    withAnimation(.spring(response: 0.5, dampingFraction: 0.55).delay(0.15)) {
+                    if reduceMotion {
                         permissionIconPop = true
+                    } else {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.85).delay(0.15)) {
+                            permissionIconPop = true
+                        }
                     }
                 }
 
@@ -856,18 +860,28 @@ struct PillView: View {
 /// Quiet on purpose: the user has already moved on, so this is a status
 /// glance, not a demand for attention.
 private struct PolishingDots: View {
-    @State private var phase: Int = 0
-    private let timer = Timer.publish(every: 0.35, on: .main, in: .common).autoconnect()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        if reduceMotion {
+            dots(lit: nil)
+        } else {
+            TimelineView(.periodic(from: .now, by: 0.35)) { context in
+                let step = Int(context.date.timeIntervalSinceReferenceDate / 0.35)
+                dots(lit: step % 3)
+            }
+        }
+    }
+
+    /// `lit == nil` renders all three dots statically at a middle opacity.
+    private func dots(lit: Int?) -> some View {
         HStack(spacing: 3) {
             ForEach(0..<3, id: \.self) { i in
                 Circle()
-                    .fill(DT.statusProcessing.opacity(phase == i ? 0.95 : 0.35))
+                    .fill(DT.statusProcessing.opacity(lit == nil ? 0.6 : (lit == i ? 0.95 : 0.35)))
                     .frame(width: 4, height: 4)
-                    .animation(.easeInOut(duration: 0.3), value: phase)
+                    .animation(.easeInOut(duration: 0.3), value: lit)
             }
         }
-        .onReceive(timer) { _ in phase = (phase + 1) % 3 }
     }
 }
