@@ -33,6 +33,7 @@ struct StyleView: View {
             .padding(.bottom, DT.space10)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .titleBarScrollEdge()
     }
 
     private var list: some View {
@@ -103,7 +104,7 @@ struct StyleView: View {
     ) -> some View {
         HStack(spacing: 4) {
             Text(label.uppercased())
-                .font(.system(size: 9, weight: .semibold))
+                .font(DT.micro)
                 .tracking(0.5)
                 .foregroundStyle(.secondary)
             Text(value)

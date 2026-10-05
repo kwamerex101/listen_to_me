@@ -15,6 +15,7 @@
 //
 
 import SwiftUI
+import AppKit
 
 enum DT {
 
@@ -43,7 +44,14 @@ enum DT {
     /// Foreground/text hierarchy.
     static let textPrimary       = Color.primary
     static let textSecondary     = Color.secondary
-    static let textTertiary      = Color.primary.opacity(0.45)
+    static let textTertiary      = Color.primary.opacity(0.55)
+
+    /// Always-dark floating panel content colours (CorrectionWindow). They do
+    /// not adapt to light/dark: the panel stays dark in both themes.
+    static let panelSurface      = Color.black.opacity(0.92)
+    static let onPanel           = Color.white
+    static let onPanelSecondary  = Color.white.opacity(0.7)
+    static let onPanelTertiary   = Color.white.opacity(0.6)
 
     /// On-accent text used inside a filled accent button.
     static let onAccent          = Color.white
@@ -131,6 +139,8 @@ enum DT {
     /// Caption / metadata.
     static let caption      = Font.system(size: 12)
     static let captionStrong = Font.system(size: 12, weight: .semibold)
+    /// Smallest legible label: chips, badges, axis labels.
+    static let micro        = Font.system(size: 11, weight: .medium)
     /// Monospaced timestamps and numeric data.
     static let monoCaption  = Font.system(size: 12, weight: .medium, design: .monospaced)
     /// Stat-card big number — slightly bigger and tighter.
@@ -213,40 +223,66 @@ struct PageHeader: View {
     }
 }
 
-/// A consistent surface card — subtle fill plus a hairline border + an
-/// optional inner highlight that gives the card a "lifted" feel without
-/// committing to a heavy shadow.
+/// A consistent surface card: subtle solid fill plus a hairline border.
 struct CardSurface: ViewModifier {
     var cornerRadius: CGFloat = DT.radiusLg
     var fill: Color = DT.surfaceCard
     var stroke: Color = DT.separator
 
     func body(content: Content) -> some View {
-        // Cards are CONTENT, not chrome — per Apple's Liquid Glass HIG, the
-        // content layer uses STANDARD MATERIALS, not glass (glass is reserved
-        // for navigation/controls: the pill, sidebar, CTA). On macOS 26 we use
-        // `.regularMaterial` over the translucent window; older OS keeps the
-        // tuned solid fill. Both use an ADAPTIVE stroke (DT.separator darkens
-        // in light mode) + a faint elevation shadow so cards read as distinct
-        // surfaces in both themes.
-        let surface: AnyShapeStyle = {
-            if #available(macOS 26.0, *) { return AnyShapeStyle(.regularMaterial) }
-            return AnyShapeStyle(fill)
-        }()
-        return content
+        // Cards are CONTENT, not chrome, and sit in scroll views over a
+        // translucent window. A solid tuned fill plus an adaptive hairline
+        // keeps them cheap to composite (no per-card material or shadow) and
+        // reads the same on every macOS version.
+        content
             .background(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(surface)
+                    .fill(fill)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(stroke, lineWidth: 0.5)
             )
-            .shadow(color: .black.opacity(0.05), radius: 3, x: 0, y: 1)
+    }
+}
+
+/// Fades page content out under the transparent title bar so it does not
+/// scroll sharply behind the traffic lights. Apply to a page's ScrollView.
+private struct TitleBarScrollEdge: ViewModifier {
+    func body(content: Content) -> some View {
+        content.overlay(alignment: .top) {
+            edge
+                .frame(height: DT.safeAreaTop)
+                .allowsHitTesting(false)
+                .ignoresSafeArea(edges: .top)
+        }
+    }
+
+    @ViewBuilder
+    private var edge: some View {
+        if #available(macOS 26.0, *) {
+            // Translucent window: a solid colour would show as a band, so
+            // mask a bar material instead.
+            Rectangle()
+                .fill(.bar)
+                .mask(LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom))
+        } else {
+            LinearGradient(
+                colors: [Color(nsColor: .windowBackgroundColor), Color(nsColor: .windowBackgroundColor).opacity(0)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
     }
 }
 
 extension View {
+    /// Fade the top `DT.safeAreaTop` points so scrolling content softly
+    /// disappears under the title bar.
+    func titleBarScrollEdge() -> some View {
+        modifier(TitleBarScrollEdge())
+    }
+
     /// Apply the standard card surface (fill + hairline border).
     func card(cornerRadius: CGFloat = DT.radiusLg) -> some View {
         modifier(CardSurface(cornerRadius: cornerRadius))
@@ -266,6 +302,17 @@ extension View {
 /// Use for the primary CTA on a page (e.g. Add, Save).
 struct PrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
+        PrimaryButtonBody(configuration: configuration)
+    }
+}
+
+/// Hosts the primary button body so it can read the reduce-motion
+/// environment value (a ButtonStyle cannot read it directly).
+private struct PrimaryButtonBody: View {
+    let configuration: ButtonStyleConfiguration
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
         configuration.label
             .font(DT.bodyStrong)
             .foregroundStyle(DT.onAccent)
@@ -281,7 +328,7 @@ struct PrimaryButtonStyle: ButtonStyle {
             )
             .shadow(color: DT.accent.opacity(0.30), radius: 10, x: 0, y: 4)
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
-            .animation(.spring(response: 0.18, dampingFraction: 0.7), value: configuration.isPressed)
+            .animation(reduceMotion ? nil : Motion.press, value: configuration.isPressed)
     }
 }
 
@@ -293,6 +340,17 @@ extension ButtonStyle where Self == PrimaryButtonStyle {
 /// where `.pressable` would feel too quiet.
 struct SecondaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
+        SecondaryButtonBody(configuration: configuration)
+    }
+}
+
+/// Hosts the secondary button body so it can read the reduce-motion
+/// environment value (a ButtonStyle cannot read it directly).
+private struct SecondaryButtonBody: View {
+    let configuration: ButtonStyleConfiguration
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
         configuration.label
             .font(DT.bodyStrong)
             .foregroundStyle(.primary)
@@ -307,7 +365,7 @@ struct SecondaryButtonStyle: ButtonStyle {
                     .strokeBorder(DT.separator, lineWidth: 0.5)
             )
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
-            .animation(.spring(response: 0.18, dampingFraction: 0.7), value: configuration.isPressed)
+            .animation(reduceMotion ? nil : Motion.press, value: configuration.isPressed)
     }
 }
 
@@ -333,6 +391,8 @@ struct EmptyState: View {
     let icon: String
     let title: String
     var subtitle: String? = nil
+    var actionTitle: String? = nil
+    var action: (() -> Void)? = nil
 
     var body: some View {
         VStack(spacing: DT.space3) {
@@ -352,6 +412,10 @@ struct EmptyState: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+            if let actionTitle, let action {
+                Button(actionTitle, action: action)
+                    .buttonStyle(.pressable)
             }
         }
         .frame(maxWidth: .infinity)

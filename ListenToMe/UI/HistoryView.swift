@@ -64,6 +64,7 @@ struct HistoryView: View {
             .frame(maxWidth: DT.pageMaxWidth, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .titleBarScrollEdge()
         .undoToast(undo)
         // Cmd+F focuses the search field. Invisible rather than `.hidden()`,
         // which can drop the shortcut.
@@ -344,26 +345,19 @@ struct HistoryView: View {
     // MARK: - Empty state
 
     private var emptyState: some View {
-        VStack(spacing: DT.space3) {
-            Image(systemName: debouncedQuery.isEmpty && appFilter == nil ? "clock" : "magnifyingglass")
-                .font(.system(size: 24))
-                .foregroundStyle(.tertiary)
-            Text(debouncedQuery.isEmpty && appFilter == nil
-                 ? "No dictations yet. Hold \(Preferences.shared.hotkeyBinding.label) anywhere to start."
-                 : "No transcripts match.")
-                .font(DT.body)
-                .foregroundStyle(.secondary)
-            if !debouncedQuery.isEmpty || appFilter != nil {
-                Button("Clear filters") {
-                    clearQuery()
-                    appFilter = nil
-                }
-                .buttonStyle(.pressable)
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, DT.space12)
-        .card()
+        let isFiltered = !debouncedQuery.isEmpty || appFilter != nil
+        return EmptyState(
+            icon: isFiltered ? "magnifyingglass" : "clock",
+            title: isFiltered ? "No transcripts match" : "No dictations yet",
+            subtitle: isFiltered
+                ? nil
+                : "Hold \(Preferences.shared.hotkeyBinding.label) anywhere to start.",
+            actionTitle: isFiltered ? "Clear filters" : nil,
+            action: isFiltered ? {
+                clearQuery()
+                appFilter = nil
+            } : nil
+        )
         .transition(.opacity.combined(with: .scale(scale: 0.97)))
     }
 }

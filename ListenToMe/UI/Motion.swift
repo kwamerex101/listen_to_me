@@ -65,4 +65,11 @@ enum Motion {
     /// the tab content that follows it. Critically damped so the highlight
     /// glides between items without overshoot.
     static let selection      = Animation.spring(response: 0.3, dampingFraction: 1.0)
+
+    /// Button press feedback (primary/secondary/pressable-style scale beats).
+    static let press          = Animation.spring(response: 0.18, dampingFraction: 0.7)
+
+    /// Sidebar expand/collapse width change. Critically damped so the
+    /// column glides without overshoot.
+    static let sidebar        = Animation.spring(response: 0.3, dampingFraction: 1.0)
 }

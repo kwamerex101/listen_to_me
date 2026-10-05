@@ -41,6 +41,7 @@ struct DictionaryView: View {
             .padding(.bottom, DT.space10)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .titleBarScrollEdge()
         .undoToast(undo)
     }
 
@@ -325,7 +326,7 @@ struct DictionaryView: View {
             HStack(spacing: 6) {
                 SectionEyebrow(title: title)
                 Text("\(count)")
-                    .font(.system(size: 10, weight: .semibold).monospacedDigit())
+                    .font(DT.micro.monospacedDigit())
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 1)

@@ -38,6 +38,7 @@ struct SnippetsView: View {
             .padding(.bottom, DT.space10)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .titleBarScrollEdge()
         .undoToast(undo)
     }
 

@@ -68,7 +68,7 @@ struct RecordRow: View {
                     HStack(spacing: 4) {
                         Circle().fill(tint).frame(width: 6, height: 6)
                         Text(name)
-                            .font(.system(size: 10))
+                            .font(DT.micro)
                             .foregroundStyle(.tertiary)
                             .lineLimit(1)
                     }

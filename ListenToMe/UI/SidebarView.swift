@@ -68,7 +68,7 @@ struct SidebarView: View {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(DT.accent)
                 Text("ListenToMe")
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(DT.sectionTitle)
                 Spacer()
             }
         }

@@ -62,6 +62,7 @@ enum WfSection: String, CaseIterable, Identifiable {
 
 struct MainView: View {
     @State private var selection: WfSection
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init() {
         // A freshly built window opened via `open(section:)` starts there.
@@ -78,7 +79,7 @@ struct MainView: View {
                 SidebarView(selection: $selection, compact: isCompact)
                     .frame(width: isCompact ? DT.sidebarCompactWidth : DT.sidebarRegularWidth)
                     .glassWindowBackground(.sidebar, fallback: Color(.controlBackgroundColor))
-                    .animation(.easeInOut(duration: 0.18), value: isCompact)
+                    .animation(reduceMotion ? nil : Motion.sidebar, value: isCompact)
 
                 Divider()
 

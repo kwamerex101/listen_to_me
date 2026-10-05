@@ -20,6 +20,14 @@ All notable user-facing changes per release. Format inspired by [Keep a Changelo
 - Times and dates follow your system's 12 or 24 hour and date format settings.
 - A lower dictation week is no longer shown in red on Home.
 - Better VoiceOver labels and larger click targets on icon-only buttons.
+- Deleting a transcript, snippet or dictionary word shows an Undo button for a few seconds (or press ⌘Z).
+- Snippets can be edited in place, and the add row stacks on narrow windows.
+- Settings has a search field (⌘F), Updates now lives in General, the voice commands toggle explains what it can do, and changes made elsewhere (like the menu bar) show up right away.
+- Removing ListenToMe now asks you to type REMOVE to confirm and lists exactly what gets deleted.
+- ⌘1 to ⌘6 switch sections, ⌘F searches History, and ⌘, opens Settings (Open moves to ⌘O).
+- History search is faster, and a failed transform now says so instead of silently reverting.
+- Content fades out under the title bar, cards are lighter and quicker to draw, small text is easier to read, and empty states look the same everywhere.
+- Long names in the Home header wrap instead of being cut off.
 
 ### Fixed
 

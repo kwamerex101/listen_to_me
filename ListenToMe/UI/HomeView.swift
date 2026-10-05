@@ -5,6 +5,7 @@ struct HomeView: View {
     @ObservedObject private var state = AppState.shared
     @Environment(\.windowWidth) private var windowWidth
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @StateObject private var undo = UndoCenter()
 
     /// Drives the dashboard entrance choreography (number roll-up,
     /// gauge sweep, sparkline draw). Flipped once on first appear;
@@ -45,6 +46,8 @@ struct HomeView: View {
             .frame(maxWidth: DT.pageMaxWidth, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .titleBarScrollEdge()
+        .undoToast(undo)
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
             appActive = false
         }
@@ -91,7 +94,7 @@ struct HomeView: View {
                     .font(DT.heroDisplay)
                     .italic()
                     .foregroundStyle(.white)
-                    .lineLimit(1)
+                    .lineLimit(2)
                     .minimumScaleFactor(0.85)
 
                 Text("Hold \(Preferences.shared.hotkeyBinding.label) anywhere to dictate — or:")
@@ -112,7 +115,7 @@ struct HomeView: View {
             }
             .padding(DT.space7)
         }
-        .frame(height: 220)
+        .frame(minHeight: 220)
     }
 
     private var heroCTA: some View {
@@ -237,7 +240,7 @@ struct HomeView: View {
                     Text(paceLabel(for: wpm))
                         .font(.system(size: 16, weight: .bold))
                     Text("of 200 wpm")
-                        .font(.system(size: 10))
+                        .font(DT.micro)
                         .foregroundStyle(.tertiary)
                 }
             }
@@ -283,7 +286,7 @@ struct HomeView: View {
             rollupNumber(history.totalWords)
 
             Text("Last 14 days")
-                .font(.system(size: 10))
+                .font(DT.micro)
                 .foregroundStyle(.tertiary)
                 .padding(.top, DT.space1)
 
@@ -302,7 +305,7 @@ struct HomeView: View {
     private func metricChip(label: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label.uppercased())
-                .font(.system(size: 9, weight: .semibold))
+                .font(DT.micro)
                 .tracking(0.5)
                 .foregroundStyle(.tertiary)
             Text(value)
@@ -362,7 +365,7 @@ struct HomeView: View {
 
             HStack(spacing: 6) {
                 Text("Less")
-                    .font(.system(size: 10))
+                    .font(DT.micro)
                     .foregroundStyle(.tertiary)
                 ForEach(0..<5) { level in
                     RoundedRectangle(cornerRadius: 2, style: .continuous)
@@ -374,7 +377,7 @@ struct HomeView: View {
                         )
                 }
                 Text("More")
-                    .font(.system(size: 10))
+                    .font(DT.micro)
                     .foregroundStyle(.tertiary)
                 Spacer()
                 metricChip(label: "this week", value: "\(activeThisWeek)/7 days")
@@ -485,7 +488,7 @@ struct HomeView: View {
             } else {
                 VStack(spacing: 0) {
                     ForEach(history.todayRecords) { record in
-                        RecordRow(record: record)
+                        RecordRow(record: record, onDelete: delete)
                         if record.id != history.todayRecords.last?.id {
                             Divider().background(DT.separator)
                         }
@@ -494,6 +497,12 @@ struct HomeView: View {
                 .card()
             }
         }
+    }
+
+    /// Delete with a short undo window; restore re-inserts the exact record.
+    private func delete(_ record: TranscriptRecord) {
+        history.remove(id: record.id)
+        undo.show("Transcript deleted") { history.restore(record) }
     }
 
     private var emptyTodayState: some View {
@@ -546,7 +555,7 @@ struct HomeView: View {
             Text("\(pct)%")
                 .font(.system(size: 11, weight: .semibold).monospacedDigit())
             Text("vs prev wk")
-                .font(.system(size: 10))
+                .font(DT.micro)
                 .foregroundStyle(.secondary)
         }
         .foregroundStyle(tint)

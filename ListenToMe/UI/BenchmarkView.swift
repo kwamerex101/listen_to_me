@@ -315,7 +315,7 @@ struct BenchmarkSection: View {
             if let agg = runner.aggregate {
                 HStack(spacing: 16) {
                     Text("Average (\(agg.count)/\(BenchmarkCards.all.count) cards)")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(DT.captionStrong)
                     engineSummary("Whisper", agg.whisper.wer, agg.whisper.sec)
                     engineSummary("Parakeet", agg.parakeet.wer, agg.parakeet.sec)
                 }

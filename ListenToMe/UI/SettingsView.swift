@@ -205,6 +205,7 @@ struct SettingsView: View {
             .padding(.horizontal, 40)
             .padding(.bottom, 40)
         }
+        .titleBarScrollEdge()
         .onAppear {
             hydrateFromPreferences(includeDrafts: true)
         }
@@ -329,7 +330,7 @@ struct SettingsView: View {
                 .foregroundStyle(.secondary)
             TextField("Search settings", text: $searchQuery)
                 .textFieldStyle(.plain)
-                .font(.system(size: 13))
+                .font(DT.body)
                 .focused($searchFocused)
                 .onSubmit {
                     if let first = searchResults.first { jump(to: first) }
@@ -493,7 +494,7 @@ struct SettingsView: View {
                         Text(Preferences.shared.pillAnchor == nil
                              ? "Default (bottom-center)"
                              : "Custom")
-                            .font(.system(size: 13))
+                            .font(DT.body)
                             .foregroundStyle(.secondary)
                         if Preferences.shared.pillAnchor != nil {
                             Button("Reset") {
@@ -522,7 +523,7 @@ struct SettingsView: View {
                     HStack(spacing: 10) {
                         Text(accessibilityGranted ? "Granted ✓" : "Not granted")
                             .foregroundStyle(accessibilityGranted ? DT.statusSuccess : DT.statusWarning)
-                            .font(.system(size: 13))
+                            .font(DT.body)
                         if !accessibilityGranted {
                             Button("Grant…") {
                                 HotkeyMonitor.promptAccessibility()
@@ -552,7 +553,7 @@ struct SettingsView: View {
                 row(label: "Last checked") {
                     HStack(spacing: 10) {
                         Text(lastCheckedLabel)
-                            .font(.system(size: 13))
+                            .font(DT.body)
                             .foregroundStyle(.secondary)
                         Button("Check Now") {
                             Updater.shared.checkForUpdates()
@@ -589,7 +590,7 @@ struct SettingsView: View {
                 }
                 row(label: "Language") {
                     Text("English")
-                        .font(.system(size: 13))
+                        .font(DT.body)
                         .foregroundStyle(.secondary)
                 }
                 row(label: "Max recording duration",
@@ -1067,9 +1068,9 @@ struct SettingsView: View {
     private var uninstallSheet: some View {
         VStack(alignment: .leading, spacing: DT.space4) {
             Text("Remove ListenToMe?")
-                .font(.system(size: 17, weight: .semibold))
+                .font(DT.sectionTitle)
             Text("This permanently deletes your data and moves the app to the Trash. It cannot be undone, and history is not recoverable.")
-                .font(.system(size: 13)).foregroundStyle(.secondary)
+                .font(DT.body).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             VStack(alignment: .leading, spacing: 4) {
                 ForEach([
@@ -1082,13 +1083,13 @@ struct SettingsView: View {
                         Text("•")
                         Text(item)
                     }
-                    .font(.system(size: 13))
+                    .font(DT.body)
                 }
             }
             Toggle("Also delete my daily notes (~/Documents/daily)", isOn: $uninstallIncludesDailyNotes)
-                .font(.system(size: 13))
+                .font(DT.body)
             Text("macOS permission grants (Microphone, Accessibility, Automation) can't be removed automatically. We'll open System Settings so you can clear them.")
-                .font(.system(size: 12)).foregroundStyle(.secondary)
+                .font(DT.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             TextField("Type REMOVE to confirm", text: $uninstallConfirmText)
                 .textFieldStyle(.roundedBorder)
@@ -1122,13 +1123,13 @@ struct SettingsView: View {
             section(title: "About") {
                 row(label: "Version") {
                     Text(Self.versionString)
-                        .font(.system(size: 13))
+                        .font(DT.body)
                         .foregroundStyle(.secondary)
                 }
                 row(label: "Processing",
                     description: "Speech recognition runs entirely on this Mac.") {
                     Text("On-device")
-                        .font(.system(size: 13))
+                        .font(DT.body)
                         .foregroundStyle(DT.statusSuccess)
                 }
             }
@@ -1143,14 +1144,14 @@ struct SettingsView: View {
         case .ready(let bytes):
             HStack(spacing: 10) {
                 Text("Downloaded ✓ (\(formatBytes(bytes)))")
-                    .font(.system(size: 13))
+                    .font(DT.body)
                     .foregroundStyle(DT.statusSuccess)
                 deleteButton(.whisper)
             }
         case .missing:
             HStack(spacing: 10) {
                 Text("Not downloaded (\(selectedWhisperModel.displayName))")
-                    .font(.system(size: 13))
+                    .font(DT.body)
                     .foregroundStyle(DT.statusWarning)
                 Button("Download") { modelManager.startDownload() }
                     .buttonStyle(.bordered)
@@ -1171,7 +1172,7 @@ struct SettingsView: View {
         case .failed(let message):
             HStack(spacing: 10) {
                 Text("⚠ \(message)")
-                    .font(.system(size: 13))
+                    .font(DT.body)
                     .foregroundStyle(DT.statusError)
                     .lineLimit(2)
                 Button("Retry") { modelManager.startDownload() }
@@ -1210,14 +1211,14 @@ struct SettingsView: View {
         case .ready(let bytes):
             HStack(spacing: 10) {
                 Text("Downloaded ✓ (\(formatBytes(bytes)))")
-                    .font(.system(size: 13))
+                    .font(DT.body)
                     .foregroundStyle(DT.statusSuccess)
                 deleteButton(.cleanup)
             }
         case .missing:
             HStack(spacing: 10) {
                 Text("Not downloaded (\(selectedLocalLLMModel.displayName))")
-                    .font(.system(size: 13))
+                    .font(DT.body)
                     .foregroundStyle(DT.statusWarning)
                 Button("Download") { llmManager.startDownload() }
                     .buttonStyle(.bordered)
@@ -1238,7 +1239,7 @@ struct SettingsView: View {
         case .failed(let message):
             HStack(spacing: 10) {
                 Text("⚠ \(message)")
-                    .font(.system(size: 13))
+                    .font(DT.body)
                     .foregroundStyle(DT.statusError)
                     .lineLimit(2)
                 Button("Retry") { llmManager.startDownload() }
@@ -1254,14 +1255,14 @@ struct SettingsView: View {
         case .ready:
             HStack(spacing: 10) {
                 Text("Loaded ✓ (Neural Engine)")
-                    .font(.system(size: 13))
+                    .font(DT.body)
                     .foregroundStyle(DT.statusSuccess)
                 deleteButton(.parakeet)
             }
         case .missing:
             HStack(spacing: 10) {
                 Text("Not downloaded (~600 MB)")
-                    .font(.system(size: 13))
+                    .font(DT.body)
                     .foregroundStyle(DT.statusWarning)
                 Button("Download") { Task { try? await parakeet.ensureReady() } }
                     .buttonStyle(.bordered)
@@ -1284,7 +1285,7 @@ struct SettingsView: View {
         case .failed(let message):
             HStack(spacing: 10) {
                 Text("⚠ \(message)")
-                    .font(.system(size: 13))
+                    .font(DT.body)
                     .foregroundStyle(DT.statusError)
                     .lineLimit(2)
                 Button("Retry") { Task { try? await parakeet.ensureReady() } }

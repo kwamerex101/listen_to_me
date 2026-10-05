@@ -186,11 +186,11 @@ private struct CorrectionView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Image(systemName: "pencil")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.7))
+                    .font(DT.captionStrong)
+                    .foregroundStyle(DT.onPanelSecondary)
                 Text("Edit")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.7))
+                    .font(DT.captionStrong)
+                    .foregroundStyle(DT.onPanelSecondary)
 
                 Spacer()
 
@@ -205,7 +205,7 @@ private struct CorrectionView: View {
                         Text(voiceRecording ? "Stop" : "Voice")
                             .font(.system(size: 11, weight: .semibold))
                     }
-                    .foregroundStyle(voiceRecording ? Color.red : .white.opacity(0.85))
+                    .foregroundStyle(voiceRecording ? Color.red : DT.onPanel)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
                     .background(
@@ -216,7 +216,7 @@ private struct CorrectionView: View {
 
                 Text("⌘↵ Apply  ·  Esc Cancel")
                     .font(.system(size: 11, weight: .regular))
-                    .foregroundStyle(.white.opacity(0.6))
+                    .foregroundStyle(DT.onPanelTertiary)
             }
 
             // CORR-03: TextEditor allows multi-line edits. Plain Return
@@ -225,7 +225,7 @@ private struct CorrectionView: View {
             TextEditor(text: $text)
                 .scrollContentBackground(.hidden)
                 .font(.system(size: 14, weight: .regular))
-                .foregroundStyle(.white)
+                .foregroundStyle(DT.onPanel)
                 .tint(.white.opacity(0.9))
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
@@ -262,8 +262,8 @@ private struct CorrectionView: View {
                 Spacer()
                 Button("Cancel") { onCancel() }
                     .buttonStyle(.plain)
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(.white.opacity(0.7))
+                    .font(DT.caption)
+                    .foregroundStyle(DT.onPanelSecondary)
                 Button("Apply") { onApply(text) }
                     .buttonStyle(.primary)
             }
@@ -280,7 +280,7 @@ private struct CorrectionView: View {
         }
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.black.opacity(0.92))
+                .fill(DT.panelSurface)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
