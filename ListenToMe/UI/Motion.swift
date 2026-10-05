@@ -60,4 +60,9 @@ enum Motion {
     /// (The pill keeps its springier hoverLift — it's a floating object,
     /// not a row.)
     static let hoverFade      = Animation.easeInOut(duration: 0.15)
+
+    /// Selection indicator slide (sidebar highlight, Settings tab chip) and
+    /// the tab content that follows it. Critically damped so the highlight
+    /// glides between items without overshoot.
+    static let selection      = Animation.spring(response: 0.3, dampingFraction: 1.0)
 }

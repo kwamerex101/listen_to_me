@@ -129,7 +129,7 @@ struct SettingsView: View {
                 }
                 .id(selectedTab)
                 .transition(.opacity)
-                .animation(Motion.tabFade, value: selectedTab)
+                .animation(reduceMotion ? nil : Motion.selection, value: selectedTab)
                 // Settings forms shouldn't sprawl on wide windows — cap the
                 // content column so labels and controls don't drift apart.
                 .frame(maxWidth: 720, alignment: .leading)
@@ -206,7 +206,7 @@ struct SettingsView: View {
                     if reduceMotion {
                         selectedTabRaw = tab.rawValue
                     } else {
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                        withAnimation(Motion.selection) {
                             selectedTabRaw = tab.rawValue
                         }
                     }
@@ -237,6 +237,7 @@ struct SettingsView: View {
                     .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
+                .accessibilityAddTraits(selected ? .isSelected : [])
             }
             Spacer()
         }

@@ -28,9 +28,9 @@ final class MainWindowController: NSObject {
     ///   - sidebar is in compact mode (64pt icons-only)
     ///   - content area gets ~656pt — enough for hero, single-column stats,
     ///     and a readable today list with no clipping
-    /// Stay synchronized with `DT.windowMin{Width,Height}` in
-    /// DesignTokens.swift.
-    fileprivate static let minContentSize = NSSize(width: 720, height: 560)
+    /// Sourced from `DT.windowMin{Width,Height}` so the AppKit window and
+    /// the SwiftUI frame in MainView share one value.
+    fileprivate static let minContentSize = NSSize(width: DT.windowMinWidth, height: DT.windowMinHeight)
 
     func open() {
         if window == nil {

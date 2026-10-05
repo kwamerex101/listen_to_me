@@ -57,6 +57,8 @@ enum DT {
     static let statusWarning   = Color.orange
     static let statusError     = Color.red
     static let statusRecording = Color.red
+    /// AI cleanup/polish in progress.
+    static let statusProcessing = Color.purple
 
     // MARK: - Hero gradient
 
@@ -139,13 +141,11 @@ enum DT {
     /// Below this width, the sidebar collapses to icons-only and content
     /// margins shrink. Mirrors the "compact" size class.
     static let compactBreakpoint: CGFloat   = 860
-    /// Below this width, the page is in its tightest "narrow" mode — single
-    /// column stat cards, hero waveform hidden, smallest margins.
-    static let narrowBreakpoint: CGFloat    = 680
-    /// Hard window content minimum. Compact sidebar (64pt) + content (520pt)
-    /// + divider, all of which renders cleanly without any clipping.
-    static let windowMinWidth: CGFloat      = 600
-    static let windowMinHeight: CGFloat     = 520
+    /// Hard window content minimum. Compact sidebar (64pt) + content
+    /// (~656pt) leaves room for the hero, stats and today list without
+    /// clipping. MainWindowController reads these for the NSWindow min size.
+    static let windowMinWidth: CGFloat      = 720
+    static let windowMinHeight: CGFloat     = 560
     /// Sidebar widths.
     static let sidebarRegularWidth: CGFloat = 230
     static let sidebarCompactWidth: CGFloat = 64
@@ -173,8 +173,6 @@ extension EnvironmentValues {
     }
     /// Convenience: true when below the compact breakpoint.
     var isCompactWidth: Bool { windowWidth < DT.compactBreakpoint }
-    /// Convenience: true when below the narrow breakpoint.
-    var isNarrowWidth: Bool { windowWidth < DT.narrowBreakpoint }
 }
 
 // MARK: - Shared layout components
