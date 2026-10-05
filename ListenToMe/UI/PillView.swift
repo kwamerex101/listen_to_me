@@ -36,10 +36,6 @@ struct PillView: View {
     @State private var haloScale: CGFloat = 0.6
     @State private var haloOpacity: Double = 0
 
-    // Dismissal exhale — flipped on idle entry to soften the disappearance.
-    @State private var exhaleY: CGFloat = 0
-    @State private var exhaleOpacity: Double = 1
-
     // Silence-dim (POLISH-04a) — fade waveform after sustained quiet,
     // wake instantly on speech return. Replaces (does not stack on) the
     // level-reactive scale, honouring the perf-budget cap of 2 concurrent
@@ -73,12 +69,12 @@ struct PillView: View {
             pill
                 .frame(width: pillWidth, height: pillHeight)
                 .scaleEffect(rootScale)
-                .opacity(exhaleOpacity)
-                .offset(y: exhaleY)
                 .modifier(Shake(animatableData: shakeTrigger))
                 .contentShape(Rectangle())
                 .onHover { isHovering in
                     hovered = isHovering
+                    // Auto-reset waits while the cursor is over the pill.
+                    state.pillHovered = isHovering
                     // Hover wakes the pill from dot-mode and restarts
                     // the shrink countdown when the cursor leaves.
                     if isHovering {
@@ -146,23 +142,19 @@ struct PillView: View {
         case .recording:
             levelBuffer = Array(repeating: 0, count: 16)
             triggerPressPop()
-            cancelExhale()
         case .success:
             triggerSuccessHalo()
-            cancelExhale()
         case .error:
             // Shake is pure decoration — the error message + icon carry
             // the information. Skip entirely under reduce-motion.
             if !reduceMotion {
                 withAnimation(Motion.shake) { shakeTrigger += 1 }
             }
-            cancelExhale()
         case .idle:
-            // Only exhale if we're returning from a meaningful phase, not on
-            // app launch (where pill starts in idle).
-            triggerExhale()
+            // The size spring carries the return to idle; no extra fade.
+            break
         case .transcribing, .cleaning, .polishing, .correcting, .suggestion, .noSpeech:
-            cancelExhale()
+            break
         }
     }
 
@@ -273,28 +265,6 @@ struct PillView: View {
         }
     }
 
-    private func triggerExhale() {
-        guard !reduceMotion else { return }
-        // Brief downward drift + fade, then snap back to 1.0/0 so the next
-        // phase entry doesn't inherit a faded state.
-        withAnimation(Animation.easeIn(duration: 0.28)) {
-            exhaleOpacity = 0
-            exhaleY = 4
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.30) {
-            exhaleY = 0
-            exhaleOpacity = 1
-        }
-    }
-
-    private func cancelExhale() {
-        // If user re-presses mid-exhale, immediately restore visibility.
-        if exhaleOpacity < 1 || exhaleY != 0 {
-            exhaleOpacity = 1
-            exhaleY = 0
-        }
-    }
-
     // MARK: - Pill body
 
     /// Composite scale from press-pop, idle breath, and hover lift.
@@ -365,6 +335,7 @@ struct PillView: View {
     private var isPillTappable: Bool {
         switch state.phase {
         case .success: return true
+        case .error(let m): return PillErrorAction.forMessage(m) != nil
         default: return false
         }
     }
@@ -394,6 +365,11 @@ struct PillView: View {
     private var accessibilityHintForCurrentPhase: String {
         switch state.phase {
         case .success: return "Activate to edit the just-pasted transcript"
+        case .error(let m):
+            if let action = PillErrorAction.forMessage(m) {
+                return "Activate to \(action.hint.lowercased())"
+            }
+            return ""
         case .recording, .transcribing, .cleaning:
             return "Use the cancel button to abort"
         case .suggestion: return "Use Keep or Dismiss to respond"
@@ -418,7 +394,8 @@ struct PillView: View {
     private var pillWidth: CGFloat {
         PillMetrics.pillWidth(phase: state.phase,
                               showPermissionPrompt: state.showPermissionPrompt,
-                              shrunkToDot: isShrunkToDot)
+                              shrunkToDot: isShrunkToDot,
+                              hovered: hovered)
     }
 
     private var pillHeight: CGFloat {
@@ -486,8 +463,10 @@ struct PillView: View {
             phaseContent
                 .id(phaseID)
                 .transition(
-                    .scale(scale: 0.7, anchor: .center)
-                        .combined(with: .opacity)
+                    .asymmetric(
+                        insertion: .scale(scale: 0.94, anchor: .center).combined(with: .opacity),
+                        removal: .opacity.animation(.easeOut(duration: 0.12))
+                    )
                 )
         }
     }
@@ -574,9 +553,9 @@ struct PillView: View {
 
         case .polishing(let rawPreview):
             HStack(spacing: 10) {
-                Image(systemName: "checkmark")
+                Image(systemName: "sparkles")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.green.opacity(0.9))
+                    .foregroundStyle(.purple.opacity(0.9))
                 Text(rawPreview)
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.white.opacity(0.85))
@@ -588,18 +567,29 @@ struct PillView: View {
             }
 
         case .success:
-            ZStack {
-                // Halo behind the checkmark — green ring expands and fades.
-                Circle()
-                    .strokeBorder(Color.green.opacity(0.85), lineWidth: 2)
-                    .frame(width: 22, height: 22)
-                    .scaleEffect(haloScale)
-                    .opacity(haloOpacity)
-                Image(systemName: "checkmark")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.green)
-                    .scaleEffect(haloOpacity > 0 ? 1.0 : 1.0) // placeholder
-                    .transition(.scale(scale: 0.4).combined(with: .opacity))
+            if hovered {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.green)
+                    Text("Edit")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.9))
+                }
+                .transition(.opacity)
+            } else {
+                ZStack {
+                    // Halo behind the checkmark: green ring expands and fades.
+                    Circle()
+                        .strokeBorder(Color.green.opacity(0.85), lineWidth: 2)
+                        .frame(width: 22, height: 22)
+                        .scaleEffect(haloScale)
+                        .opacity(haloOpacity)
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.green)
+                }
+                .transition(.opacity)
             }
 
         case .error(let message):
@@ -613,6 +603,16 @@ struct PillView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 0)
+                if let action = PillErrorAction.forMessage(message) {
+                    HStack(spacing: 3) {
+                        Text(action.hint)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.85))
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.white.opacity(0.85))
+                    }
+                }
             }
 
         case .noSpeech:

@@ -18,9 +18,9 @@ enum Motion {
     /// the previous value, which felt slightly bouncy in side-by-side
     /// comparison. See POLISH-04(b) commit for rationale.
     static let phaseSize  = Animation.spring(response: 0.30, dampingFraction: 0.82)
-    /// Content swap (id transition). Slightly looser to let the new content
-    /// land with a touch of life without bouncing.
-    static let phaseSwap  = Animation.spring(response: 0.40, dampingFraction: 0.72)
+    /// Content swap (id transition). Critically damped: status changes
+    /// should settle without bouncing.
+    static let phaseSwap  = Animation.spring(response: 0.30, dampingFraction: 1.0)
     /// Press-pop scale beat when recording starts.
     static let pressUp    = Animation.spring(response: 0.18, dampingFraction: 0.55)
     static let pressDown  = Animation.spring(response: 0.32, dampingFraction: 0.55)

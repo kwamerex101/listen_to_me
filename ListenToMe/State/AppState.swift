@@ -30,6 +30,9 @@ final class AppState: ObservableObject {
     static let shared = AppState()
 
     @Published var phase: Phase = .idle
+    /// Cursor is over the pill. Auto-reset waits while true so the pill
+    /// never vanishes under the cursor.
+    @Published var pillHovered: Bool = false
     @Published var level: Float = 0          // 0…1, updated ~30Hz during recording
     @Published var lastTranscript: String = ""
     /// Live partial transcript (M5'). Populated during `.recording`

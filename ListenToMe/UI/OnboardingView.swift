@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import AVFoundation
 
 /// First-run walkthrough. Five steps:
 ///   0 Welcome  →  1 Model  →  2 Permissions  →  3 Hotkey & Mic  →  4 Practice (live)
@@ -231,7 +232,11 @@ struct OnboardingView: View {
                     detail: "Captures your voice for transcription.",
                     granted: appState.micGranted,
                     action: appState.micGranted ? nil : {
-                        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
+                        if AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined {
+                            AVCaptureDevice.requestAccess(for: .audio) { granted in
+                                DispatchQueue.main.async { appState.micGranted = granted }
+                            }
+                        } else if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
                             NSWorkspace.shared.open(url)
                         }
                     }
@@ -407,15 +412,13 @@ struct OnboardingView: View {
             Spacer()
 
             HStack(spacing: DT.space3) {
-                // Skip ghost link — non-terminal steps only.
-                if step < stepCount - 1 {
-                    Button("Skip setup") {
-                        onFinish()
-                    }
-                    .buttonStyle(.plain)
-                    .font(DT.caption)
-                    .foregroundStyle(.secondary)
+                // Skip ghost link, always available so setup is never a trap.
+                Button(step < stepCount - 1 ? "Skip setup" : "Finish without testing") {
+                    onFinish()
                 }
+                .buttonStyle(.plain)
+                .font(DT.caption)
+                .foregroundStyle(.secondary)
 
                 // Primary CTA.
                 Button(step == stepCount - 1 ? "Done" : "Continue") {
