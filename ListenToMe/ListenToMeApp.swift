@@ -379,7 +379,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 PartialTranscriber.shared.start()
             }
         } catch {
-            state.phase = .error(message: "Record failed")
+            state.phase = .error(message: (error as? AudioRecorderError)?.userMessage ?? "Record failed")
             // pill animates via SwiftUI phase change
             autoReset()
         }
