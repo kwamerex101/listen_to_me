@@ -67,6 +67,8 @@ struct WhisperRunner {
                 // silence (and needlessly spawn whisper-server). Markers are
                 // stripped centrally so no engine ever surfaces one as text.
                 return TranscriptHygiene.stripNonSpeechMarkers(text)
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
                 NSLog("[ListenToMe] Parakeet failed (\(error)) — falling back to whisper CLI")
                 // fall through to whisper paths below

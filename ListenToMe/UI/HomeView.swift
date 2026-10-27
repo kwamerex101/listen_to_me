@@ -1,22 +1,20 @@
 import SwiftUI
+import AVFoundation
 
 struct HomeView: View {
     @ObservedObject private var history = HistoryStore.shared
     @ObservedObject private var state = AppState.shared
+    @ObservedObject private var parakeet = ParakeetEngine.shared
+    @ObservedObject private var whisper = WhisperModelManager.shared
     @Environment(\.windowWidth) private var windowWidth
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var undo = UndoCenter()
-
-    /// Drives the dashboard entrance choreography (number roll-up,
-    /// gauge sweep, sparkline draw). Flipped once on first appear;
-    /// under reduce-motion everything starts in its final state.
-    @State private var appeared = false
-    /// False while the app is in the background, so the hero's
-    /// repeatForever bars stop running.
-    @State private var appActive = true
-    /// MainView remounts this view on every tab switch (`.id(selection)`),
-    /// so the entrance is gated to play once per app launch.
-    private static var hasPlayedEntrance = false
+    @State private var microphoneName = "System default"
+    @State private var microphoneAvailable = false
+    @State private var microphoneGranted = false
+    @State private var accessibilityReady = false
+    @State private var engine = Preferences.shared.transcriptionEngine
+    @State private var output = Preferences.shared.outputDestination
+    @State private var hotkey = Preferences.shared.hotkeyBinding
 
     var body: some View {
         ScrollView {
@@ -25,170 +23,162 @@ struct HomeView: View {
                      ? "Welcome back"
                      : "Welcome back, \(Preferences.shared.userName)")
                     .font(DT.pageTitle)
-
-                heroCard
-
-                statsRow
-
-                heatmapCard
-
-                appUsageCard
-
+                readinessCard
+                latestTranscriptCard
                 todaySection
+                statsRow
+                heatmapCard
+                appUsageCard
             }
             .padding(.top, DT.safeAreaTop)
             .padding(.horizontal, DT.space10)
             .padding(.bottom, DT.space10)
-            // Cap the content width on very wide screens so the page reads
-            // as a focused dashboard instead of stretching infinitely. The
-            // outer ScrollView still fills the window; only the content
-            // column has a max width.
             .frame(maxWidth: DT.pageMaxWidth, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .titleBarScrollEdge()
         .undoToast(undo)
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
-            appActive = false
-        }
+        .onAppear { refreshReadiness() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            appActive = true
+            refreshReadiness()
         }
-        .onAppear {
-            if reduceMotion || Self.hasPlayedEntrance {
-                appeared = true
-            } else {
-                Self.hasPlayedEntrance = true
-                withAnimation(.spring(response: 0.8, dampingFraction: 0.9)) {
-                    appeared = true
-                }
-            }
+        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+            refreshReadiness()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .AVAudioEngineConfigurationChange)) { _ in
+            refreshReadiness()
+        }
+        .onChange(of: state.hotkeyGranted) { _, _ in refreshReadiness() }
+        .onChange(of: state.micGranted) { _, _ in refreshReadiness() }
     }
 
     private var isCompact: Bool { windowWidth < DT.compactBreakpoint }
 
-    // MARK: - Hero
+    private var engineReady: Bool {
+        if engine == .parakeet { return parakeet.isReady }
+        if case .ready = whisper.status { return true }
+        return false
+    }
 
-    private var heroCard: some View {
-        ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: DT.radiusXl, style: .continuous)
-                .fill(DT.heroGradient)
+    private var ready: Bool {
+        microphoneGranted && microphoneAvailable && accessibilityReady && engineReady
+    }
 
-            RoundedRectangle(cornerRadius: DT.radiusXl, style: .continuous)
-                .fill(DT.heroGlow)
-                .allowsHitTesting(false)
+    private var readinessTitle: String {
+        switch state.phase {
+        case .recording: return "Recording"
+        case .transcribing: return "Transcribing"
+        case .cleaning, .polishing: return "Polishing your transcript"
+        default: return ready ? "Ready to dictate" : "Setup needs attention"
+        }
+    }
 
+    private var engineDescription: String {
+        if engine == .parakeet {
+            let name = "Parakeet \(Preferences.shared.parakeetModel.shortLabel)"
+            switch parakeet.status {
+            case .ready: return parakeet.isReady ? "\(name) · Ready" : "\(name) · Setup needed"
+            case .missing: return "\(name) · Download needed"
+            case .downloading(let progress): return "\(name) · Downloading \(Int(progress * 100))%"
+            case .loading: return "\(name) · Loading…"
+            case .failed: return "\(name) · Setup failed"
+            }
+        }
+        switch whisper.status {
+        case .ready: return "Whisper \(Preferences.shared.selectedWhisperModel.rawValue) · Model downloaded"
+        case .missing: return "Whisper · Download needed"
+        case .downloading(let progress): return "Whisper · Downloading \(Int(progress * 100))%"
+        case .failed: return "Whisper · Download failed"
+        }
+    }
+
+    private var readinessCard: some View {
+        VStack(alignment: .leading, spacing: DT.space4) {
+            Label(readinessTitle,
+                  systemImage: ready ? "checkmark.circle.fill" : "exclamationmark.circle")
+                .font(DT.sectionTitle)
+                .foregroundStyle(ready ? DT.statusSuccess : DT.statusError)
+            Text("Hold \(hotkey.label) in any text field to dictate.")
+                .font(DT.body)
+                .foregroundStyle(.secondary)
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), alignment: .topLeading), count: isCompact ? 1 : 2),
+                      alignment: .leading, spacing: DT.space3) {
+                readinessLine("Microphone", value: microphoneGranted ? microphoneName : "\(microphoneName) · Permission needed", icon: "mic")
+                readinessLine("Hotkey", value: accessibilityReady ? "Accessibility granted and hotkey active" : "Grant Accessibility or restart to activate the hotkey", icon: "keyboard")
+                readinessLine("Voice engine", value: engineDescription, icon: "waveform")
+                readinessLine("Output", value: output.label, icon: "arrow.up.doc")
+            }
+            HStack(spacing: DT.space3) {
+                Button(ready ? "Open Settings" : "Finish setup in Settings") {
+                    MainWindowController.shared.openSettings()
+                }
+                Button("View demo") { DictationGuideWindow.shared.open() }
+            }
+            .buttonStyle(.secondary)
+        }
+        .padding(DT.space6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .card()
+    }
+
+    private func readinessLine(_ title: String, value: String, icon: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: DT.space3) {
+            Image(systemName: icon).foregroundStyle(DT.accent).frame(width: 18)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(DT.caption).foregroundStyle(.secondary)
+                Text(value).font(DT.body).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var latestTranscriptCard: some View {
+        VStack(alignment: .leading, spacing: DT.space4) {
             HStack {
+                Text("Last dictation").font(DT.sectionTitle)
                 Spacer()
-                heroWaveform
-                    .frame(width: 220, height: 100)
-                    .padding(.trailing, DT.space8)
-                    .opacity(0.55)
+                Text("⌘⇧R").font(DT.monoCaption).foregroundStyle(.secondary)
             }
-            .frame(maxHeight: .infinity)
-            .allowsHitTesting(false)
-
-            VStack(alignment: .leading, spacing: DT.space3) {
-                Text("Ready when you are.")
-                    .font(DT.heroDisplay)
-                    .italic()
-                    .foregroundStyle(.white)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.85)
-
-                Text("Hold \(Preferences.shared.hotkeyBinding.label) anywhere to dictate — or:")
+            if let record = TranscriptReviewPolicy.latest(in: history.records) {
+                Text(record.finalText)
+                    .id(record.finalText)
+                    .accessibilityIdentifier("latest-transcript")
                     .font(DT.body)
-                    .foregroundStyle(.white.opacity(0.70))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.9)
-
-                heroCTA
-                    .padding(.top, DT.space2)
-
-                if let todayWords = history.dailyMetrics(lastDays: 1).first?.words, todayWords > 0 {
-                    Text("\(todayWords) words dictated today")
-                        .font(DT.caption)
-                        .foregroundStyle(.white.opacity(0.50))
-                        .padding(.top, DT.space1)
-                }
-            }
-            .padding(DT.space7)
-        }
-        .frame(minHeight: 220)
-    }
-
-    private var heroCTA: some View {
-        Button(action: { state.onStartTap?() }) {
-            HStack(spacing: 8) {
-                if case .recording = state.phase {
-                    Circle().fill(DT.statusRecording).frame(width: 7, height: 7)
-                    Text("Recording…")
-                } else {
-                    Image(systemName: "mic.fill")
-                        .font(.system(size: 12, weight: .semibold))
-                    Text("Dictate now")
-                }
-            }
-        }
-        .buttonStyle(.primary)
-        .disabled({
-            if case .idle = state.phase { return false }
-            if case .recording = state.phase { return false }
-            return true
-        }())
-        .animation(.easeInOut(duration: 0.15), value: state.phase)
-    }
-
-    private var heroWaveform: some View {
-        GeometryReader { geo in
-            HStack(spacing: 4) {
-                ForEach(0..<18, id: \.self) { i in
-                    HeroBar(index: i, maxHeight: geo.size.height, animate: !reduceMotion && appActive)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-        }
-    }
-
-    /// One decorative hero bar. Each bar slowly breathes between its base
-    /// height and a slightly taller one on its own phase-shifted cadence,
-    /// so the waveform reads as alive without drawing attention. Driven
-    /// by Core Animation repeatForever (GPU-cheap, no per-frame SwiftUI
-    /// re-evaluation). Static under reduce-motion.
-    private struct HeroBar: View {
-        let index: Int
-        let maxHeight: CGFloat
-        let animate: Bool
-        @State private var up = false
-
-        private var baseFrac: Double { 0.30 + 0.50 * abs(sin(Double(index) / 18.0 * .pi * 2)) }
-
-        var body: some View {
-            let base = max(8, maxHeight * baseFrac)
-            Capsule()
-                .fill(Color.white.opacity(0.55))
-                .frame(width: 4, height: base)
-                .scaleEffect(y: up ? 1.18 : 0.92, anchor: .center)
-                .onAppear { setBreathing(animate) }
-                .onChange(of: animate) { _, on in setBreathing(on) }
-        }
-
-        /// Start or stop the repeatForever loop. Stopping swaps in a
-        /// short non-repeating animation, which replaces the loop.
-        private func setBreathing(_ on: Bool) {
-            if on {
-                withAnimation(
-                    .easeInOut(duration: 1.4 + Double(index % 5) * 0.13)
-                    .repeatForever(autoreverses: true)
-                    .delay(Double(index) * 0.09)
-                ) {
-                    up = true
-                }
+                    .lineLimit(4)
+                    .textSelection(.enabled)
+                Text(record.timestamp, format: .dateTime.month().day().hour().minute())
+                    .font(DT.caption).foregroundStyle(.secondary)
+                Button("Review last dictation") { TranscriptReviewWindow.shared.openLatest() }
+                    .buttonStyle(.primary)
+                    .disabled(!TranscriptReviewPolicy.allowsReview(in: state.phase))
+                Text("Review, edit, and copy it whenever you need it.")
+                    .font(DT.caption).foregroundStyle(.secondary)
             } else {
-                withAnimation(.easeOut(duration: 0.2)) { up = false }
+                Text("Your most recent transcript will appear here after you dictate.")
+                    .font(DT.body).foregroundStyle(.secondary)
             }
         }
+        .padding(DT.space6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .card()
+    }
+
+    private func refreshReadiness() {
+        let devices = AudioInputDevices.available()
+        if let uid = Preferences.shared.inputDeviceUID {
+            let selected = devices.first { $0.uid == uid }
+            microphoneAvailable = selected != nil
+            microphoneName = selected?.name ?? "Selected microphone unavailable"
+        } else {
+            let selected = devices.first { $0.id == AudioInputDevices.systemDefault() }
+            microphoneAvailable = selected != nil
+            microphoneName = selected.map { "\($0.name) (system default)" } ?? "No input device available"
+        }
+        microphoneGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+        accessibilityReady = HotkeyMonitor.isAccessibilityGranted() && HotkeyMonitor.shared.isActive
+        engine = Preferences.shared.transcriptionEngine
+        output = Preferences.shared.outputDestination
+        hotkey = Preferences.shared.hotkeyBinding
+        if engine.isWhisper { whisper.refreshStatus() }
     }
 
     // MARK: - Stats row (rich KPIs)
@@ -234,7 +224,7 @@ struct HomeView: View {
             // Gauge fills the rest of the card so the KPI tiles end up
             // the same height in the row. Sweeps in from zero on appear.
             ZStack {
-                GaugeArc(value: appeared ? wpmGaugeValue : 0, tint: .teal)
+                GaugeArc(value: wpmGaugeValue, tint: .teal)
                 VStack(spacing: 2) {
                     Spacer().frame(height: 28)
                     Text(paceLabel(for: wpm))
@@ -251,13 +241,10 @@ struct HomeView: View {
         .card()
     }
 
-    /// Big KPI number that rolls up from zero on first appear via the
-    /// numeric-text content transition. Under reduce-motion `appeared`
-    /// starts true-without-animation, so it renders the final value.
+    /// Render statistics immediately when Home opens.
     private func rollupNumber(_ value: Int) -> some View {
-        Text(formatBigNumber(appeared ? value : 0))
+        Text(formatBigNumber(value))
             .font(DT.statNumber)
-            .contentTransition(.numericText(value: Double(appeared ? value : 0)))
     }
 
     /// Total words tile — large number + week-over-week growth chip if
@@ -293,7 +280,7 @@ struct HomeView: View {
             // Sparkline fills the remaining height so this tile matches
             // the WPM card's vertical extent. Draws in left-to-right.
             Sparkline(values: metrics.map { Double($0.words) }, tint: DT.accent,
-                      progress: appeared ? 1 : 0)
+                      progress: 1)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, minHeight: DT.kpiTileMinHeight, alignment: .topLeading)
@@ -510,7 +497,7 @@ struct HomeView: View {
             Image(systemName: "waveform")
                 .font(.system(size: 13))
                 .foregroundStyle(DT.accent)
-            Text("Nothing yet today. Hold \(Preferences.shared.hotkeyBinding.label) anywhere to dictate.")
+            Text("Nothing yet today. Hold \(Preferences.shared.hotkeyBinding.label) in any text field to dictate.")
                 .font(DT.body)
                 .foregroundStyle(.secondary)
         }
@@ -680,11 +667,6 @@ struct ActivityHeatmap: View {
     let metrics: [HistoryStore.DailyMetric]
     let weeks: Int
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// Drives the column-by-column entrance stagger.
-    @State private var appeared = false
-    private static var hasPlayedStagger = false
-
     /// Map a 0..1 intensity to a discrete colour bucket (4 visible levels +
     /// neutral). Mirrors GitHub's contribution graph palette but in our
     /// accent (teal) so it threads the design language.
@@ -749,14 +731,6 @@ struct ActivityHeatmap: View {
                                     isToday: cal.isDateInToday(day.date),
                                     size: cell
                                 )
-                                // Entrance: columns fade in oldest-first.
-                                // Reduce-motion renders final state directly.
-                                .opacity(appeared ? 1 : 0)
-                                .animation(
-                                    reduceMotion ? nil :
-                                        .easeOut(duration: 0.25).delay(Double(colIdx) * 0.02),
-                                    value: appeared
-                                )
                             } else {
                                 Color.clear.frame(width: cell, height: cell)
                             }
@@ -776,24 +750,13 @@ struct ActivityHeatmap: View {
         // Heatmap height = 7 rows × cell + 6 gaps, from the same `cell`
         // the grid uses.
         .frame(height: 7 * cell + 6 * gap)
-        .onAppear {
-            // Stagger plays once per launch; later tab visits show the
-            // final state immediately.
-            if Self.hasPlayedStagger {
-                var t = Transaction()
-                t.disablesAnimations = true
-                withTransaction(t) { appeared = true }
-            } else {
-                Self.hasPlayedStagger = true
-                appeared = true
-            }
-        }
     }
 
     /// One heatmap day-cell with hover feedback — slight scale + accent
     /// border so the .help tooltip's target feels responsive while the
     /// tooltip delay runs.
     private struct HeatCell: View {
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
         let day: HistoryStore.DailyMetric
         let intensity: Double
         let isToday: Bool
@@ -812,7 +775,7 @@ struct ActivityHeatmap: View {
                 )
                 .frame(width: size, height: size)
                 .scaleEffect(hovered ? 1.15 : 1.0)
-                .animation(.spring(response: 0.18, dampingFraction: 0.7), value: hovered)
+                .animation(reduceMotion ? nil : .spring(response: 0.18, dampingFraction: 0.7), value: hovered)
                 .onHover { hovered = $0 }
                 .help("\(ActivityHeatmap.displayFmt.string(from: day.date)) — \(day.words) words")
         }

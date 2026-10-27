@@ -9,9 +9,18 @@ struct ListenToMeApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
-        // No windows — menu bar app. Settings window can live here in later phases.
+        // Standard Settings commands open the existing main window.
         Settings {
-            EmptyView()
+            SettingsView()
+        }
+        .commands {
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") {
+                    MainWindowController.shared.openSettings()
+                }
+                .keyboardShortcut(",", modifiers: .command)
+            }
+            TranscriptReviewCommands()
         }
     }
 }
@@ -19,10 +28,48 @@ struct ListenToMeApp: App {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let state = AppState.shared
+    private let timing = DictationTiming.shared
+#if DEBUG
+    private var fixtureDeliveryAllowed: (() -> Bool)?
+
+    func configureFixtureDeliveryGuard(_ predicate: @escaping () -> Bool) {
+        precondition(RuntimeEnvironment.isRunningUnderTests)
+        fixtureDeliveryAllowed = predicate
+    }
+
+    func fixtureCleanupTask() -> Task<Void, Never>? {
+        precondition(RuntimeEnvironment.isRunningUnderTests)
+        return cleanupTask
+    }
+
+    func finishFixture(restoring pasteboard: PasteboardSnapshot) async {
+        precondition(RuntimeEnvironment.isRunningUnderTests)
+        timing.finish(id: dictationID, outcome: .cancelled)
+        dictationID &+= 1
+        let cleanup = cleanupTask
+        let transcription = transcribeTask
+        let retype = retypeTask
+        let reset = autoResetTask
+        cleanup?.cancel()
+        transcription?.cancel()
+        retype?.cancel()
+        reset?.cancel()
+        pendingCleanupDelivery.discard()
+        state.canInsertWithoutPolish = false
+        await cleanup?.value
+        await transcription?.value
+        await retype?.value
+        await reset?.value
+        if let token = lastPasteToken,
+           Paster.pasteboardUntouched(since: token, currentChangeCount: NSPasteboard.general.changeCount) {
+            pasteboard.restore(to: .general)
+        }
+        fixtureDeliveryAllowed = nil
+    }
+#endif
     private var recordingStartedAt: Date?
-    /// In-flight background cleanup for streaming-preview. Cancelled when a
-    /// new dictation starts, so a slow earlier cleanup can never silently
-    /// overwrite a newer one.
+    /// Clean-first polish task. Cancelled when a new dictation starts,
+    /// the user discards it, or the user inserts without polish.
     private var cleanupTask: Task<Void, Never>?
     /// The most-recent paste token. Drives the correction popover —
     /// updated whenever we paste or successfully replace.
@@ -81,13 +128,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// recording to discard at all.
     private var pressStartedRecording = false
 
-    /// Snapshot of the pending clean-first cleanup's inputs (Item 2b). Set
-    /// when `startCleanupTask` begins, cleared when it finishes, either
-    /// normally, or because the caller (a pre-empting `handlePress`, or an
-    /// explicit `handleCancel`) is about to cancel it. Lets a pre-empting
-    /// press record the discarded dictation to History instead of losing
-    /// it silently, while a user-initiated cancel still discards it.
-    private var pendingCleanupRecord: (raw: String, expanded: String, durMs: Int)?
+    /// A single claim joins polish completion and explicit raw insertion.
+    private var pendingCleanupDelivery = PendingCleanupDelivery()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -172,7 +214,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         HotkeyMonitor.shared.onPress = { [weak self] in self?.handlePress() }
         HotkeyMonitor.shared.onRelease = { [weak self] in self?.handleRelease() }
         // CORR-01: short-tap of the hotkey opens the correction popover
-        // (same behaviour as clicking the pill in success/polishing).
+        // (same behaviour as clicking the success pill).
         HotkeyMonitor.shared.onShortTap = { [weak self] in self?.handleShortTap() }
         HotkeyMonitor.shared.start()
 
@@ -181,6 +223,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         state.onStopTap = { [weak self] in self?.handleRelease() }
         state.onCancelTap = { [weak self] in self?.handleCancel() }
         state.onPillTap = { [weak self] in self?.handlePillTap() }
+        state.onInsertWithoutPolish = { [weak self] in self?.insertWithoutPolish() }
         state.onSuggestionKeep = { [weak self] in self?.handleSuggestionKeep() }
         state.onSuggestionDismiss = { [weak self] in self?.handleSuggestionDismiss() }
 
@@ -317,17 +360,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // shouldn't execute. Also dismiss any open correction popover so
         // the new dictation has a clean slate.
         guard DictationGate.acceptsPress(in: state.phase) else { return }
+        let timingID = dictationID &+ 1
+        timing.begin(id: timingID)
         // Item 2b: a press pre-empting a still-running clean-first cleanup
         // (phase == .polishing) is about to cancel it below. Nothing has
         // pasted yet, but the words are real, record them to History
         // before the cancel, instead of the cleanup's CancellationError
         // branch silently dropping them.
-        if let pending = pendingCleanupRecord {
+        if let pending = pendingCleanupDelivery.discard() {
             HistoryStore.shared.add(rawText: pending.raw, finalText: pending.expanded,
                                      durationMs: pending.durMs, bundleId: nil)
             NSLog("[ListenToMe] pre-empted pending cleanup, recorded to history")
-            pendingCleanupRecord = nil
         }
+        state.canInsertWithoutPolish = false
         cleanupTask?.cancel()
         cleanupTask = nil
         retypeTask?.cancel()
@@ -349,6 +394,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             state.micGranted = true
         }
         guard state.micGranted else {
+            timing.finish(id: timingID, outcome: .failed)
             state.phase = .error(message: "Mic permission needed")
             autoReset()
             return
@@ -365,6 +411,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // so a failed start below doesn't orphan the previous dictation's
             // still-in-flight background work.
             dictationID &+= 1
+            timing.mark(.recordingReady, id: dictationID)
             pressStartedRecording = true
             recordingStartedAt = Date()
             PillWindow.shared.repositionToActiveScreen()
@@ -379,6 +426,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 PartialTranscriber.shared.start()
             }
         } catch {
+            timing.finish(id: timingID, outcome: .failed)
             state.phase = .error(message: (error as? AudioRecorderError)?.userMessage ?? "Record failed")
             // pill animates via SwiftUI phase change
             autoReset()
@@ -389,10 +437,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// .recording → discard audio + history dismissed row.
     /// .transcribing → cancel whisper task; the result (if it arrives)
     ///                 short-circuits via Task.isCancelled.
-    /// .polishing → cancel cleanup; raw transcript already pasted, leave
-    ///              it standing (user can correct if they want).
+    /// .polishing: discard the pending transcript and stop cleanup.
     /// Any other phase → no-op.
     private func handleCancel() {
+        timing.finish(id: dictationID, outcome: .cancelled)
         switch state.phase {
         case .recording:
             PartialTranscriber.shared.stop()
@@ -424,7 +472,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             dictationID &+= 1
             // Explicit discard (the X, not a pre-empting press): drop the
             // pending record rather than adding it to History.
-            pendingCleanupRecord = nil
+            pendingCleanupDelivery.discard()
+            state.canInsertWithoutPolish = false
             cleanupTask?.cancel()
             cleanupTask = nil
             transcribeTask?.cancel()
@@ -439,6 +488,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func handleRelease() {
         guard case .recording = state.phase else { return }
+        timing.mark(.released, id: dictationID)
+        let recordingDurationMs = timing.recordingDurationMs(id: dictationID) ?? 0
         Haptics.stop()
         SoundCue.recordingStop()
         PillWindow.shared.setInteractive(false)
@@ -449,6 +500,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // branch below clears it.
         PartialTranscriber.shared.stop()
         guard let wav = AudioRecorder.shared.stop() else {
+            timing.finish(id: dictationID, outcome: .failed)
             state.phase = .error(message: "No audio")
             autoReset()
             return
@@ -459,15 +511,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         PillWindow.shared.setInteractive(true)
         state.phase = .transcribing
 
-        let whisperPrompt = DictionaryStore.shared.whisperPrompt
-        // Snapshot this dictation's identity and start time before the task
-        // begins, and clear recordingStartedAt right away. Without the local
-        // copy, an old task reading recordingStartedAt after a new press
-        // started the next recording would compute that NEXT recording's
-        // duration instead of its own.
+        // Recording duration is already captured at release, before any
+        // transcription or polish can inflate the words-per-minute metric.
         let id = dictationID
-        let startedAt = recordingStartedAt
         recordingStartedAt = nil
+        processRecordedAudio(wav: wav, recordingDurationMs: recordingDurationMs, id: id)
+    }
+
+    /// The recording and fixture paths share transcription and delivery.
+    func processRecordedAudio(wav: URL, recordingDurationMs: Int, id: Int) {
+        guard isCurrent(id) else { return }
+        let whisperPrompt = DictionaryStore.shared.whisperPrompt
         transcribeTask?.cancel()
         transcribeTask = Task { @MainActor in
             do {
@@ -475,11 +529,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // User aborted via the cancel button while we were waiting
                 // on whisper: bail before mutating any pipeline state.
                 if Task.isCancelled { return }
+                self.timing.mark(.transcribed, id: id)
                 // Drop engine-emitted non-speech markers ("[BLANK_AUDIO]" etc.)
                 // so a silent recording is treated as empty rather than pasting
                 // the literal marker into the target app and History.
                 let raw = TranscriptHygiene.stripNonSpeechMarkers(transcribed)
                 if raw.isEmpty {
+                    self.timing.finish(id: id, outcome: .noSpeech)
                     // Silence or a pure non-speech marker: paste nothing and
                     // show a calm cue rather than a red error — this wasn't a
                     // failure, there was just nothing to type.
@@ -516,15 +572,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                             // either: the normal pipeline would paste too. Keep
                             // the utterance in History so nothing is lost.
                             NSLog("[ListenToMe] backtrack: superseded by a newer dictation, not applied")
-                            let durMs = startedAt.map { Int(Date().timeIntervalSince($0) * 1000) } ?? 0
+                            let durMs = recordingDurationMs
                             HistoryStore.shared.add(rawText: raw, finalText: raw,
                                                      durationMs: durMs, dismissed: true)
                             return
-                        } else if let newToken = Paster.replace(with: revised, token: token) {
+                        } else if self.canDeliverRecordedAudio(id: id),
+                                  let newToken = Paster.replace(with: revised, token: token) {
+                            self.timing.finish(id: id, outcome: .pasted)
                             self.lastPasteToken = newToken
                             self.state.lastTranscript = revised
                             HistoryStore.shared.updateLast(finalText: revised)
-                            let durMs = startedAt.map { Int(Date().timeIntervalSince($0) * 1000) } ?? 0
+                            let durMs = recordingDurationMs
                             HistoryStore.shared.add(rawText: raw, finalText: "[backtrack]",
                                                      durationMs: durMs, dismissed: true,
                                                      bundleId: newToken.bundleId)
@@ -560,7 +618,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     do {
                         let summary = try await CommandRouter.execute(cmd)
                         if Task.isCancelled { return }
-                        let durMs = startedAt.map { Int(Date().timeIntervalSince($0) * 1000) } ?? 0
+                        self.timing.finish(id: id, outcome: .command)
+                        let durMs = recordingDurationMs
                         HistoryStore.shared.add(rawText: raw, finalText: "[cmd] \(summary)", durationMs: durMs)
                         if self.isCurrent(id) {
                             Haptics.success()
@@ -581,6 +640,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         } else {
                             NSLog("[ListenToMe] command failed: \(error)")
                             if self.isCurrent(id) {
+                                self.timing.finish(id: id, outcome: .failed)
                                 self.state.phase = .error(message: "Command failed")
                                 self.autoReset()
                             }
@@ -600,7 +660,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // Pure-undo edge case: user said only "scratch that" (or it
                 // resolved to empty). Skip paste, no history, brief feedback.
                 if edited.isEmpty {
-                    let durMs = startedAt.map { Int(Date().timeIntervalSince($0) * 1000) } ?? 0
+                    self.timing.finish(id: id, outcome: .discarded)
+                    let durMs = recordingDurationMs
                     HistoryStore.shared.add(rawText: raw, finalText: "",
                                              durationMs: durMs, dismissed: true)
                     if self.isCurrent(id) {
@@ -614,13 +675,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // flows naturally around the expanded text.
                 let expanded = SnippetsStore.shared.expand(in: edited)
                 let words = expanded.split(whereSeparator: \.isWhitespace).count
-                let durMs = startedAt.map { Int(Date().timeIntervalSince($0) * 1000) } ?? 0
+                let durMs = recordingDurationMs
 
                 // Secure-input guard. If a password field (or any secure-event-
                 // input context) has focus, never insert the transcript and
                 // never store it in history — doing either would leak a secret
                 // the user is plainly typing. Covers both cleanup branches below.
+                guard self.canDeliverRecordedAudio(id: id) else { return }
                 if SecureInput.isActive {
+                    self.timing.finish(id: id, outcome: .blocked)
                     self.lastRawTranscript = nil
                     if self.isCurrent(id) {
                         self.state.phase = .error(message: "Secure field — not inserted")
@@ -669,6 +732,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         // open the correction popover; we just never call replace.
                         self.state.lastTranscript = expanded
                         let token = Paster.pasteTracked(expanded)
+                        self.timing.finish(id: id, outcome: .pasted)
                         self.lastPasteToken = token
                         self.scheduleRetypeDetection(token: token)
                         self.recordStyleSample(token: token, cleaned: expanded)
@@ -686,12 +750,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     }
                 }
             } catch WhisperError.modelNotFound(let path) {
+                self.timing.finish(id: id, outcome: .failed)
                 NSLog("[ListenToMe] model not found: \(path)")
                 if self.isCurrent(id) {
                     self.state.phase = .error(message: "Model missing")
                     self.autoReset()
                 }
             } catch {
+                self.timing.finish(id: id, outcome: Task.isCancelled ? .cancelled : .failed)
                 NSLog("[ListenToMe] transcription failed: \(error)")
                 if self.isCurrent(id) {
                     self.state.phase = .error(message: "Transcribe failed")
@@ -699,6 +765,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
+    }
+
+    private func canDeliverRecordedAudio(id: Int) -> Bool {
+        guard isCurrent(id) else { return false }
+#if DEBUG
+        if let fixtureDeliveryAllowed, !fixtureDeliveryAllowed() {
+            timing.finish(id: id, outcome: .blocked)
+            state.phase = .error(message: "Fixture target lost focus")
+            autoReset()
+            return false
+        }
+#endif
+        return true
     }
 
     /// Apple Notes destination: clean to completion (subject to the gate),
@@ -719,6 +798,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         var finalText = expanded
         if CleanupGate.shouldClean(text: expanded, wordCount: words,
                                    mode: Preferences.shared.cleanupMode) {
+            timing.mark(.polishStarted, id: id)
             do {
                 let timeout = TimeInterval(Preferences.shared.cleanupTimeoutSec)
                 finalText = try await ClaudeClient.shared.clean(
@@ -727,15 +807,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 NSLog("[ListenToMe] notes cleanup failed, raw stands: \(error)")
                 finalText = expanded
             }
+            timing.mark(.polishFinished, id: id)
         }
         // User cancelled while cleanup was running: no Notes write, no history.
         if Task.isCancelled { return }
+        guard canDeliverRecordedAudio(id: id) else { return }
 
         // No cancel check after the write: once the note exists, History
         // must reflect it.
         let result = await OutputRouter.deliverToNotes(text: finalText)
         switch result {
         case .success:
+            timing.finish(id: id, outcome: .notes)
             state.lastTranscript = finalText
             HistoryStore.shared.add(rawText: raw, finalText: finalText,
                                      durationMs: durMs, bundleId: "com.apple.Notes")
@@ -746,6 +829,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 autoReset(after: 2.0)
             }
         case .failure(let err):
+            timing.finish(id: id, outcome: .failed)
             NSLog("[ListenToMe] notes write failed: \(err)")
             if isCurrent(id) {
                 state.phase = .error(message: "Notes write failed")
@@ -774,6 +858,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         var finalText = expanded
         if CleanupGate.shouldClean(text: expanded, wordCount: words,
                                    mode: Preferences.shared.cleanupMode) {
+            timing.mark(.polishStarted, id: id)
             do {
                 let timeout = TimeInterval(Preferences.shared.cleanupTimeoutSec)
                 finalText = try await ClaudeClient.shared.clean(
@@ -782,13 +867,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 NSLog("[ListenToMe] clipboard cleanup failed, raw stands: \(error)")
                 finalText = expanded
             }
+            timing.mark(.polishFinished, id: id)
         }
         // User cancelled while cleanup was running: no clipboard write, no history.
         if Task.isCancelled { return }
+        guard canDeliverRecordedAudio(id: id) else { return }
 
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(finalText, forType: .string)
+        timing.finish(id: id, outcome: .copied)
 
         state.lastTranscript = finalText
         HistoryStore.shared.add(rawText: raw, finalText: finalText,
@@ -801,103 +889,95 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Run cleanup, then paste the polished text into the focused app exactly
-    /// once. Nothing is pasted until cleanup returns, so there is no earlier
-    /// paste to undo — this replaces the old stream-raw-then-Cmd+Z-replace
-    /// flow, which duplicated text in apps where Cmd+Z isn't text-undo
-    /// (terminals). On cleanup failure the raw (`expanded`) is pasted instead.
-    /// Cancellation (new dictation / user bail) aborts before any paste.
-    /// Before that paste, `PasteTarget.decide` re-checks the frontmost app
-    /// and secure-input state, since cleanup can take seconds: a secure
-    /// field blocks the paste entirely, and a changed frontmost app copies
-    /// to the clipboard instead of pasting into whatever's there now.
-    /// `bundleId` is the frontmost app when cleanup started, used as the
-    /// expected target for that check.
+    /// Clean first, then deliver once. An explicit bypass claims the same
+    /// pending record, so a late polish result cannot insert a second time.
     private func startCleanupTask(id: Int,
                                   raw: String,
                                   expanded: String,
                                   durMs: Int,
                                   bundleId: String?) {
+        guard isCurrent(id) else { return }
         cleanupTask?.cancel()
-        // Item 2b: remember these inputs so a pre-empting press can record
-        // the dictation to History if it cancels us before we paste.
-        // Cleared below once we actually finish (paste, copy, or block),
-        // by then the caller no longer needs it.
-        pendingCleanupRecord = (raw: raw, expanded: expanded, durMs: durMs)
+        pendingCleanupDelivery.begin(.init(id: id, raw: raw, expanded: expanded,
+                                           durMs: durMs, bundleId: bundleId))
+        state.canInsertWithoutPolish = true
+        timing.mark(.polishStarted, id: id)
         cleanupTask = Task { [weak self] in
             var finalText = expanded
             do {
                 let timeout = TimeInterval(Preferences.shared.cleanupTimeoutSec)
                 finalText = try await ClaudeClient.shared.clean(
-                    expanded,
-                    bundleId: bundleId,
-                    timeout: timeout
+                    expanded, bundleId: bundleId, timeout: timeout
                 )
                 try Task.checkCancellation()
             } catch is CancellationError {
-                // New dictation started OR the user bailed. Whoever
-                // cancelled us already recorded (or deliberately dropped)
-                // pendingCleanupRecord, so there's nothing left to do here.
                 return
             } catch {
                 NSLog("[ListenToMe] cleanup failed, raw stands: \(error)")
                 finalText = expanded
             }
-            await MainActor.run {
-                guard let self, !Task.isCancelled else { return }
-                self.pendingCleanupRecord = nil
+            guard let self, !Task.isCancelled,
+                  let pending = self.pendingCleanupDelivery.claim(id: id, currentID: self.dictationID)
+            else { return }
+            self.timing.mark(.polishFinished, id: id)
+            self.state.canInsertWithoutPolish = false
+            self.cleanupTask = nil
+            self.deliverCleanupResult(finalText, pending: pending)
+        }
+    }
 
-                // Cleanup can take seconds; re-check the target now rather
-                // than trusting the bundleId captured before cleanup
-                // started — the user may have switched apps or focused a
-                // password field while we were waiting.
-                let currentBundleId = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-                switch PasteTarget.decide(expectedBundleId: bundleId,
-                                          currentBundleId: currentBundleId,
-                                          secureInputActive: SecureInput.isActive) {
-                case .block:
-                    // Same contract as the pre-cleanup secure-field guard:
-                    // never insert, never store.
-                    self.lastRawTranscript = nil
-                    if self.isCurrent(id) {
-                        self.state.phase = .error(message: "Secure field — not inserted")
-                        self.autoReset()
-                    }
-                    return
+    func insertWithoutPolish() {
+        guard case .polishing = state.phase,
+              let pending = pendingCleanupDelivery.claim(id: dictationID, currentID: dictationID)
+        else { return }
+        state.canInsertWithoutPolish = false
+        cleanupTask?.cancel()
+        cleanupTask = nil
+        deliverCleanupResult(pending.expanded, pending: pending, bypassedPolish: true)
+    }
 
-                case .copyInstead:
-                    // Deliberate copy, not a paste — no restore-on-timer
-                    // like the correction flow uses.
-                    let pb = NSPasteboard.general
-                    pb.clearContents()
-                    pb.setString(finalText, forType: .string)
-                    self.lastPasteToken = nil
-                    self.state.lastTranscript = finalText
-                    HistoryStore.shared.add(rawText: raw, finalText: finalText,
-                                             durationMs: durMs, bundleId: nil)
-                    if self.isCurrent(id) {
-                        Haptics.success()
-                        SoundCue.success()
-                        self.state.phase = .success(preview: "Copied (app changed)")
-                        self.autoReset(after: 2.0)
-                    }
+    /// Both paths use the same target and secure-input checks. No await
+    /// occurs between claiming the record and these effects.
+    private func deliverCleanupResult(_ text: String, pending: PendingCleanupDelivery.Record,
+                                      bypassedPolish: Bool = false) {
+        guard canDeliverRecordedAudio(id: pending.id) else { return }
+        let currentBundleId = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        switch PasteTarget.decide(expectedBundleId: pending.bundleId,
+                                  currentBundleId: currentBundleId,
+                                  secureInputActive: SecureInput.isActive) {
+        case .block:
+            timing.finish(id: pending.id, outcome: .blocked, bypassedPolish: bypassedPolish)
+            lastRawTranscript = nil
+            state.phase = .error(message: "Secure field: not inserted")
+            autoReset()
 
-                case .paste:
-                    let token = Paster.pasteTracked(finalText)
-                    self.lastPasteToken = token
-                    self.state.lastTranscript = finalText
-                    self.scheduleRetypeDetection(token: token)
-                    self.recordStyleSample(token: token, cleaned: finalText)
-                    HistoryStore.shared.add(rawText: raw, finalText: finalText,
-                                             durationMs: durMs, bundleId: token.bundleId)
-                    if self.isCurrent(id) {
-                        Haptics.success()
-                        SoundCue.success()
-                        self.state.phase = .success(preview: String(finalText.prefix(30)))
-                        self.autoReset(after: 3.0)
-                    }
-                }
-            }
+        case .copyInstead:
+            let pb = NSPasteboard.general
+            pb.clearContents()
+            pb.setString(text, forType: .string)
+            timing.finish(id: pending.id, outcome: .copied, bypassedPolish: bypassedPolish)
+            lastPasteToken = nil
+            state.lastTranscript = text
+            HistoryStore.shared.add(rawText: pending.raw, finalText: text,
+                                     durationMs: pending.durMs, bundleId: nil)
+            Haptics.success()
+            SoundCue.success()
+            state.phase = .success(preview: "Copied (app changed)")
+            autoReset(after: 2.0)
+
+        case .paste:
+            let token = Paster.pasteTracked(text)
+            timing.finish(id: pending.id, outcome: .pasted, bypassedPolish: bypassedPolish)
+            lastPasteToken = token
+            state.lastTranscript = text
+            scheduleRetypeDetection(token: token)
+            recordStyleSample(token: token, cleaned: text)
+            HistoryStore.shared.add(rawText: pending.raw, finalText: text,
+                                     durationMs: pending.durMs, bundleId: token.bundleId)
+            Haptics.success()
+            SoundCue.success()
+            state.phase = .success(preview: String(text.prefix(30)))
+            autoReset(after: 3.0)
         }
     }
 
@@ -1079,6 +1159,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         pressStartedRecording = false
+        timing.finish(id: dictationID, outcome: .cancelled)
 
         PartialTranscriber.shared.stop()
         state.partialText = ""

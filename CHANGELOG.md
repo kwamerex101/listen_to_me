@@ -4,6 +4,16 @@ All notable user-facing changes per release. Format inspired by [Keep a Changelo
 
 ## Unreleased
 
+### Changed
+
+- Setup follows the selected voice engine, and concurrent dictations share model loading.
+- Home shows readiness and recent transcripts before activity statistics.
+- Review the last dictation with ⌘⇧R, edit a copy, and copy it without changing saved history.
+- Insert without polish while cleanup runs, with guards against duplicate delivery.
+- Quieter pill transitions preserve saved positions and keep expanded controls on screen.
+- A replayable dictation example explains the hotkey flow during setup and from Help.
+- Settings shows session-only response times; word-rate statistics exclude processing time.
+
 ### Fixed
 
 - The app no longer crashes when you start a dictation while AirPods or another Bluetooth headset is switching to its microphone. It now records in whatever format the microphone is actually using, and if the microphone still can't be opened the pill shows "Mic unavailable" instead.

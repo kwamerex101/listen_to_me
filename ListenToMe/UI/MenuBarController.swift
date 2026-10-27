@@ -12,6 +12,7 @@ final class MenuBarController {
     private weak var launchAtLoginItem: NSMenuItem?
     private weak var warningSeparator: NSMenuItem?
     private weak var checkForUpdatesItem: NSMenuItem?
+    private weak var reviewItem: NSMenuItem?
 
     private init() {}
 
@@ -23,6 +24,7 @@ final class MenuBarController {
         }
 
         let menu = NSMenu()
+        menu.autoenablesItems = false
         menu.delegate = MenuDelegate.shared   // refresh on open
 
         // Streamlined menu — show only what's actionable. Status header, the
@@ -47,13 +49,15 @@ final class MenuBarController {
         openWindow.target = self
         menu.addItem(openWindow)
 
-        let openSettings = NSMenuItem(
-            title: "Settings…",
-            action: #selector(openSettingsWindow),
-            keyEquivalent: ","
-        )
-        openSettings.target = self
-        menu.addItem(openSettings)
+        let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+        settings.target = self
+        menu.addItem(settings)
+
+        let review = NSMenuItem(title: "Review last dictation", action: #selector(reviewLastDictation), keyEquivalent: "r")
+        review.keyEquivalentModifierMask = [.command, .shift]
+        review.target = self
+        menu.addItem(review)
+        reviewItem = review
 
         menu.addItem(.separator())
 
@@ -141,6 +145,7 @@ final class MenuBarController {
     }
 
     func refresh() {
+        reviewItem?.isEnabled = TranscriptReviewWindow.shared.canOpen
         switch AppState.shared.phase {
         case .idle: statusLabel?.title = "ListenToMe — Idle"
         case .recording: statusLabel?.title = "ListenToMe — Recording"
@@ -210,8 +215,12 @@ final class MenuBarController {
         MainWindowController.shared.open()
     }
 
-    @objc private func openSettingsWindow() {
-        MainWindowController.shared.open(section: .settings)
+    @objc private func openSettings() {
+        MainWindowController.shared.openSettings()
+    }
+
+    @objc private func reviewLastDictation() {
+        TranscriptReviewWindow.shared.openLatest()
     }
 
     @objc private func toggleLaunchAtLogin() {

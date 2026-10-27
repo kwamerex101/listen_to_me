@@ -40,6 +40,7 @@ final class ParakeetEngine: ObservableObject {
     /// so a version switch in Settings reloads the right model instead of
     /// silently keeping the old one warm.
     private var loadedVersion: Preferences.ParakeetModel?
+    private let modelLoad = SharedModelLoad<Preferences.ParakeetModel, Void>()
     private init() {}
 
     /// Models live alongside our other model trees. FluidAudio manages the
@@ -50,7 +51,7 @@ final class ParakeetEngine: ObservableObject {
             .appendingPathComponent("ListenToMe/parakeet", isDirectory: true)
     }
 
-    var isReady: Bool { manager != nil }
+    var isReady: Bool { manager != nil && loadedVersion == Preferences.shared.parakeetModel }
 
     /// Download (if needed) + load the selected model version
     /// (`Preferences.shared.parakeetModel`, default v3). Safe to call
@@ -59,38 +60,54 @@ final class ParakeetEngine: ObservableObject {
     /// it first so this call loads the newly-selected one. Progress is
     /// published for the benchmark UI.
     func ensureReady() async throws {
+        try Task.checkCancellation()
         let selected = Preferences.shared.parakeetModel
         if manager != nil, loadedVersion == selected { return }
-        if manager != nil { shutdown() }
-        if case .downloading = status { return }
-        if case .loading = status { return }
+        if manager != nil || (modelLoad.key != nil && modelLoad.key != selected) { shutdown() }
 
-        status = .downloading(progress: 0)
-        do {
-            let models = try await AsrModels.downloadAndLoad(
-                to: Self.modelsDirectory,
-                version: selected.asrModelVersion,
-                progressHandler: { progress in
-                    Task { @MainActor in
-                        // Only regress-proof updates; download phases restart %.
-                        if case .downloading = ParakeetEngine.shared.status {
-                            ParakeetEngine.shared.status =
-                                .downloading(progress: progress.fractionCompleted)
+        try await modelLoad.value(for: selected) { [weak self] id in
+            try Task.checkCancellation()
+            guard let self, self.modelLoad.isCurrent(id),
+                  Preferences.shared.parakeetModel == selected else { throw CancellationError() }
+            self.status = .downloading(progress: 0)
+            do {
+                let models = try await AsrModels.downloadAndLoad(
+                    to: Self.modelsDirectory,
+                    version: selected.asrModelVersion,
+                    progressHandler: { progress in
+                        let fraction = progress.fractionCompleted
+                        Task { @MainActor [weak self] in
+                            guard let self, self.modelLoad.isCurrent(id),
+                                  Preferences.shared.parakeetModel == selected else { return }
+                            if case .downloading(let previous) = self.status {
+                                self.status = .downloading(progress: max(previous, min(1, max(0, fraction))))
+                            }
                         }
                     }
+                )
+                try Task.checkCancellation()
+                guard self.modelLoad.isCurrent(id),
+                      Preferences.shared.parakeetModel == selected else { throw CancellationError() }
+                self.status = .loading
+                let manager = AsrManager(config: .default)
+                try await manager.loadModels(models)
+                try Task.checkCancellation()
+                guard self.modelLoad.isCurrent(id),
+                      Preferences.shared.parakeetModel == selected else { throw CancellationError() }
+                self.manager = manager
+                self.models = models
+                self.loadedVersion = selected
+                self.status = .ready
+            } catch {
+                if self.modelLoad.isCurrent(id) {
+                    self.status = error is CancellationError
+                        ? .missing : .failed(message: error.localizedDescription)
                 }
-            )
-            status = .loading
-            let mgr = AsrManager(config: .default)
-            try await mgr.loadModels(models)
-            manager = mgr
-            self.models = models
-            loadedVersion = selected
-            status = .ready
-        } catch {
-            status = .failed(message: error.localizedDescription)
-            throw error
+                throw error
+            }
         }
+        guard Preferences.shared.parakeetModel == selected,
+              manager != nil, loadedVersion == selected else { throw CancellationError() }
     }
 
     /// Transcribe 16 kHz mono Float samples (the app's native recording
@@ -193,13 +210,14 @@ final class ParakeetEngine: ObservableObject {
     enum ASRBiasError: Error { case notReady, bufferAllocFailed }
 
     func shutdown() {
+        modelLoad.invalidate()
         manager = nil
         models = nil
         slidingManager = nil
         ctcModels = nil
         configuredTerms = []
         loadedVersion = nil
-        if status == .ready { status = .missing }
+        status = .missing
     }
 
     /// Every folder FluidAudio writes Parakeet models into. It does NOT write
