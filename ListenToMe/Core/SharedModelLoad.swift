@@ -5,36 +5,42 @@ import Foundation
 final class SharedModelLoad<Key: Equatable, Value> {
     private struct Entry {
         let id: UUID
-        let key: Key
+        let generation: UUID
         let task: Task<Value, Error>
     }
 
     private var entry: Entry?
-    var key: Key? { entry?.key }
+    private var generation = UUID()
+    private(set) var key: Key?
 
     func isCurrent(_ id: UUID) -> Bool { entry?.id == id }
 
     func value(for key: Key,
                operation: @escaping @MainActor (UUID) async throws -> Value) async throws -> Value {
-        if entry?.key != key { invalidate() }
+        try Task.checkCancellation()
+        if self.key != key {
+            invalidate()
+            self.key = key
+        }
         let current: Entry
         if let entry {
             current = entry
         } else {
             let id = UUID()
-            current = Entry(id: id, key: key, task: Task { try await operation(id) })
+            current = Entry(id: id, generation: generation, task: Task { try await operation(id) })
             entry = current
         }
 
         let result = await current.task.result
-        guard isCurrent(current.id) else { throw CancellationError() }
+        // Eviction permits a retry without invalidating peers of the failed load.
+        // An older waiter must never evict a retry that has already started.
+        if case .failure = result, entry?.id == current.id { entry = nil }
+        try Task.checkCancellation()
+        guard current.generation == generation else { throw CancellationError() }
         switch result {
         case .success(let value):
-            // A cancelled waiter must not discard a load used by other callers.
-            try Task.checkCancellation()
             return value
         case .failure(let error):
-            entry = nil
             throw error
         }
     }
@@ -42,5 +48,7 @@ final class SharedModelLoad<Key: Equatable, Value> {
     func invalidate() {
         entry?.task.cancel()
         entry = nil
+        key = nil
+        generation = UUID()
     }
 }

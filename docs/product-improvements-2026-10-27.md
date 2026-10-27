@@ -1,10 +1,8 @@
 # Product improvements verification
 
-Date: 2026-10-27. Branch: `codex/dictation-readiness-polish`.
-Prepared for pull-request review. The installed app in `/Applications` is unchanged.
+Date: 2026-10-27. Branch: `codex/dictation-readiness-polish`. Prepared for pull-request review. The installed app in `/Applications` is unchanged.
 
 ## Product changes
-
 - Settings commands open the existing main window at Settings.
 - Parakeet callers share selected-model loading; invalidated loads cannot install stale results.
 - Onboarding follows the selected engine and offers explicit retry or Whisper fallback.
@@ -23,43 +21,48 @@ Prepared for pull-request review. The installed app in `/Applications` is unchan
 
 | Check | Result |
 |---|---|
-| Original main baseline | 468 tests |
-| Final Debug suite | 517 tests, 0 failures, 3 skips |
+| Original checkout baseline (`7d204d4`) | 468 tests |
+| Rebased main baseline (`f7d23b0`) | 474 tests |
+| Final Debug suite | 527 tests, 0 failures, 3 skips |
 | Opt-in performance checks, separate run | 3 tests, 0 failures, 0 skips |
-| Release build | Succeeded |
+| Final post-rebase Release build | Succeeded |
 | Final benchmark log | No `GGML_ASSERT` |
 
 The full-suite skips comprise two opt-in performance cases and one existing skipped test.
-The native fixture exercises the actual pipeline into its own NSTextView, clicks bypass twice,
-awaits late cleanup, and asserts exactly one insertion and one history record.
+The native fixture uses its own NSTextView, clicks bypass twice, awaits late cleanup, and asserts one insertion/history record.
+
+## Pre-PR review
+Standards found no hard violations or consequential smells; Spec found no deviations.
+Adversarial and Edge passes found a P2 concurrent shared-load failure bug. It was fixed
+with four regressions; the prior helper fails the concurrent-failure case. No review blockers remain.
 
 ## Runtime checks
-
 - [x] Cmd+, opens Settings in the signed final preview.
+- [x] Signed post-rebase preview: Settings search for “response” selects the new Models section; Cmd+1 returns Home. Upstream sidebar and date formatting remain intact.
 - [x] Home readiness, selected microphone, engine, output, and latest transcript visually checked.
 - [x] The refreshed preview exposes the current latest transcript through external accessibility inspection.
 - [x] Cmd+Shift+R opens review; repeated shortcuts preserve the edited draft; Esc closes it without saving history.
 - [x] View demo and Help open the guide; completion, replay, and closing during playback were checked. Reduce Motion is covered by playback tests.
-
 Preview: `/tmp/listentome-product-final-preview/ListenToMe.app`.
 
-## Measured fixture results
+## Measured fixture results, latest post-rebase run
 
 Environment: Apple M5 Pro, 48 GB memory, macOS 27.0.1, Xcode 27.1, Debug build.
 Fixture: synthetic macOS Samantha speech, 37 words, 12.293 seconds; no microphone capture.
 
 | Measurement | Observed result |
 |---|---|
-| Parakeet TDT v2 fresh in-process model-handle load | 320.8 ms |
-| Warm ASR, 20 runs | Median 93.7 ms; 95th percentile 98.8 ms |
-| Local Gemma E2B polish, 3 runs | 539.1, 506.6, 510.0 ms |
-| Raw native delivery, one attempt | Target 712.1 ms; dispatch 420.6 ms |
-| Polished native delivery, one attempt | Target 1283.4 ms; dispatch 1266.3 ms |
-| Explicit bypass, one attempt | Target 160.6 ms; dispatch 119.6 ms |
+| Parakeet TDT v2 fresh in-process model-handle load | 554.5 ms |
+| Warm ASR, 20 runs | Median 252.2 ms; 95th percentile 291.0 ms |
+| Local Gemma E2B polish, 3 runs | 826.3, 972.0, 953.9 ms |
+| Raw native delivery, one attempt | Target 1076.7 ms; dispatch 608.1 ms |
+| Polished native delivery, one attempt | Target 2029.5 ms; dispatch 1975.8 ms |
+| Explicit bypass, one attempt | Target 298.6 ms; dispatch 248.8 ms |
 
 The load reused existing model files with warm disk cache. WER was zero on this one fixture
 repeated 20 times; this is not evidence of general transcription accuracy. Native attempts
 had different warm/load conditions and do not establish a direct speedup comparison.
+An earlier pre-rebase run had a 93.7 ms ASR median under different warm/background conditions. These uncontrolled runs establish neither a regression nor a relative speedup.
 Dispatch timing ends at the delivery request; it is distinct from text appearing in the target.
 A synthetic fixture bypasses hardware acquisition, so hotkey-to-mic-ready timing remains unbenchmarked.
 Production instrumentation can collect that interval during future real dictations.
@@ -71,7 +74,6 @@ A separate settled Home capture stayed in the ready state: seven one-second CPU 
 Numeric outputs: [engine](verification/2026-10-27/latency.engine.json), [native](verification/2026-10-27/latency.native.json).
 
 ## Reproduction
-
 Generate the project with `xcodegen generate`, then run the full suite:
 
 ```sh
