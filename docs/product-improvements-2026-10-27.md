@@ -23,7 +23,7 @@ Date: 2026-10-27. Branch: `codex/dictation-readiness-polish`. Prepared for pull-
 |---|---|
 | Original checkout baseline (`7d204d4`) | 468 tests |
 | Rebased main baseline (`f7d23b0`) | 474 tests |
-| Final Debug suite | 527 tests, 0 failures, 3 skips |
+| Final Debug suite, including PR #98 microphone fix | 538 tests, 0 failures, 3 skips |
 | Opt-in performance checks, separate run | 3 tests, 0 failures, 0 skips |
 | Final post-rebase Release build | Succeeded |
 | Final benchmark log | No `GGML_ASSERT` |

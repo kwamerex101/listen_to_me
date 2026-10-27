@@ -137,8 +137,9 @@ targets:
         # ggml types). CLlama/include holds llama.h/ggml.h >=0.15 for textual
         # include by llama_bridge.cpp ONLY (HEADER_SEARCH_PATHS, not SWIFT_) —
         # keeping llama's ggml out of the Swift module graph so it can't clash
-        # with whisper's ggml.
-        SWIFT_INCLUDE_PATHS: $(SRCROOT)/ListenToMe/CWhisper/include $(SRCROOT)/ListenToMe/CLlamaBridge/include
+        # with whisper's ggml. CObjCException wraps Objective-C exceptions
+        # (e.g. AVAudioEngine's installTap) as Swift errors.
+        SWIFT_INCLUDE_PATHS: $(SRCROOT)/ListenToMe/CWhisper/include $(SRCROOT)/ListenToMe/CLlamaBridge/include $(SRCROOT)/ListenToMe/CObjCException/include
         HEADER_SEARCH_PATHS: $(SRCROOT)/ListenToMe/CWhisper/include $(SRCROOT)/ListenToMe/CLlama/include $(SRCROOT)/ListenToMe/CLlamaBridge/include
         # Resources/ holds whisper's ggml 0.9.8 set; Resources/llm/ holds
         # llama's isolated ggml >=0.15 set + libllama (directory isolation —
@@ -193,7 +194,7 @@ targets:
         # module-search path as the app target. (Linking against
         # libwhisper isn't required — the app target carries the dep
         # already; this is just for module resolution.)
-        SWIFT_INCLUDE_PATHS: $(SRCROOT)/ListenToMe/CWhisper/include $(SRCROOT)/ListenToMe/CLlamaBridge/include
+        SWIFT_INCLUDE_PATHS: $(SRCROOT)/ListenToMe/CWhisper/include $(SRCROOT)/ListenToMe/CLlamaBridge/include $(SRCROOT)/ListenToMe/CObjCException/include
         HEADER_SEARCH_PATHS: $(SRCROOT)/ListenToMe/CWhisper/include $(SRCROOT)/ListenToMe/CLlamaBridge/include
 
 schemes:
