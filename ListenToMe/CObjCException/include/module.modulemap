@@ -1,0 +1,6 @@
+// CObjCException: lets Swift call AppKit/AVFoundation APIs that report
+// failure by raising an Objective-C exception, which Swift cannot catch.
+module CObjCException {
+    header "LTMObjCException.h"
+    export *
+}

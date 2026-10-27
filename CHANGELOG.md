@@ -2,6 +2,12 @@
 
 All notable user-facing changes per release. Format inspired by [Keep a Changelog](https://keepachangelog.com/), version numbers follow [SemVer](https://semver.org/) at the bundle level.
 
+## Unreleased
+
+### Fixed
+
+- The app no longer crashes when you start a dictation while AirPods or another Bluetooth headset is switching to its microphone. It now records in whatever format the microphone is actually using, and if the microphone still can't be opened the pill shows "Mic unavailable" instead.
+
 ## 0.22.0 (build 50)
 
 ### Changed

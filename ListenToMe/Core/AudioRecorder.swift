@@ -1,8 +1,18 @@
 import Accelerate
 import AudioToolbox
 import AVFoundation
+import CObjCException
 import CoreAudio
 import Foundation
+
+enum AudioRecorderError: Error, Equatable {
+    /// The input device reported no usable format, or AVAudioEngine refused
+    /// the tap even after a fresh engine (typically a Bluetooth headset
+    /// still switching into its microphone mode).
+    case inputUnavailable
+
+    var userMessage: String { "Mic unavailable" }
+}
 
 /// Records microphone audio to a 16kHz mono WAV file and publishes RMS level.
 ///
@@ -16,7 +26,11 @@ import Foundation
 final class AudioRecorder {
     static let shared = AudioRecorder()
 
-    private let engine = AVAudioEngine()
+    /// Replaced by `rebuildEngine()` when a tap can't be installed: an
+    /// engine caches the input device's format, and that cache goes stale
+    /// when a device changes format behind its back (AirPods switching from
+    /// 48 kHz playback to 24 kHz microphone mode). Main-thread only.
+    private var engine = AVAudioEngine()
 
     /// Guards `converter`, `file`, and `reusableOutBuffer` — the only state
     /// shared between the main thread (start/stop/cancel) and the audio
@@ -102,17 +116,128 @@ final class AudioRecorder {
         }
     }
 
+    /// Pure check that an input format can actually be recorded from. A
+    /// device that's disconnecting, or one macOS hasn't finished switching,
+    /// can report 0 Hz or 0 channels, and installing a tap with that raises
+    /// an exception.
+    static func isUsableInputFormat(sampleRate: Double, channels: AVAudioChannelCount) -> Bool {
+        sampleRate > 0 && channels > 0
+    }
+
+    /// Pure check for whether the audio thread must build a new converter
+    /// for an incoming buffer: none yet this session, or the buffer's real
+    /// format differs from the one the converter was built for.
+    static func needsNewConverter(current: AVAudioFormat?, incoming: AVAudioFormat) -> Bool {
+        guard let current else { return true }
+        return current != incoming
+    }
+
     @MainActor
     func start(accumulateSamples: Bool = false) throws -> URL {
         // Fresh file each session
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("listentome-\(UUID().uuidString).wav")
+
+        // Target format for whisper.cpp: 16kHz mono PCM Float32 (CAF-safe WAV)
+        guard let targetFormat = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: 16_000,
+            channels: 1,
+            interleaved: false
+        ) else { throw NSError(domain: "ListenToMe", code: 1) }
+
+        // AVAudioFile wants non-interleaved float; we write at target rate
+        let fileSettings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVSampleRateKey: 16_000,
+            AVNumberOfChannelsKey: 1,
+            AVLinearPCMBitDepthKey: 16,
+            AVLinearPCMIsFloatKey: false,
+            AVLinearPCMIsBigEndianKey: false,
+        ]
+        let newFile = try AVAudioFile(forWriting: url, settings: fileSettings)
+
+        // Publish the new audio-thread state under the lock so a tap
+        // callback that may already be queued sees a fully-initialized
+        // state (or the previous nil), never a half-installed one. The
+        // converter is left nil on purpose: process() builds it from the
+        // first buffer's real format, since the format the engine reports
+        // up front can be stale. Sample accumulator is reserved up front
+        // to avoid append-time reallocations in the hot path.
+        stateLock.lock()
+        file = newFile
+        converter = nil
+        reusableOutBuffer = nil
+        if accumulateSamples {
+            var buf: [Float] = []
+            buf.reserveCapacity(Self.maxAccumulatedSamples)
+            sampleAccumulator = buf
+        } else {
+            sampleAccumulator = nil
+        }
+        stateLock.unlock()
+
+        // One retry on a fresh engine: a failed tap almost always means the
+        // engine's cached device format went stale (a Bluetooth headset
+        // switching modes), and a new engine reads the current one.
+        do {
+            try startEngine(target: targetFormat)
+        } catch {
+            NSLog("[ListenToMe] recording start failed (\(error.localizedDescription)): retrying with a fresh audio engine")
+            rebuildEngine()
+            do {
+                try startEngine(target: targetFormat)
+            } catch {
+                NSLog("[ListenToMe] recording start failed again: \(error.localizedDescription)")
+                rebuildEngine()
+                clearSessionState()
+                try? FileManager.default.removeItem(at: url)
+                throw AudioRecorderError.inputUnavailable
+            }
+        }
         currentURL = url
 
+        // Nothing else observes this notification. If the input device
+        // changes mid-recording (AirPods disconnect, USB mic unplugged,
+        // the OS switching the default input) the engine stops and the
+        // tap goes silent with no signal to the rest of the app unless we
+        // watch for it ourselves. Registered after startEngine because the
+        // retry above may have replaced `engine`.
+        hasReportedInterruption = false
+        if let existing = configChangeObserver {
+            NotificationCenter.default.removeObserver(existing)
+        }
+        configChangeObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: engine,
+            queue: nil
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.reportInterruptionIfNeeded()
+            }
+        }
+
+        // Watchdog: auto-stop after Preferences.maxRecordingSec to defend
+        // against a stuck hotkey or unexpected hold. Cancelled in stop().
+        let cap = Preferences.shared.maxRecordingSec
+        maxDurationTask?.cancel()
+        maxDurationTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(cap))
+            if Task.isCancelled { return }
+            self?.onMaxDurationReached?()
+        }
+        return url
+    }
+
+    /// Selects the input device, installs the tap and starts the current
+    /// engine. Throws instead of crashing if the device has no usable format
+    /// or AVAudioEngine raises while installing the tap.
+    @MainActor
+    private func startEngine(target: AVAudioFormat) throws {
         let input = engine.inputNode
 
         // Route the engine's input to the user-selected device, if any.
-        // Must happen before reading outputFormat / prepare / start — the
+        // Must happen before reading the format / prepare / start: the
         // format follows the device. A nil/unresolvable UID falls through
         // to the macOS-wide default input.
         if let uid = Preferences.shared.inputDeviceUID,
@@ -134,94 +259,63 @@ final class AudioRecorder {
             }
         }
 
-        // Defensive teardown — installTap raises an Objective-C NSException
-        // (which Swift `throws` cannot catch) if a tap is already on the bus
-        // or if the engine is already running. A previous session that
-        // failed to fully stop, a quick press-release-press sequence, or any
-        // unexpected exit from stop()/cancel() leaves us in that state. Make
-        // start() idempotent by tearing down first.
+        // Defensive teardown: installTap raises if a tap is already on the
+        // bus or the engine is already running. A previous session that
+        // failed to fully stop, or a quick press-release-press sequence,
+        // leaves us in that state. Make start() idempotent by tearing down
+        // first.
         if engine.isRunning {
             engine.stop()
         }
         input.removeTap(onBus: 0)
 
-        let hwFormat = input.outputFormat(forBus: 0)
-
-        // Target format for whisper.cpp: 16kHz mono PCM Float32 (CAF-safe WAV)
-        guard let targetFormat = AVAudioFormat(
-            commonFormat: .pcmFormatFloat32,
-            sampleRate: 16_000,
-            channels: 1,
-            interleaved: false
-        ) else { throw NSError(domain: "ListenToMe", code: 1) }
-
-        // AVAudioFile wants non-interleaved float; we write at target rate
-        let fileSettings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatLinearPCM,
-            AVSampleRateKey: 16_000,
-            AVNumberOfChannelsKey: 1,
-            AVLinearPCMBitDepthKey: 16,
-            AVLinearPCMIsFloatKey: false,
-            AVLinearPCMIsBigEndianKey: false,
-        ]
-        let newFile = try AVAudioFile(forWriting: url, settings: fileSettings)
-        let newConverter = AVAudioConverter(from: hwFormat, to: targetFormat)
-
-        // Publish the new audio-thread state under the lock so a tap
-        // callback that may already be queued sees a fully-initialized
-        // pair (or the previous nil) — never a half-installed state.
-        // Sample accumulator is reserved up front to avoid append-time
-        // reallocations in the hot path.
-        stateLock.lock()
-        file = newFile
-        converter = newConverter
-        reusableOutBuffer = nil
-        if accumulateSamples {
-            var buf: [Float] = []
-            buf.reserveCapacity(Self.maxAccumulatedSamples)
-            sampleAccumulator = buf
-        } else {
-            sampleAccumulator = nil
+        let hwFormat = input.inputFormat(forBus: 0)
+        guard Self.isUsableInputFormat(sampleRate: hwFormat.sampleRate,
+                                       channels: hwFormat.channelCount) else {
+            throw AudioRecorderError.inputUnavailable
         }
-        stateLock.unlock()
 
+        // format: nil taps in whatever format the bus really has, instead
+        // of a format read a moment earlier that may no longer match the
+        // hardware ("Failed to create tap due to format mismatch").
+        // installTap reports failure by raising an Objective-C exception,
+        // which Swift can't catch, so it runs inside LTMObjCException.
         let bufferSize: AVAudioFrameCount = 1024
-        input.installTap(onBus: 0, bufferSize: bufferSize, format: hwFormat) { [weak self] buffer, _ in
-            self?.process(buffer: buffer, target: targetFormat)
-        }
-
-        // Nothing else observes this notification. If the input device
-        // changes mid-recording (AirPods disconnect, USB mic unplugged,
-        // the OS switching the default input) the engine stops and the
-        // tap goes silent with no signal to the rest of the app unless we
-        // watch for it ourselves.
-        hasReportedInterruption = false
-        if let existing = configChangeObserver {
-            NotificationCenter.default.removeObserver(existing)
-        }
-        configChangeObserver = NotificationCenter.default.addObserver(
-            forName: .AVAudioEngineConfigurationChange,
-            object: engine,
-            queue: nil
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.reportInterruptionIfNeeded()
+        try LTMObjCException.catching {
+            input.installTap(onBus: 0, bufferSize: bufferSize, format: nil) { [weak self] buffer, _ in
+                self?.process(buffer: buffer, target: target)
             }
         }
 
         engine.prepare()
-        try engine.start()
-
-        // Watchdog: auto-stop after Preferences.maxRecordingSec to defend
-        // against a stuck hotkey or unexpected hold. Cancelled in stop().
-        let cap = Preferences.shared.maxRecordingSec
-        maxDurationTask?.cancel()
-        maxDurationTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(cap))
-            if Task.isCancelled { return }
-            self?.onMaxDurationReached?()
+        do {
+            try engine.start()
+        } catch {
+            input.removeTap(onBus: 0)
+            throw error
         }
-        return url
+    }
+
+    /// Throws away the current engine (and its stale cached device format)
+    /// and creates a new one. Only called while no recording is running.
+    @MainActor
+    private func rebuildEngine() {
+        engine.inputNode.removeTap(onBus: 0)
+        if engine.isRunning {
+            engine.stop()
+        }
+        engine = AVAudioEngine()
+    }
+
+    /// Clears the audio-thread state for a session that ended or never
+    /// started.
+    private func clearSessionState() {
+        stateLock.lock()
+        file = nil
+        converter = nil
+        reusableOutBuffer = nil
+        sampleAccumulator = nil
+        stateLock.unlock()
     }
 
     @MainActor
@@ -236,12 +330,7 @@ final class AudioRecorder {
         engine.stop()
         let url = currentURL
         currentURL = nil
-        stateLock.lock()
-        file = nil
-        converter = nil
-        reusableOutBuffer = nil
-        sampleAccumulator = nil
-        stateLock.unlock()
+        clearSessionState()
         return url
     }
 
@@ -257,12 +346,7 @@ final class AudioRecorder {
             try? FileManager.default.removeItem(at: url)
         }
         currentURL = nil
-        stateLock.lock()
-        file = nil
-        converter = nil
-        reusableOutBuffer = nil
-        sampleAccumulator = nil
-        stateLock.unlock()
+        clearSessionState()
     }
 
     @MainActor
@@ -300,11 +384,23 @@ final class AudioRecorder {
     /// is held under `stateLock` to avoid races with stop()/cancel() that
     /// nil out converter/file mid-buffer.
     nonisolated private func process(buffer: AVAudioPCMBuffer, target: AVAudioFormat) {
+        guard buffer.format.sampleRate > 0 else { return }
         let ratio = target.sampleRate / buffer.format.sampleRate
         let outCapacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 32
 
         stateLock.lock()
-        guard let converter = self.converter, let file = self.file else {
+        guard let file = self.file else {
+            stateLock.unlock()
+            return
+        }
+        // Build the converter from the format the audio actually arrives in
+        // (first buffer of the session, or after the device changed format).
+        // This allocates on the render thread, but only on those rare
+        // buffers, never per buffer.
+        if Self.needsNewConverter(current: converter?.inputFormat, incoming: buffer.format) {
+            converter = AVAudioConverter(from: buffer.format, to: target)
+        }
+        guard let converter = self.converter else {
             stateLock.unlock()
             return
         }
