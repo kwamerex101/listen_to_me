@@ -8,8 +8,8 @@ enum Phase: Equatable {
     /// Legacy: only entered if the streaming-preview flow is bypassed.
     /// Kept so existing switch statements stay exhaustive.
     case cleaning
-    /// Raw transcript is already pasted into the target app; cleanup is
-    /// running in the background and may swap in a polished version.
+    /// Cleanup is running before delivery. Active-app dictation offers
+    /// explicit insertion without polish; other routes may also use this phase.
     case polishing(rawPreview: String)
     case success(preview: String)
     case error(message: String)
@@ -40,6 +40,8 @@ final class AppState: ObservableObject {
     /// linked engine is selected. Always empty otherwise. PillView
     /// renders a subtle preview below the waveform when non-empty.
     @Published var partialText: String = ""
+    /// True only while an active-app clean-first result is waiting.
+    @Published var canInsertWithoutPolish: Bool = false
     @Published var hotkeyGranted: Bool = false
     @Published var micGranted: Bool = false
     @Published var showPermissionPrompt: Bool = false
@@ -75,9 +77,11 @@ final class AppState: ObservableObject {
     var onStopTap: (() -> Void)?
     /// Called by pill's X button — abort recording without transcribing.
     var onCancelTap: (() -> Void)?
-    /// Called when the user clicks the pill in success/polishing — opens
+    /// Called when the user clicks the success pill, opens
     /// the inline correction popover.
     var onPillTap: (() -> Void)?
+    /// Delivers the pending active-app transcript without waiting for polish.
+    var onInsertWithoutPolish: (() -> Void)?
     /// Called when the user presses Keep on the .suggestion banner — accepts
     /// the inferred tone permanently for this bundleId.
     var onSuggestionKeep: (() -> Void)?

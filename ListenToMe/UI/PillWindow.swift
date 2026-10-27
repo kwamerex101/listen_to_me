@@ -35,9 +35,6 @@ final class PillWindow: NSPanel {
     /// rounding error. Cleared on `isFinal`.
     private var dragStartAnchor: CGPoint?
 
-    /// Deferred window shrink scheduled by an animated `applyDesiredSize`.
-    private var pendingShrink: DispatchWorkItem?
-
     /// What callers last asked of `setInteractive(_:)`. Combined with
     /// `idleHotZoneActive` in `updateMouseHandling()`.
     private var requestedInteractive = false
@@ -109,7 +106,8 @@ final class PillWindow: NSPanel {
         }()
         let cg = PillMetrics.windowSize(phase: s.phase,
                                         showPermissionPrompt: s.showPermissionPrompt,
-                                        partialPreviewVisible: partialVisible)
+                                        partialPreviewVisible: partialVisible,
+                                        canInsertWithoutPolish: s.canInsertWithoutPolish)
         return NSSize(width: cg.width, height: cg.height)
     }
 
@@ -138,27 +136,19 @@ final class PillWindow: NSPanel {
         return CGPoint(x: visible.midX, y: visible.minY + 8)
     }
 
-    /// True when at least 80pt of the chip rect (anchored at `anchor`,
-    /// sized at the current idle pill height for a generous tolerance)
-    /// overlaps some attached screen's visibleFrame. Strict enough to
-    /// reject anchors stranded in disconnected-monitor space, loose
-    /// enough to tolerate the user dragging right to the edge.
+    /// Retain positions with at least half of the idle chip still visible.
     private static func isAnchorVisible(_ anchor: CGPoint) -> Bool {
-        // Treat the chip as a small 48×12 rect at the anchor for the
-        // visibility test — this is independent of current phase so an
-        // anchor saved during one phase remains valid in another.
-        let chipRect = NSRect(x: anchor.x - 24,
-                              y: anchor.y - 6,
-                              width: 48,
-                              height: 12)
-        let minOverlap: CGFloat = 24
-        for screen in NSScreen.screens {
-            let isect = screen.visibleFrame.intersection(chipRect)
-            if isect.width >= minOverlap && isect.height >= minOverlap {
-                return true
-            }
-        }
-        return false
+        PillAnchorPolicy.isVisible(anchor, on: NSScreen.screens.map(\.visibleFrame))
+    }
+
+    private func displayAnchor(_ anchor: CGPoint, size: NSSize) -> CGPoint {
+        let visibleSize = CGSize(width: size.width - PillMetrics.windowPadding * 2,
+                                 height: size.height - PillMetrics.windowPadding * 2)
+        // Compact idle positions can sit on an edge. Expanded controls
+        // need their whole surface on screen, without overwriting that preference.
+        guard visibleSize.width > 48 else { return anchor }
+        return PillAnchorPolicy.displayAnchor(anchor, visibleSize: visibleSize,
+                                               on: NSScreen.screens.map(\.visibleFrame))
     }
 
     /// Resolve the anchor we should use right now: persisted (and still
@@ -171,42 +161,16 @@ final class PillWindow: NSPanel {
         return defaultAnchor()
     }
 
-    /// Place the window so the chip lands at the resolved anchor at the
-    /// currently-desired size. Used at launch, on screen-config change,
-    /// and whenever AppState publishes a relevant value.
-    ///
-    /// `animated` (phase-driven resizes only): the SwiftUI spring on the
-    /// pill content is the only motion. The window grows instantly so the
-    /// content never clips, and shrinks after the ~300ms spring settles, so
-    /// AppKit never re-lays out the glass per frame. Launch, drag, and
-    /// display-config repositions stay instant.
+    /// Keep panel geometry and hit regions current at the saved anchor.
+    /// SwiftUI owns content fades; AppKit never runs a competing resize.
     @MainActor
-    func applyDesiredSize(animated: Bool = false) {
-        pendingShrink?.cancel()
-        pendingShrink = nil
+    func applyDesiredSize() {
+        defer { refreshIdleHotZone() }
         let size = currentDesiredSize()
-        let anchor = resolvedAnchor()
-        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        if !animated || reduceMotion {
-            let newFrame = NSRect(origin: origin(forAnchor: anchor, size: size), size: size)
-            guard newFrame != frame else { return }
-            setFrame(newFrame, display: true, animate: false)
-            return
-        }
-        let grow = NSSize(width: max(size.width, frame.width),
-                          height: max(size.height, frame.height))
-        let growFrame = NSRect(origin: origin(forAnchor: anchor, size: grow), size: grow)
-        if growFrame != frame {
-            setFrame(growFrame, display: true, animate: false)
-        }
-        guard grow != size else { return }
-        // Shrink once the content spring has settled. Re-reads the desired
-        // size at fire time so a phase change in between is never stale.
-        let work = DispatchWorkItem { [weak self] in
-            Task { @MainActor in self?.applyDesiredSize() }
-        }
-        pendingShrink = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.38, execute: work)
+        let anchor = displayAnchor(resolvedAnchor(), size: size)
+        let newFrame = NSRect(origin: origin(forAnchor: anchor, size: size), size: size)
+        guard newFrame != frame else { return }
+        setFrame(newFrame, display: true, animate: false)
     }
 
     /// Place window so the chip lands at the resolved anchor; show it.
@@ -243,8 +207,6 @@ final class PillWindow: NSPanel {
     /// On `isFinal`, persist the resulting anchor.
     @MainActor
     func applyDrag(translation: CGSize, isFinal: Bool) {
-        pendingShrink?.cancel()
-        pendingShrink = nil
         if dragStartAnchor == nil {
             dragStartAnchor = currentAnchor()
         }
@@ -263,8 +225,7 @@ final class PillWindow: NSPanel {
             }
         }
         let size = currentDesiredSize()
-        // Full frame, not just origin: a deferred shrink may have been
-        // cancelled above, so the window can still be at its grown size.
+        newAnchor = displayAnchor(newAnchor, size: size)
         setFrame(NSRect(origin: origin(forAnchor: newAnchor, size: size), size: size),
                  display: true, animate: false)
         if isFinal {
@@ -352,14 +313,21 @@ final class PillWindow: NSPanel {
         s.$phase
             .removeDuplicates()
             .sink { [weak self] _ in
-                Task { @MainActor in self?.applyDesiredSize(animated: true) }
+                Task { @MainActor in self?.applyDesiredSize() }
+            }
+            .store(in: &cancellables)
+
+        s.$canInsertWithoutPolish
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                Task { @MainActor in self?.applyDesiredSize() }
             }
             .store(in: &cancellables)
 
         s.$showPermissionPrompt
             .removeDuplicates()
             .sink { [weak self] _ in
-                Task { @MainActor in self?.applyDesiredSize(animated: true) }
+                Task { @MainActor in self?.applyDesiredSize() }
             }
             .store(in: &cancellables)
 
@@ -370,7 +338,7 @@ final class PillWindow: NSPanel {
             .map { !$0.isEmpty }
             .removeDuplicates()
             .sink { [weak self] _ in
-                Task { @MainActor in self?.applyDesiredSize(animated: true) }
+                Task { @MainActor in self?.applyDesiredSize() }
             }
             .store(in: &cancellables)
     }

@@ -1,76 +1,17 @@
-//
-//  Motion.swift
-//  ListenToMe
-//
-//  Single-source spring vocabulary for all UI motion. Tuning the feel of
-//  the app happens here — pill morphs, tab transitions, micro-animations.
-//
-
 import SwiftUI
 
+/// Shared timings for feedback, content changes, and the onboarding example.
 enum Motion {
-    // --- Existing pill vocabulary (preserved verbatim from PillView) ---
-
-    /// Size morphs (width/height) between phases. Phase 5 morph-audit tune:
-    /// snappier response (0.34 → 0.30) with slightly higher damping
-    /// (0.78 → 0.82) — overshoot still reads as "intentional reaction"
-    /// but no oscillation. Lands closer to mechanical confidence than
-    /// the previous value, which felt slightly bouncy in side-by-side
-    /// comparison. See POLISH-04(b) commit for rationale.
-    static let phaseSize  = Animation.spring(response: 0.30, dampingFraction: 0.82)
-    /// Content swap (id transition). Critically damped: status changes
-    /// should settle without bouncing.
-    static let phaseSwap  = Animation.spring(response: 0.30, dampingFraction: 1.0)
-    /// Press-pop scale beat when recording starts: a quick lift that
-    /// settles without wobble.
-    static let pressUp    = Animation.spring(response: 0.18, dampingFraction: 0.8)
-    static let pressDown  = Animation.spring(response: 0.30, dampingFraction: 1.0)
-    /// Success spring for the checkmark scale-in.
-    static let successPop = Animation.spring(response: 0.32, dampingFraction: 0.55)
-    /// Halo expand-and-fade after a successful paste.
-    static let halo       = Animation.easeOut(duration: 0.45)
-    /// Error shake — mirrors macOS's native NSWindow.shake feel.
-    static let shake      = Animation.easeInOut(duration: 0.45)
-    /// Idle breath (autoreversing) — long enough to fade into background.
-    static let idleBreath = Animation.easeInOut(duration: 1.6).repeatForever(autoreverses: true)
-    /// Stop-button reactive scale to live audio level.
-    static let stopReact  = Animation.spring(response: 0.18, dampingFraction: 0.7)
-
-    // --- Phase 5 additions ---
-
-    /// MainView tab content cross-fade (Q3 locked: 200ms easeInOut, content only).
-    static let tabFade        = Animation.easeInOut(duration: 0.20)
-
-    /// Pill waveform dim after 5s silence (POLISH-04a / Wispr W4).
-    static let silenceDim     = Animation.easeOut(duration: 0.4)
-
-    /// Pill waveform wake on speech return (POLISH-04a inverse).
-    static let silenceWake    = Animation.spring(response: 0.18, dampingFraction: 0.7)
-
-    /// Gold ring on dictionary candidate auto-promotion (POLISH-04c — moment of delight).
-    static let promotionFlash = Animation.easeOut(duration: 0.6)
-
-    /// Pill hover lift — subtle scale, border, and shadow bump on cursor entry/exit.
-    /// Snappy enough to feel responsive at the edge of a 48px target, soft enough
-    /// not to compete with the idle breath.
-    static let hoverLift      = Animation.spring(response: 0.28, dampingFraction: 0.78)
-
-    /// Main-window hover feedback — background fills, action-button
-    /// reveals, accent bars. One timing for every flat hover surface so
-    /// rows across Home/History/Settings respond in the same rhythm.
-    /// (The pill keeps its springier hoverLift — it's a floating object,
-    /// not a row.)
-    static let hoverFade      = Animation.easeInOut(duration: 0.15)
-
-    /// Selection indicator slide (sidebar highlight, Settings tab chip) and
-    /// the tab content that follows it. Critically damped so the highlight
-    /// glides between items without overshoot.
-    static let selection      = Animation.spring(response: 0.3, dampingFraction: 1.0)
-
-    /// Button press feedback (primary/secondary/pressable-style scale beats).
-    static let press          = Animation.spring(response: 0.18, dampingFraction: 0.7)
-
-    /// Sidebar expand/collapse width change. Critically damped so the
-    /// column glides without overshoot.
-    static let sidebar        = Animation.spring(response: 0.3, dampingFraction: 1.0)
+    static let phaseSize = Animation.easeOut(duration: 0.16)
+    static let phaseSwap = Animation.easeOut(duration: 0.14)
+    static let successPop = Animation.easeOut(duration: 0.16)
+    static let tabFade = Animation.easeInOut(duration: 0.18)
+    static let promotionFlash = Animation.easeOut(duration: 0.30)
+    static let hoverFade = Animation.easeOut(duration: 0.12)
+    static let demoStep = Animation.easeInOut(duration: 0.16)
+    // Used by the sidebar, Settings chips, buttons, and Undo toast.
+    static let selection = Animation.easeOut(duration: 0.16)
+    static let press = Animation.easeOut(duration: 0.12)
+    static let sidebar = Animation.easeOut(duration: 0.18)
+    static let hoverLift = Animation.easeOut(duration: 0.12)
 }

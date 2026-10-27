@@ -12,6 +12,7 @@ final class MainWindowController: NSObject {
 
     private var window: NSWindow?
     private let delegate = WindowDelegate()
+    let navigation = MainNavigation()
 
     private override init() { super.init() }
 
@@ -37,7 +38,7 @@ final class MainWindowController: NSObject {
     /// the SwiftUI frame in MainView share one value.
     fileprivate static let minContentSize = NSSize(width: DT.windowMinWidth, height: DT.windowMinHeight)
 
-    /// Section a not-yet-built window should start on; consumed by MainView.
+    /// Requested section applied before creating or reopening the main window.
     private var pendingSection: WfSection?
 
     func takePendingSection() -> WfSection? {
@@ -53,9 +54,14 @@ final class MainWindowController: NSObject {
         pendingSection = nil
     }
 
+    func openSettings() {
+        open(section: .settings)
+    }
+
     func open() {
+        if let section = takePendingSection() { navigation.selection = section }
         if window == nil {
-            let root = MainView()
+            let root = MainView(navigation: navigation)
             let host = NSHostingController(rootView: root)
             host.sizingOptions = []
 

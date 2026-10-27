@@ -73,6 +73,7 @@ struct SettingsSearchEntry {
         .init(title: "Model status", keywords: "downloaded delete download", tab: .models),
         .init(title: "Accuracy", keywords: "beam search", tab: .models),
         .init(title: "Live partial transcripts", keywords: "streaming preview", tab: .models),
+        .init(title: "Response time", keywords: "latency speed performance median percentile timing", tab: .models),
         .init(title: "History retention", keywords: "delete old transcripts days", tab: .privacy),
         .init(title: "Encrypt history at rest", keywords: "aes encryption", tab: .privacy),
         .init(title: "Context-aware tone", keywords: "browser url apple event", tab: .privacy),
@@ -823,6 +824,10 @@ struct SettingsView: View {
                 }
             }
             .animation(Motion.tabFade, value: transcriptionEngine)
+
+            section(title: "Response time") {
+                DictationTimingView()
+            }
         }
     }
 

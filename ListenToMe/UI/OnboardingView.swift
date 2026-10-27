@@ -18,7 +18,9 @@ struct OnboardingView: View {
     private static let stepAnimation = Animation.spring(response: 0.35, dampingFraction: 1.0)
 
     @ObservedObject private var modelManager = WhisperModelManager.shared
+    @ObservedObject private var parakeet = ParakeetEngine.shared
     @ObservedObject private var appState = AppState.shared
+    @State private var engine = Preferences.shared.transcriptionEngine
 
     // Live config the user can set inline.
     @State private var userNameDraft: String = Preferences.shared.userName
@@ -30,6 +32,7 @@ struct OnboardingView: View {
     // Practice screen state.
     @State private var practiceText: String = ""
     @State private var practiceDidSucceed: Bool = false
+    @State private var practiceAttempt = PracticeDictationAttempt()
 
     // Accessibility.
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -62,6 +65,31 @@ struct OnboardingView: View {
             accessibilityGranted = HotkeyMonitor.isAccessibilityGranted()
             modelManager.refreshStatus()
         }
+        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+            engine = Preferences.shared.transcriptionEngine
+        }
+        .onChange(of: engine) { _, _ in prepareEngine() }
+        .onChange(of: step) { _, _ in practiceAttempt.reset() }
+        .onChange(of: appState.phase) { _, phase in
+            guard step == stepCount - 1 else { return }
+            if phase == .recording { practiceAttempt.begin(text: practiceText) }
+            if case .success = phase {
+                finishPracticeIfNeeded(practiceAttempt.recordSuccess(text: practiceText))
+            }
+            if case .error = phase { practiceAttempt.reset() }
+            if phase == .idle || phase == .noSpeech { practiceAttempt.reset() }
+        }
+        .onChange(of: practiceText) { _, text in
+            guard step == stepCount - 1 else { return }
+            finishPracticeIfNeeded(practiceAttempt.editorChanged(text: text))
+        }
+    }
+
+    private func finishPracticeIfNeeded(_ completed: Bool) {
+        guard completed else { return }
+        withAnimation(reduceMotion ? nil : Motion.successPop) {
+            practiceDidSucceed = true
+        }
     }
 
     // MARK: - Step content
@@ -79,54 +107,25 @@ struct OnboardingView: View {
     // MARK: - Step 0: Welcome
 
     private var welcomeStep: some View {
-        VStack(alignment: .leading, spacing: DT.space6) {
-            // Hero card with heroGradient background.
-            ZStack(alignment: .bottomLeading) {
-                RoundedRectangle(cornerRadius: DT.radiusXl, style: .continuous)
-                    .fill(DT.heroGradient)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: DT.radiusXl, style: .continuous)
-                            .fill(DT.heroGlow)
-                    )
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 160)
+        VStack(alignment: .leading, spacing: DT.space3) {
+            Text("Voice, wherever you type.")
+                .font(DT.pageTitle)
 
-                VStack(alignment: .leading, spacing: DT.space2) {
-                    Image(systemName: "waveform")
-                        .font(.system(size: 42, weight: .light))
-                        .foregroundStyle(DT.accent)
-                    Text("Voice, wherever you type.")
-                        .font(DT.pageTitle)
-                        .foregroundStyle(Color.white)
-                }
-                .padding(DT.space6)
-            }
+            Label("Private dictation on your Mac. No account required.", systemImage: "lock.shield")
+                .font(DT.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
 
-            VStack(alignment: .leading, spacing: DT.space2) {
-                Text("Dictate into any app — no clipboard, no switching windows.")
-                    .font(DT.body)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                HStack(spacing: DT.space2) {
-                    Image(systemName: "lock.shield")
-                        .font(.system(size: 12))
-                        .foregroundStyle(DT.accent)
-                    Text("All processing runs on your Mac. No cloud, no account.")
-                        .font(DT.caption)
-                        .foregroundStyle(DT.textTertiary)
-                }
-                .padding(.top, DT.space1)
-            }
+            DictationDemoView(hotkey: hotkey.label)
 
             VStack(alignment: .leading, spacing: DT.space2) {
                 Text("Your name (optional)")
-                    .font(DT.bodyStrong)
+                    .font(DT.captionStrong)
                 TextField("What should we call you?", text: $userNameDraft)
                     .textFieldStyle(.roundedBorder)
                     .onChange(of: userNameDraft) { _, new in Preferences.shared.userName = new }
             }
-            .padding(DT.space4)
+            .padding(DT.space3)
             .card()
         }
     }
@@ -148,26 +147,85 @@ struct OnboardingView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .card()
 
-                if case .downloading = modelManager.status {
-                    Text("You can keep going — the download continues in the background.")
+                if !engineReady {
+                    Text("You can continue setup while your voice engine gets ready in the background.")
                         .font(DT.caption)
                         .foregroundStyle(.secondary)
                 }
             }
         }
-        // Auto-start the download so "skip" still leaves a model downloading.
-        // WhisperRunner does NOT lazily download on first dictation — without
-        // this, a skipped onboarding leaves the first dictation erroring with
-        // "Model missing".
-        .onAppear {
+        .onAppear { prepareEngine() }
+    }
+
+    @ViewBuilder private var modelStatusRow: some View {
+        if engine == .parakeet {
+            parakeetStatusRow
+        } else {
+            whisperStatusRow
+        }
+    }
+
+    private var engineReady: Bool {
+        if engine == .parakeet { return parakeet.isReady }
+        if case .ready = modelManager.status { return true }
+        return false
+    }
+
+    private func prepareEngine() {
+        if engine == .parakeet {
+            if case .missing = parakeet.status { startParakeet() }
+        } else {
             modelManager.refreshStatus()
-            if case .missing = modelManager.status {
-                modelManager.startDownload()
+            if case .missing = modelManager.status { modelManager.startDownload() }
+        }
+    }
+
+    private func startParakeet() {
+        // Owned by the shared engine, so moving between steps does not cancel setup.
+        Task { try? await parakeet.ensureReady() }
+    }
+
+    @ViewBuilder private var parakeetStatusRow: some View {
+        switch parakeet.status {
+        case .ready:
+            Label("Parakeet \(Preferences.shared.parakeetModel.shortLabel) is ready to dictate", systemImage: "checkmark.circle.fill")
+                .foregroundStyle(DT.statusSuccess)
+        case .missing:
+            Button("Download Parakeet") { startParakeet() }
+                .buttonStyle(.secondary)
+        case .downloading(let progress):
+            VStack(alignment: .leading, spacing: DT.space2) {
+                Text("Downloading Parakeet \(Preferences.shared.parakeetModel.shortLabel)")
+                    .font(DT.bodyStrong)
+                ProgressView(value: progress).tint(DT.accent)
+                Text("\(Int(progress * 100))%")
+                    .font(DT.monoCaption)
+                    .foregroundStyle(.secondary)
+            }
+        case .loading:
+            HStack(spacing: DT.space3) {
+                ProgressView().controlSize(.small)
+                Text("Loading Parakeet on your Mac…")
+                    .font(DT.body)
+            }
+        case .failed(let message):
+            VStack(alignment: .leading, spacing: DT.space3) {
+                Label("Parakeet could not get ready", systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(DT.statusError)
+                Text(message).font(DT.caption).foregroundStyle(.secondary)
+                HStack(spacing: DT.space3) {
+                    Button("Retry") { startParakeet() }
+                    Button("Use Whisper instead") {
+                        Preferences.shared.transcriptionEngine = .server
+                        engine = .server
+                    }
+                }
+                .buttonStyle(.secondary)
             }
         }
     }
 
-    @ViewBuilder private var modelStatusRow: some View {
+    @ViewBuilder private var whisperStatusRow: some View {
         switch modelManager.status {
         case .ready(let bytes):
             HStack(spacing: DT.space3) {
@@ -177,7 +235,7 @@ struct OnboardingView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Voice engine ready")
                         .font(DT.bodyStrong)
-                    Text("\(bytes / 1_000_000) MB · Whisper Base")
+                    Text("\(bytes / 1_000_000) MB · Whisper \(Preferences.shared.selectedWhisperModel.rawValue)")
                         .font(DT.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -187,7 +245,7 @@ struct OnboardingView: View {
             Button {
                 modelManager.startDownload()
             } label: {
-                Label("Download Whisper Base (148 MB)", systemImage: "arrow.down.circle")
+                Label("Download Whisper \(Preferences.shared.selectedWhisperModel.rawValue)", systemImage: "arrow.down.circle")
             }
             .buttonStyle(.secondary)
         case .downloading(let progress):
@@ -337,6 +395,15 @@ struct OnboardingView: View {
                 iconTint: DT.accent
             )
 
+            if !engineReady {
+                modelStatusRow
+                    .padding(DT.space4)
+                    .card()
+                Text("Wait until your voice engine is ready, then try the hotkey below.")
+                    .font(DT.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             VStack(alignment: .leading, spacing: DT.space3) {
                 // Focused text field — the normal dictation pipeline pastes into it
                 // because the onboarding window is key and this field is focused.
@@ -359,13 +426,6 @@ struct OnboardingView: View {
                             }
                         }
                     )
-                    .onChange(of: practiceText) { _, new in
-                        if !new.isEmpty && !practiceDidSucceed {
-                            withAnimation(reduceMotion ? nil : Motion.successPop) {
-                                practiceDidSucceed = true
-                            }
-                        }
-                    }
 
                 // Success moment.
                 if practiceDidSucceed {
@@ -416,7 +476,7 @@ struct OnboardingView: View {
             Spacer()
 
             HStack(spacing: DT.space3) {
-                // Skip ghost link, always available so setup is never a trap.
+                // Setup always has an explicit way to finish without practice.
                 Button(step < stepCount - 1 ? "Skip setup" : "Finish without testing") {
                     onFinish()
                 }
@@ -424,7 +484,6 @@ struct OnboardingView: View {
                 .font(DT.caption)
                 .foregroundStyle(.secondary)
 
-                // Back, only after the first step.
                 if step > 0 {
                     Button("Back") {
                         goingBack = true
@@ -447,7 +506,7 @@ struct OnboardingView: View {
                     }
                 }
                 .buttonStyle(.primary)
-                .disabled(step == stepCount - 1 && practiceText.isEmpty)
+                .disabled(step == stepCount - 1 && !practiceDidSucceed)
                 .keyboardShortcut(.defaultAction)
             }
         }

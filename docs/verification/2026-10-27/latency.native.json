@@ -1,0 +1,26 @@
+{
+  "nativeInsertions": [
+    {
+      "bypassedPolish": false,
+      "deliveryDispatchMs": 420.63562500698026,
+      "insertedWords": 37,
+      "mode": "raw",
+      "targetInsertionMs": 712.0658333296888
+    },
+    {
+      "bypassedPolish": false,
+      "deliveryDispatchMs": 1266.2790833419422,
+      "insertedWords": 36,
+      "mode": "polished",
+      "targetInsertionMs": 1283.4428749920335
+    },
+    {
+      "bypassedPolish": true,
+      "deliveryDispatchMs": 119.64012500538956,
+      "insertedWords": 37,
+      "mode": "bypass",
+      "targetInsertionMs": 160.5847916653147
+    }
+  ],
+  "source": "synthetic fixture; own NSTextView only"
+}

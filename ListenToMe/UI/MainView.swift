@@ -60,14 +60,14 @@ enum WfSection: String, CaseIterable, Identifiable {
     }
 }
 
-struct MainView: View {
-    @State private var selection: WfSection
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+@MainActor
+final class MainNavigation: ObservableObject {
+    @Published var selection: WfSection = .home
+}
 
-    init() {
-        // A freshly built window opened via `open(section:)` starts there.
-        _selection = State(initialValue: MainWindowController.shared.takePendingSection() ?? .home)
-    }
+struct MainView: View {
+    @ObservedObject var navigation: MainNavigation
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         // GeometryReader at the root drives the responsive size class for the
@@ -76,7 +76,7 @@ struct MainView: View {
             let isCompact = geo.size.width < DT.compactBreakpoint
 
             HStack(spacing: 0) {
-                SidebarView(selection: $selection, compact: isCompact)
+                SidebarView(selection: $navigation.selection, compact: isCompact)
                     .frame(width: isCompact ? DT.sidebarCompactWidth : DT.sidebarRegularWidth)
                     .glassWindowBackground(.sidebar, fallback: Color(.controlBackgroundColor))
                     .animation(reduceMotion ? nil : Motion.sidebar, value: isCompact)
@@ -84,7 +84,7 @@ struct MainView: View {
                 Divider()
 
                 Group {
-                    switch selection {
+                    switch navigation.selection {
                     case .home: HomeView()
                     case .history: HistoryView()
                     case .dictionary: DictionaryView()
@@ -93,9 +93,9 @@ struct MainView: View {
                     case .settings: SettingsView()
                     }
                 }
-                .id(selection)
+                .id(navigation.selection)
                 .transition(.opacity)
-                .animation(Motion.tabFade, value: selection)
+                .animation(Motion.tabFade, value: navigation.selection)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .glassWindowBackground(.underWindowBackground, fallback: Color(.windowBackgroundColor))
             }
@@ -108,7 +108,7 @@ struct MainView: View {
         // menu bar's Settings…).
         .onReceive(NotificationCenter.default.publisher(for: .selectMainSection)) { note in
             if let raw = note.object as? String, let section = WfSection(rawValue: raw) {
-                selection = section
+                navigation.selection = section
             }
         }
         // SwiftUI floor matches the AppKit window contentMinSize. The window

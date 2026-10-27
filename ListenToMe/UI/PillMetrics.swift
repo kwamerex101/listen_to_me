@@ -8,10 +8,9 @@ enum PillMetrics {
     /// Permission card replaces the pill content with a much larger surface.
     static let permissionCardSize = CGSize(width: 440, height: 170)
 
-    /// Padding around the visible pill that the host window reserves for
-    /// the SwiftUI drop shadow (radius up to 26pt on hover, non-compact),
-    /// hover scale (1.04), idle breath, and the 4pt bottom inset inside
-    /// PillView. 30pt absorbs the worst case with a touch of slack.
+    /// Retain panel headroom around the visible pill for glass rendering
+    /// and the bottom inset. Success reserves its hovered width up front
+    /// so revealing Edit never clips or moves the panel.
     static let windowPadding: CGFloat = 30
 
     /// Headroom added above the pill when the partial-transcript preview
@@ -36,7 +35,8 @@ enum PillMetrics {
     static func pillWidth(phase: Phase,
                           showPermissionPrompt: Bool,
                           shrunkToDot: Bool,
-                          hovered: Bool = false) -> CGFloat {
+                          hovered: Bool = false,
+                          canInsertWithoutPolish: Bool = false) -> CGFloat {
         if showPermissionPrompt { return permissionCardSize.width }
         if shrunkToDot, case .idle = phase { return 10 }
         switch phase {
@@ -44,7 +44,7 @@ enum PillMetrics {
         case .recording:    return 176
         case .transcribing: return 176
         case .cleaning:     return 176
-        case .polishing:    return 200
+        case .polishing:    return canInsertWithoutPolish ? 360 : 200
         case .success:      return hovered ? successHoverWidth : 60
         case .error:        return 280
         case .noSpeech:     return 150
@@ -71,11 +71,13 @@ enum PillMetrics {
     /// auto-shrinks — we keep idle-size headroom either way.
     static func windowSize(phase: Phase,
                            showPermissionPrompt: Bool,
-                           partialPreviewVisible: Bool) -> CGSize {
+                           partialPreviewVisible: Bool,
+                           canInsertWithoutPolish: Bool = false) -> CGSize {
         let pw = pillWidth(phase: phase,
                            showPermissionPrompt: showPermissionPrompt,
                            shrunkToDot: false,
-                           hovered: true)   // reserve the wider success width up front
+                           hovered: true,
+                           canInsertWithoutPolish: canInsertWithoutPolish)
         let ph = pillHeight(phase: phase,
                             showPermissionPrompt: showPermissionPrompt,
                             shrunkToDot: false)

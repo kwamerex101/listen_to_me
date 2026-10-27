@@ -1,56 +1,16 @@
 import SwiftUI
 
-/// Horizontal-translation shake for the error state. Standard SwiftUI
-/// recipe — animates `animatableData` and emits a sin-wave displacement.
-private struct Shake: GeometryEffect {
-    var amount: CGFloat = 5
-    var shakesPerUnit: CGFloat = 4
-    var animatableData: CGFloat
-    func effectValue(size: CGSize) -> ProjectionTransform {
-        let dx = amount * sin(animatableData * .pi * shakesPerUnit)
-        return ProjectionTransform(CGAffineTransform(translationX: dx, y: 0))
-    }
-}
-
 struct PillView: View {
     @ObservedObject var state: AppState = .shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var levelBuffer: [Float] = Array(repeating: 0, count: 16)
-
-    // Idle motion — border opacity + body scale, both autoreversed.
-    @State private var idleBreathOn: Bool = false
-
-    // Recording motion — red-dot heartbeat, separate from level reactivity.
-    @State private var recordPulse: Bool = false
-
-    // Permission card icon spring-in.
-    @State private var permissionIconPop: Bool = false
-
-    // Press-pop on entering recording: 1.0 → 1.06 → 1.0.
-    @State private var pressPop: CGFloat = 1.0
-
-    // Error shake — increment to fire one shake animation.
-    @State private var shakeTrigger: CGFloat = 0
-
-    // Success halo — ripples out behind the checkmark.
-    @State private var haloScale: CGFloat = 0.6
-    @State private var haloOpacity: Double = 0
-
-    // Silence-dim (POLISH-04a) — fade waveform after sustained quiet,
-    // wake instantly on speech return. Replaces (does not stack on) the
-    // level-reactive scale, honouring the perf-budget cap of 2 concurrent
-    // infinite springs (heartbeat + record-pulse).
-    @State private var silenceTimer: Timer?
-    @State private var silenceDimmed: Bool = false
 
     // Promotion-flash (POLISH-04c) — gold ring overlay fired when the
     // dictionary auto-promotes (or the user manually accepts) a candidate.
     @State private var promotionScale: CGFloat = 0.6
     @State private var promotionOpacity: Double = 0.0
 
-    // Hover lift — cursor over the pill triggers a subtle scale, border,
-    // and shadow bump so the pill feels reactive even when not in a
-    // click-bearing phase.
+    // Pointer feedback changes the border without moving the controls.
     @State private var hovered: Bool = false
 
     // Auto-shrink-to-dot (Wispr-style). When the pill sits in idle for
@@ -58,7 +18,6 @@ struct PillView: View {
     // dot so it disappears into the background. Wakes back to full
     // idle size on hover or any phase change.
     @State private var isShrunkToDot: Bool = false
-    @State private var shrinkTimer: Timer?
     private let shrinkAfter: TimeInterval = 5.0
 
 
@@ -68,20 +27,14 @@ struct PillView: View {
             partialPreviewIfNeeded
             pill
                 .frame(width: pillWidth, height: pillHeight)
-                .scaleEffect(rootScale)
-                .modifier(Shake(animatableData: shakeTrigger))
                 .contentShape(Rectangle())
                 .onHover { isHovering in
                     hovered = isHovering
-                    // Auto-reset waits while the cursor is over the pill.
+                    // Success stays available while the pointer is over the pill.
                     state.pillHovered = isHovering
                     // Hover wakes the pill from dot-mode and restarts
                     // the shrink countdown when the cursor leaves.
-                    if isHovering {
-                        wakeFromShrink()
-                    } else {
-                        scheduleShrinkIfIdle()
-                    }
+                    if isHovering { wakeFromShrink() }
                 }
                 .onTapGesture {
                     if isPillTappable { state.onPillTap?() }
@@ -99,103 +52,50 @@ struct PillView: View {
                             PillWindow.shared.applyDrag(translation: value.translation, isFinal: true)
                         }
                 )
-                .accessibilityElement(children: .ignore)
+                .accessibilityElement(children: isPillTappable ? .ignore : .contain)
                 .accessibilityLabel(accessibilityLabelForCurrentPhase)
                 .accessibilityHint(accessibilityHintForCurrentPhase)
                 .accessibilityAddTraits(isPillTappable ? .isButton : [])
-                .animation(reduceMotion ? nil : Motion.phaseSize, value: pillWidth)
-                .animation(reduceMotion ? nil : Motion.phaseSize, value: pillHeight)
-                .animation(reduceMotion ? nil : Motion.phaseSwap, value: visualID)
-                .animation(reduceMotion ? nil : Motion.hoverLift, value: hovered)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .transaction { if reduceMotion { $0.animation = nil; $0.disablesAnimations = true } }
         .onChange(of: state.level) { _, newValue in
             levelBuffer.removeFirst()
             levelBuffer.append(newValue)
-            updateSilenceState()
         }
         .onChange(of: phaseID) { _, _ in
             handlePhaseChange()
         }
+        .task(id: canAutoShrink) {
+            guard canAutoShrink else { return }
+            do { try await Task.sleep(nanoseconds: UInt64(shrinkAfter * 1_000_000_000)) }
+            catch { return }
+            guard !Task.isCancelled, canAutoShrink else { return }
+            withAnimation(reduceMotion ? nil : Motion.phaseSize) { isShrunkToDot = true }
+        }
+        .onChange(of: reduceMotion) { _, enabled in
+            if enabled { promotionOpacity = 0 }
+        }
+        .onDisappear { state.pillHovered = false }
         .onChange(of: state.flashPromotion) { _, isFlashing in
             triggerPromotionFlash(if: isFlashing)
         }
     }
 
-    // MARK: - Phase-driven motion triggers
+    // MARK: - Phase and idle state
 
     private func handlePhaseChange() {
-        // Any phase transition wakes the pill from shrunk-to-dot mode;
-        // re-arm the timer if we're settling back into idle.
         wakeFromShrink()
-        scheduleShrinkIfIdle()
-
-        // Always clear any silence-dim state when leaving recording —
-        // mitigates T-05-03 (timer leak on phase exit).
-        if state.phase != .recording {
-            silenceTimer?.invalidate()
-            silenceTimer = nil
-            silenceDimmed = false
-        }
-
-        switch state.phase {
-        case .recording:
+        if state.phase == .recording {
             levelBuffer = Array(repeating: 0, count: 16)
-            triggerPressPop()
-        case .success:
-            triggerSuccessHalo()
-        case .error:
-            // Shake is pure decoration — the error message + icon carry
-            // the information. Skip entirely under reduce-motion.
-            if !reduceMotion {
-                withAnimation(Motion.shake) { shakeTrigger += 1 }
-            }
-        case .idle:
-            // The size spring carries the return to idle; no extra fade.
-            break
-        case .transcribing, .cleaning, .polishing, .correcting, .suggestion, .noSpeech:
-            break
         }
     }
 
-    // MARK: - Auto-shrink-to-dot
+    private var canAutoShrink: Bool { isIdleAndCalm && !hovered }
 
-    /// Cancel pending shrink and visually wake. Idempotent.
     private func wakeFromShrink() {
-        shrinkTimer?.invalidate()
-        shrinkTimer = nil
-        if isShrunkToDot {
-            if !reduceMotion {
-                withAnimation(Motion.idleBreath) { idleBreathOn = true }
-            }
-            // Shrink/wake is functional (the pill genuinely changes size),
-            // so it still happens under reduce-motion — just without the
-            // spring.
-            withAnimation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.78)) {
-                isShrunkToDot = false
-            }
-        }
-    }
-
-    /// Arm the 5s shrink timer if and only if the pill is in calm idle
-    /// AND not currently hovered AND not showing the permission card.
-    /// Anything else (recording, transcribing, suggestion, error) is
-    /// active state where shrinking would be wrong.
-    private func scheduleShrinkIfIdle() {
-        shrinkTimer?.invalidate()
-        shrinkTimer = nil
-        guard isIdleAndCalm, !hovered else { return }
-        shrinkTimer = Timer.scheduledTimer(withTimeInterval: shrinkAfter, repeats: false) { _ in
-            Task { @MainActor in
-                // Replaces the repeatForever transaction so the glass stops
-                // re-rendering while the pill is a dot.
-                withAnimation(.easeOut(duration: 0.3)) { idleBreathOn = false }
-                withAnimation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.78)) {
-                    isShrunkToDot = true
-                }
-                shrinkTimer = nil
-            }
-        }
+        // Functional size changes stay immediate under Reduce Motion.
+        withAnimation(reduceMotion ? nil : Motion.phaseSize) { isShrunkToDot = false }
     }
 
     // MARK: - Promotion flash (POLISH-04c)
@@ -203,7 +103,7 @@ struct PillView: View {
     private func triggerPromotionFlash(if isFlashing: Bool) {
         guard isFlashing, !reduceMotion else { return }
         // Snap to start state (no animation), then animate to faded-out
-        // larger ring. Mirrors the success-halo shape — sibling overlay.
+        // larger ring for a vocabulary update.
         promotionScale = 0.6
         promotionOpacity = 1.0
         withAnimation(Motion.promotionFlash) {
@@ -212,74 +112,7 @@ struct PillView: View {
         }
     }
 
-    // MARK: - Silence-dim (POLISH-04a / Wispr W4)
-
-    /// Smoothed, unsigned RMS over the most recent buffer slice. Mirrors
-    /// `smoothedLevel` but bounded to the tail so it tracks live silence.
-    private var silenceSmoothed: Float {
-        let tail = levelBuffer.suffix(8)
-        guard !tail.isEmpty else { return 0 }
-        return tail.reduce(0, +) / Float(tail.count)
-    }
-
-    private func updateSilenceState() {
-        guard state.phase == .recording else { return }
-        let smoothed = silenceSmoothed
-
-        if smoothed < 0.02 {
-            // Sustained quiet — arm the dim timer (5s) if not already running
-            // and not already dimmed.
-            if !silenceDimmed, silenceTimer == nil {
-                silenceTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: false) { _ in
-                    Task { @MainActor in
-                        withAnimation(Motion.silenceDim) {
-                            silenceDimmed = true
-                        }
-                        silenceTimer = nil
-                    }
-                }
-            }
-        } else if smoothed > 0.05 {
-            // Speech is back — wake instantly, cancel any pending dim.
-            silenceTimer?.invalidate()
-            silenceTimer = nil
-            if silenceDimmed {
-                withAnimation(Motion.silenceWake) {
-                    silenceDimmed = false
-                }
-            }
-        }
-    }
-
-
-    private func triggerPressPop() {
-        guard !reduceMotion else { return }
-        withAnimation(Motion.pressUp) { pressPop = 1.06 }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) {
-            withAnimation(Motion.pressDown) { pressPop = 1.0 }
-        }
-    }
-
-    private func triggerSuccessHalo() {
-        // Purely celebratory — the checkmark already signals success.
-        guard !reduceMotion else { return }
-        haloScale = 0.6
-        haloOpacity = 1
-        withAnimation(Motion.halo) {
-            haloScale = 1.6
-            haloOpacity = 0
-        }
-    }
-
     // MARK: - Pill body
-
-    /// Composite scale from press-pop, idle breath, and hover lift.
-    /// Hover bump is small (≤4%) so it reads as "alive" rather than "expanding".
-    private var rootScale: CGFloat {
-        let breathFactor: CGFloat = (isIdleAndCalm && !isShrunkToDot && idleBreathOn) ? 0.97 : 1.0
-        let hoverFactor:  CGFloat = hovered ? 1.04 : 1.0
-        return pressPop * breathFactor * hoverFactor
-    }
 
     private var pill: some View {
         content
@@ -290,7 +123,7 @@ struct PillView: View {
             // the transparent pill window); older: solid-black fill. Hairline
             // stroke folds in either way.
             .pillGlassBackground(cornerRadius: cornerRadius, borderOpacity: borderOpacity)
-            // POLISH-04(c) — gold promotion-flash ring (sibling to success halo).
+            // A brief ring acknowledges a vocabulary update.
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .stroke(
@@ -310,22 +143,6 @@ struct PillView: View {
             // and depth, and a cast shadow over arbitrary app content reads
             // as heavy/dated next to the glass.
             .padding(.bottom, 4)
-            .onAppear {
-                // Both breath axes share one timeline so they stay in phase.
-                // Skip when reduce-motion is on — system honors the user's
-                // vestibular preference; an infinite gentle pulse still
-                // counts as motion.
-                if !reduceMotion {
-                    withAnimation(Motion.idleBreath) {
-                        idleBreathOn = true
-                    }
-                }
-                scheduleShrinkIfIdle()
-            }
-            .onDisappear {
-                shrinkTimer?.invalidate()
-                shrinkTimer = nil
-            }
     }
 
     private var isIdleAndCalm: Bool {
@@ -341,7 +158,7 @@ struct PillView: View {
     private var isPillTappable: Bool {
         switch state.phase {
         case .success: return true
-        case .error(let m): return PillErrorAction.forMessage(m) != nil
+        case .error(let message): return PillErrorAction.forMessage(message) != nil
         default: return false
         }
     }
@@ -371,29 +188,23 @@ struct PillView: View {
     private var accessibilityHintForCurrentPhase: String {
         switch state.phase {
         case .success: return "Activate to edit the just-pasted transcript"
-        case .error(let m):
-            if let action = PillErrorAction.forMessage(m) {
+        case .error(let message):
+            if let action = PillErrorAction.forMessage(message) {
                 return "Activate to \(action.hint.lowercased())"
             }
             return ""
         case .recording, .transcribing, .cleaning:
             return "Use the cancel button to abort"
+        case .polishing:
+            return state.canInsertWithoutPolish
+                ? "Insert without polish now, or cancel to discard"
+                : "Use the cancel button to discard"
         case .suggestion: return "Use Keep or Dismiss to respond"
         default: return ""
         }
     }
 
-    /// Border opacity tracks the idle breath but stays visible elsewhere.
-    /// Hover adds a small bump so the edge crispens when the cursor enters.
-    private var borderOpacity: Double {
-        let base: Double
-        if isIdleAndCalm && !isShrunkToDot {
-            base = idleBreathOn ? 0.6 : 0.3
-        } else {
-            base = 0.45
-        }
-        return min(base + (hovered ? 0.25 : 0), 0.95)
-    }
+    private var borderOpacity: Double { hovered ? 0.65 : 0.45 }
 
     // MARK: - Sizing
 
@@ -401,7 +212,8 @@ struct PillView: View {
         PillMetrics.pillWidth(phase: state.phase,
                               showPermissionPrompt: state.showPermissionPrompt,
                               shrunkToDot: isShrunkToDot,
-                              hovered: hovered)
+                              hovered: hovered,
+                              canInsertWithoutPolish: state.canInsertWithoutPolish)
     }
 
     private var pillHeight: CGFloat {
@@ -458,23 +270,17 @@ struct PillView: View {
 
     @ViewBuilder
     private var content: some View {
-        if state.showPermissionPrompt {
-            permissionContent
-                .id(100)
-                .transition(
-                    .scale(scale: 0.85, anchor: .center)
-                        .combined(with: .opacity)
-                )
-        } else {
-            phaseContent
-                .id(phaseID)
-                .transition(
-                    .asymmetric(
-                        insertion: .scale(scale: 0.94, anchor: .center).combined(with: .opacity),
-                        removal: .opacity.animation(.easeOut(duration: 0.12))
-                    )
-                )
+        Group {
+            if state.showPermissionPrompt {
+                permissionContent.id(100).transition(.opacity)
+            } else {
+                phaseContent.id(phaseID).transition(.opacity)
+            }
         }
+        // Geometry changes immediately with the panel. Only content fades,
+        // and recording feedback never waits for a transition.
+        .animation(reduceMotion || state.phase == .recording ? nil : Motion.phaseSwap,
+                   value: visualID)
     }
 
     @ViewBuilder
@@ -496,9 +302,10 @@ struct PillView: View {
                     }
                 }
                 .buttonStyle(PressableStyle())
+                .accessibilityLabel("Cancel recording")
 
-                CompactWaveformView(levels: levelBuffer)
-                    .opacity(silenceDimmed ? 0.4 : 1.0)
+                CompactWaveformView(levels: reduceMotion
+                                    ? Array(repeating: 0.04, count: levelBuffer.count) : levelBuffer)
                     .frame(maxWidth: .infinity)
 
                 Button(action: { AppState.shared.onStopTap?() }) {
@@ -506,29 +313,23 @@ struct PillView: View {
                         Circle()
                             .fill(DT.statusRecording)
                             .frame(width: 24, height: 24)
-                            .scaleEffect(stopButtonScale)
-                            .shadow(color: DT.statusRecording.opacity(recordPulse ? 0.55 : 0.15),
-                                    radius: recordPulse ? 6 : 2)
-                            .animation(Motion.stopReact, value: smoothedLevel)
                         RoundedRectangle(cornerRadius: 2, style: .continuous)
                             .fill(Color.white)
                             .frame(width: 9, height: 9)
                     }
                 }
                 .buttonStyle(PressableStyle())
-                .onAppear {
-                    recordPulse = false
-                    if !reduceMotion {
-                        withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
-                            recordPulse = true
-                        }
-                    }
-                }
+                .accessibilityLabel("Stop recording")
+
             }
 
         case .transcribing:
             HStack(spacing: 12) {
-                ProgressView().controlSize(.small).tint(.white)
+                if reduceMotion {
+                    Image(systemName: "hourglass").foregroundStyle(.white)
+                } else {
+                    ProgressView().controlSize(.small).tint(.white)
+                }
                 Text("Transcribing…")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.white)
@@ -541,7 +342,6 @@ struct PillView: View {
                 Image(systemName: "sparkles")
                     .font(.system(size: 14))
                     .foregroundStyle(DT.statusProcessing)
-                    .symbolEffect(.pulse)
                 Text("Cleaning up…")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.white)
@@ -554,41 +354,44 @@ struct PillView: View {
                 Image(systemName: "sparkles")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(DT.statusProcessing.opacity(0.9))
-                Text(rawPreview)
+                    .accessibilityHidden(true)
+                Text(state.canInsertWithoutPolish ? "Polishing…" : rawPreview)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.white.opacity(0.85))
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 0)
                 PolishingDots()
+                    .accessibilityHidden(true)
+                if state.canInsertWithoutPolish {
+                    Button("Insert without polish") { state.onInsertWithoutPolish?() }
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(Capsule().fill(Color.white.opacity(0.15)))
+                        .buttonStyle(PressableStyle())
+                        .fixedSize()
+                        .help("Insert the transcript now and stop polishing")
+                        .accessibilityLabel("Insert without polish")
+                }
                 cancelInflightButton
             }
 
-        case .success:
-            if hovered {
-                HStack(spacing: 6) {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(DT.statusSuccess)
+        case .success(let preview):
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(DT.statusSuccess)
+                if hovered {
                     Text("Edit")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(.white.opacity(0.9))
+                        .transition(.opacity)
                 }
-                .transition(.opacity)
-            } else {
-                ZStack {
-                    // Halo behind the checkmark: green ring expands and fades.
-                    Circle()
-                        .strokeBorder(DT.statusSuccess.opacity(0.85), lineWidth: 2)
-                        .frame(width: 22, height: 22)
-                        .scaleEffect(haloScale)
-                        .opacity(haloOpacity)
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(DT.statusSuccess)
-                }
-                .transition(.opacity)
             }
+            .animation(reduceMotion ? nil : Motion.phaseSwap, value: hovered)
+            .help(preview)
 
         case .error(let message):
             HStack(spacing: 12) {
@@ -600,16 +403,22 @@ struct PillView: View {
                     .foregroundStyle(.white.opacity(0.92))
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .help(message)
                 Spacer(minLength: 0)
                 if let action = PillErrorAction.forMessage(message) {
                     HStack(spacing: 3) {
                         Text(action.hint)
                             .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.85))
                         Image(systemName: "chevron.right")
                             .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(.white.opacity(0.85))
                     }
+                    .foregroundStyle(.white.opacity(0.85))
+                } else {
+                    Button("Settings") { MainWindowController.shared.openSettings() }
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.white)
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Open ListenToMe settings")
                 }
             }
 
@@ -706,8 +515,8 @@ struct PillView: View {
                 .frame(maxWidth: 360)
                 .previewGlassBackground(cornerRadius: 10)
                 .padding(.bottom, 8)
-                .transition(.opacity.combined(with: .offset(y: 8)))
-                .animation(.easeOut(duration: 0.18), value: state.partialText)
+                .transition(.opacity)
+                .animation(reduceMotion ? nil : Motion.phaseSwap, value: state.partialText)
                 .accessibilityLabel("Live partial transcript")
                 .accessibilityValue(state.partialText)
         }
@@ -732,22 +541,6 @@ struct PillView: View {
         .buttonStyle(PressableStyle())
         .help("Cancel")
         .accessibilityLabel("Cancel")
-    }
-
-    /// Smoothed audio level — average of the level buffer. The buffer is
-    /// already updated ~30Hz by the audio recorder, so a flat mean gives
-    /// us a stable signal that maps well to a scale modifier.
-    private var smoothedLevel: CGFloat {
-        let sum = levelBuffer.reduce(0, +)
-        return CGFloat(sum) / CGFloat(max(levelBuffer.count, 1))
-    }
-
-    /// Composite scale for the recording stop dot:
-    /// heartbeat × audio reactivity, capped to a sensible range.
-    private var stopButtonScale: CGFloat {
-        let heartbeat: CGFloat = recordPulse ? 1.0 : 0.94
-        let reactive: CGFloat = 1.0 + (smoothedLevel * 0.18)
-        return heartbeat * reactive
     }
 
     // MARK: - Permission card content (rendered inside the morphed pill)
@@ -793,18 +586,7 @@ struct PillView: View {
                         .font(.system(size: 15, weight: .bold))
                         .foregroundStyle(.red)
                 }
-                .scaleEffect(permissionIconPop ? 1.0 : 0.6)
-                .opacity(permissionIconPop ? 1 : 0)
-                .onAppear {
-                    permissionIconPop = false
-                    if reduceMotion {
-                        permissionIconPop = true
-                    } else {
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.85).delay(0.15)) {
-                            permissionIconPop = true
-                        }
-                    }
-                }
+
 
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Accessibility Permission Required")
@@ -856,9 +638,7 @@ struct PillView: View {
     }
 }
 
-/// Three dots that fade in sequence — the "polishing in background" cue.
-/// Quiet on purpose: the user has already moved on, so this is a status
-/// glance, not a demand for attention.
+/// A processing cue with no timeline under Reduce Motion.
 private struct PolishingDots: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -866,8 +646,8 @@ private struct PolishingDots: View {
         if reduceMotion {
             dots(lit: nil)
         } else {
-            TimelineView(.periodic(from: .now, by: 0.35)) { context in
-                let step = Int(context.date.timeIntervalSinceReferenceDate / 0.35)
+            TimelineView(.periodic(from: .now, by: 0.45)) { context in
+                let step = Int(context.date.timeIntervalSinceReferenceDate / 0.45)
                 dots(lit: step % 3)
             }
         }
@@ -880,7 +660,7 @@ private struct PolishingDots: View {
                 Circle()
                     .fill(DT.statusProcessing.opacity(lit == nil ? 0.6 : (lit == i ? 0.95 : 0.35)))
                     .frame(width: 4, height: 4)
-                    .animation(.easeInOut(duration: 0.3), value: lit)
+                    .animation(reduceMotion ? nil : Motion.phaseSwap, value: lit)
             }
         }
     }
